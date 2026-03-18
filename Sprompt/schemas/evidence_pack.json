@@ -1,0 +1,169 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/evidence_pack",
+  "title": "EvidencePack",
+  "description": "Evidence Collector 组装的完整证据包，是 Validator 唯一可接受的判定输入来源。一旦创建不可变。",
+  "type": "object",
+  "required": [
+    "evidence_pack_id",
+    "run_id",
+    "agent_id",
+    "created_at",
+    "evidence_items",
+    "completeness_check"
+  ],
+  "properties": {
+    "evidence_pack_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "run_id": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evidence_items": {
+      "type": "array",
+      "description": "证据条目列表，每条对应一种操作记录",
+      "items": {
+        "type": "object",
+        "required": ["item_id", "type", "data"],
+        "properties": {
+          "item_id": { "type": "string", "format": "uuid" },
+          "type": {
+            "type": "string",
+            "enum": [
+              "port_probe_record",
+              "command_execution_record",
+              "test_execution_record",
+              "docs_change_record",
+              "quarantine_record",
+              "git_change_record"
+            ]
+          },
+          "data": {
+            "type": "object",
+            "description": "具体的 evidence 记录数据，格式见 operational/02_evidence_collection_contract.md"
+          }
+        }
+      }
+    },
+    "completeness_check": {
+      "type": "object",
+      "required": ["required_types", "present_types", "missing_types", "is_complete"],
+      "description": "Evidence Collector 自检报告，Validator 首先验证此字段",
+      "properties": {
+        "required_types": {
+          "type": "array",
+          "description": "由 task_contract.acceptance_criteria 决定的必须存在的 evidence 类型",
+          "items": { "type": "string" }
+        },
+        "present_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "missing_types": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "is_complete": {
+          "type": "boolean",
+          "description": "false 时 Validator 不得进行判定，必须反馈补充"
+        }
+      }
+    }
+  },
+  "definitions": {
+    "port_probe_record": {
+      "type": "object",
+      "required": ["type", "timestamp", "host", "port", "probe_method", "status"],
+      "properties": {
+        "type": { "const": "port_probe_record" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "host": { "type": "string" },
+        "port": { "type": "integer" },
+        "probe_method": { "type": "string", "enum": ["tcp_connect", "http_get"] },
+        "probe_url": { "type": "string" },
+        "expected_response": { "type": "object" },
+        "actual_response": { "type": "object" },
+        "status": { "type": "string", "enum": ["reachable", "unreachable", "error"] },
+        "latency_ms": { "type": "number" },
+        "raw_output": { "type": "string" }
+      }
+    },
+    "command_execution_record": {
+      "type": "object",
+      "required": ["type", "timestamp", "command", "exit_code", "stdout", "status"],
+      "properties": {
+        "type": { "const": "command_execution_record" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "command": { "type": "string" },
+        "working_directory": { "type": "string" },
+        "exit_code": { "type": "integer" },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "duration_ms": { "type": "number" },
+        "status": { "type": "string", "enum": ["success", "failed", "timeout"] }
+      }
+    },
+    "test_execution_record": {
+      "type": "object",
+      "required": ["type", "timestamp", "test_suite", "test_command", "total_tests", "passed", "failed", "status"],
+      "properties": {
+        "type": { "const": "test_execution_record" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "test_suite": { "type": "string" },
+        "test_command": { "type": "string" },
+        "total_tests": { "type": "integer" },
+        "passed": { "type": "integer" },
+        "failed": { "type": "integer" },
+        "skipped": { "type": "integer" },
+        "duration_ms": { "type": "number" },
+        "status": { "type": "string", "enum": ["all_passed", "some_failed", "all_failed", "error"] },
+        "failed_test_names": { "type": "array", "items": { "type": "string" } },
+        "raw_output": { "type": "string" }
+      }
+    },
+    "docs_change_record": {
+      "type": "object",
+      "required": ["type", "timestamp", "file_path", "change_type"],
+      "properties": {
+        "type": { "const": "docs_change_record" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "file_path": { "type": "string" },
+        "change_type": { "type": "string", "enum": ["create", "update", "delete"] },
+        "backup_path": { "type": "string" },
+        "summary": { "type": "string" },
+        "diff_summary": { "type": "string" }
+      }
+    },
+    "quarantine_record": {
+      "type": "object",
+      "required": ["type", "timestamp", "original_path", "quarantine_path", "reason"],
+      "properties": {
+        "type": { "const": "quarantine_record" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "original_path": { "type": "string" },
+        "quarantine_path": { "type": "string" },
+        "reason": { "type": "string" },
+        "quarantine_by": { "type": "string" }
+      }
+    },
+    "git_change_record": {
+      "type": "object",
+      "required": ["type", "timestamp", "operation", "branch", "exit_code"],
+      "properties": {
+        "type": { "const": "git_change_record" },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "operation": { "type": "string", "enum": ["commit", "push", "branch", "merge", "tag"] },
+        "branch": { "type": "string" },
+        "commit_hash": { "type": "string" },
+        "commit_message": { "type": "string" },
+        "files_changed": { "type": "array", "items": { "type": "string" } },
+        "exit_code": { "type": "integer" },
+        "raw_output": { "type": "string" }
+      }
+    }
+  }
+}

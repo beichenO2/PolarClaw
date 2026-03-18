@@ -1,0 +1,30 @@
+{
+  "_comment": "示例文件：S2 切片需要新增 session 接口时的 interface_change_proposal 样例。此文件为 Runtime Artifact（C 类），可以自动生成和更新。",
+  "proposal_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "run_id": "run_s2_planning_001",
+  "agent_id": "agent_project_worker_002",
+  "created_at": "2026-03-18T10:15:00Z",
+  "interface_file": "docs/interfaces.md",
+  "change_type": "add_endpoint",
+  "target": "POST /sessions, GET /sessions, GET /sessions/{id}, DELETE /sessions/{id}",
+  "before": {
+    "schema_text": "# 现有接口\n- GET /health\n- POST /chat\n（无 session 相关接口）",
+    "is_current_state": true
+  },
+  "after": {
+    "schema_text": "# 变更后接口（新增）\n\n### POST /sessions\n请求: {} （无 body）\n响应 200: { \"session_id\": \"string\", \"created_at\": \"ISO8601\" }\n\n### GET /sessions\n响应 200: { \"sessions\": [{ \"session_id\": \"string\", \"created_at\": \"ISO8601\", \"last_active\": \"ISO8601\" }] }\n\n### GET /sessions/{session_id}\n响应 200: { \"session_id\": \"string\", \"messages\": [...], \"created_at\": \"ISO8601\" }\n响应 404: { \"error\": { \"code\": \"session_not_found\", \"message\": \"...\" } }\n\n### DELETE /sessions/{session_id}\n响应 200: { \"deleted\": true }\n响应 404: { \"error\": { \"code\": \"session_not_found\", \"message\": \"...\" } }",
+    "is_breaking_change": false
+  },
+  "reason": "S2 切片目标是实现会话管理功能，需要新增 4 个 session 相关接口。这是纯新增，不修改现有 /health 和 /chat 接口，属于 non-breaking change。",
+  "impact_scope": [
+    "backend/main.py",
+    "backend/session_store.py",
+    "docs/interfaces.md",
+    "docs/decisions.md",
+    "frontend/src/App.jsx（未来 S2 前端集成时）"
+  ],
+  "status": "pending",
+  "reviewed_by": null,
+  "reviewed_at": null,
+  "review_notes": null
+}

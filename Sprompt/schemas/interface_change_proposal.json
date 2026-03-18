@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/interface_change_proposal",
+  "title": "InterfaceChangeProposal",
+  "description": "接口变更提案对象。任何需要修改 docs/interfaces.md 的意图，必须先生成此对象并等待审批，才能修改代码。",
+  "type": "object",
+  "required": [
+    "proposal_id",
+    "run_id",
+    "agent_id",
+    "created_at",
+    "interface_file",
+    "change_type",
+    "target",
+    "before",
+    "after",
+    "reason",
+    "impact_scope",
+    "status"
+  ],
+  "properties": {
+    "proposal_id": { "type": "string", "format": "uuid" },
+    "run_id": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" },
+    "interface_file": {
+      "type": "string",
+      "description": "被变更的接口文件路径",
+      "default": "docs/interfaces.md"
+    },
+    "change_type": {
+      "type": "string",
+      "description": "变更类型",
+      "enum": [
+        "add_endpoint",
+        "remove_endpoint",
+        "modify_request_schema",
+        "modify_response_schema",
+        "modify_internal_interface",
+        "modify_error_format"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "description": "变更对象（端点路径如 POST /chat，或内部接口名如 LLMProvider.generate）"
+    },
+    "before": {
+      "type": "object",
+      "description": "变更前的 schema 描述",
+      "properties": {
+        "schema_text": { "type": "string" },
+        "is_current_state": { "type": "boolean" }
+      }
+    },
+    "after": {
+      "type": "object",
+      "description": "变更后的 schema 描述",
+      "properties": {
+        "schema_text": { "type": "string" },
+        "is_breaking_change": { "type": "boolean" }
+      }
+    },
+    "reason": {
+      "type": "string",
+      "description": "为什么需要这个变更（必须有实质性说明，不得为空）",
+      "minLength": 10
+    },
+    "impact_scope": {
+      "type": "array",
+      "description": "受影响的组件（如 frontend/src/App.jsx, backend/main.py 等）",
+      "items": { "type": "string" }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "approved", "rejected"]
+    },
+    "reviewed_by": { "type": "string" },
+    "reviewed_at": { "type": "string", "format": "date-time" },
+    "review_notes": { "type": "string" }
+  }
+}

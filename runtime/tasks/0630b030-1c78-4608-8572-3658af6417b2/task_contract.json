@@ -1,0 +1,24 @@
+{
+  "task_id": "0630b030-1c78-4608-8572-3658af6417b2",
+  "session_id": "sess_fdb21729",
+  "goal": "What is the difference between REST and GraphQL?",
+  "mode": "knowledge_mode",
+  "constraints": [],
+  "context": {
+    "project_name": "CLAW",
+    "current_milestone": "Baseline v0.1"
+  },
+  "editable_scope": [],
+  "acceptance_criteria": [
+    {
+      "criterion_id": "AC-001",
+      "description": "Model produces a non-empty, relevant response",
+      "evidence_type": "command_execution_record",
+      "expected_values": {},
+      "is_tbd": false
+    }
+  ],
+  "requires_interface_proposal": false,
+  "created_at": "2026-03-18T10:52:47.206857+00:00",
+  "created_by": "CLAW_baseline_v0.1"
+}

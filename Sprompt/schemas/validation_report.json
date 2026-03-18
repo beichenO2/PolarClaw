@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/validation_report",
+  "title": "ValidationReport",
+  "description": "Deterministic Validator 输出的判定报告。judgment 字段是最终确定性判定结果，不可为模糊描述。",
+  "type": "object",
+  "required": [
+    "report_id",
+    "run_id",
+    "evidence_pack_id",
+    "judgment",
+    "timestamp",
+    "criteria_results"
+  ],
+  "properties": {
+    "report_id": { "type": "string", "format": "uuid" },
+    "run_id": { "type": "string" },
+    "evidence_pack_id": { "type": "string" },
+    "judgment": {
+      "type": "string",
+      "description": "最终确定性判定结果。只能是以下枚举之一，禁止使用自由文本描述代替。",
+      "enum": ["PASS", "FAIL", "BLOCKED", "NEED_HUMAN"]
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "criteria_results": {
+      "type": "array",
+      "description": "每条 acceptance_criteria 的判定结果",
+      "items": {
+        "type": "object",
+        "required": ["criterion_id", "criterion_description", "result"],
+        "properties": {
+          "criterion_id": { "type": "string" },
+          "criterion_description": { "type": "string" },
+          "result": {
+            "type": "string",
+            "enum": ["PASS", "FAIL", "SKIP", "INSUFFICIENT_EVIDENCE"]
+          },
+          "evidence_ref": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "description": "发现的约束违规列表",
+      "items": {
+        "type": "object",
+        "required": ["violation_type", "description"],
+        "properties": {
+          "violation_type": {
+            "type": "string",
+            "enum": [
+              "scope_violation",
+              "unauthorized_interface_change",
+              "non_fabrication_violation",
+              "missing_backup",
+              "unauthorized_decision_modification"
+            ]
+          },
+          "description": { "type": "string" },
+          "evidence_ref": { "type": "string" }
+        }
+      }
+    },
+    "blocked_reason": {
+      "type": "string",
+      "description": "judgment 为 BLOCKED 时必填，说明阻塞原因"
+    },
+    "need_human_reason": {
+      "type": "string",
+      "description": "judgment 为 NEED_HUMAN 时必填，说明为什么需要人工介入"
+    },
+    "summary": {
+      "type": "string",
+      "description": "验证结果摘要（一段话）"
+    }
+  }
+}

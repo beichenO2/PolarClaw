@@ -1,0 +1,42 @@
+{
+  "_comment": "示例文件：基于 evidence_pack_sample.json 的 validation_report 样例。此文件为 Runtime Artifact（C 类），可以自动生成和更新。",
+  "report_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "run_id": "run_s1_verification_001",
+  "evidence_pack_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "judgment": "PASS",
+  "timestamp": "2026-03-04T14:30:30Z",
+  "criteria_results": [
+    {
+      "criterion_id": "AC-S1-001",
+      "criterion_description": "Backend /health 返回 {\"status\":\"ok\"}",
+      "result": "PASS",
+      "evidence_ref": "ev_001",
+      "reason": "port_probe_record 显示 status=reachable，actual_response 与 expected_response 一致"
+    },
+    {
+      "criterion_id": "AC-S1-002",
+      "criterion_description": "前端 WebUI 可访问",
+      "result": "PASS",
+      "evidence_ref": "ev_002",
+      "reason": "port_probe_record 显示 localhost:3000 status=reachable，HTTP 200"
+    },
+    {
+      "criterion_id": "AC-S1-003",
+      "criterion_description": "POST /chat 接口返回有效响应",
+      "result": "PASS",
+      "evidence_ref": "ev_003",
+      "reason": "port_probe_record 显示 /chat 端点 status=reachable，响应包含 text 和 meta 字段"
+    },
+    {
+      "criterion_id": "AC-S1-004",
+      "criterion_description": "docs/state.md 更新 S1 状态",
+      "result": "PASS",
+      "evidence_ref": "ev_004",
+      "reason": "docs_change_record 记录 state.md 已 update，backup_path 存在"
+    }
+  ],
+  "violations": [],
+  "blocked_reason": null,
+  "need_human_reason": null,
+  "summary": "S1 切片所有验收标准通过，无约束违规。后端端口 8000 和前端端口 3000 均可达，/chat 接口响应正常，docs/state.md 已更新并有备份。"
+}

@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/agent_task",
+  "title": "AgentTask",
+  "description": "FSM 向 Agent 分配的子任务对象。editable_scope 必须继承自 bot_run_plan，只能是其子集。",
+  "type": "object",
+  "required": [
+    "agent_task_id",
+    "run_id",
+    "agent_id",
+    "task_id",
+    "subtask_description",
+    "editable_scope",
+    "required_evidence_types",
+    "created_at"
+  ],
+  "properties": {
+    "agent_task_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string",
+      "description": "被分配的 Agent 标识符"
+    },
+    "task_id": {
+      "type": "string",
+      "description": "关联的顶层 task_contract.task_id"
+    },
+    "subtask_description": {
+      "type": "string",
+      "description": "子任务描述，必须是明确的、可验证的具体操作",
+      "minLength": 5
+    },
+    "editable_scope": {
+      "type": "array",
+      "description": "【硬边界】此 Agent 允许修改的文件。只能是 bot_run_plan.editable_scope 的子集。",
+      "items": {
+        "type": "string",
+        "pattern": "^[^*?]+$"
+      }
+    },
+    "patterns_to_apply": {
+      "type": "array",
+      "description": "Agent 应应用的 Pattern 列表",
+      "items": { "type": "string" }
+    },
+    "skills_available": {
+      "type": "array",
+      "description": "Agent 可以调用的 Skill 列表",
+      "items": { "type": "string" }
+    },
+    "required_evidence_types": {
+      "type": "array",
+      "description": "Agent 执行后必须产出的 evidence 类型",
+      "items": {
+        "type": "string",
+        "enum": [
+          "port_probe_record",
+          "command_execution_record",
+          "test_execution_record",
+          "docs_change_record",
+          "git_change_record",
+          "quarantine_record"
+        ]
+      }
+    },
+    "context_snapshot": {
+      "type": "object",
+      "description": "执行上下文快照（从 docs/state.md 读取）",
+      "properties": {
+        "current_slice": { "type": "string" },
+        "backend_port": { "type": "integer" },
+        "frontend_port": { "type": "integer" }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

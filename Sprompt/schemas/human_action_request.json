@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/human_action_request",
+  "title": "HumanActionRequest",
+  "description": "系统向人类用户发起的操作请求。必须包含枚举化的 action_type，禁止使用通用模糊字段代替。",
+  "type": "object",
+  "required": [
+    "request_id",
+    "run_id",
+    "action_type",
+    "description",
+    "created_at",
+    "status"
+  ],
+  "properties": {
+    "request_id": { "type": "string", "format": "uuid" },
+    "run_id": { "type": "string" },
+    "agent_id": { "type": "string" },
+    "action_type": {
+      "type": "string",
+      "description": "操作类型枚举。决定了 Web UI 展示方式和调度逻辑。",
+      "enum": [
+        "secret_input",
+        "login_required",
+        "dangerous_action_approval",
+        "interface_change_confirmation",
+        "resource_application",
+        "manual_verification",
+        "ambiguity_clarification"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "人类可读的操作请求描述"
+    },
+    "context": {
+      "type": "object",
+      "description": "操作上下文，根据 action_type 提供不同内容",
+      "properties": {
+        "secret_input": {
+          "type": "object",
+          "description": "当 action_type = secret_input 时",
+          "properties": {
+            "prompt_label": { "type": "string" },
+            "purpose": { "type": "string" },
+            "target_field": { "type": "string" }
+          }
+        },
+        "dangerous_action": {
+          "type": "object",
+          "description": "当 action_type = dangerous_action_approval 时",
+          "properties": {
+            "action_description": { "type": "string" },
+            "irreversible": { "type": "boolean" },
+            "affected_paths": { "type": "array", "items": { "type": "string" } },
+            "confirmation_text_required": { "type": "string" }
+          }
+        },
+        "interface_change": {
+          "type": "object",
+          "description": "当 action_type = interface_change_confirmation 时",
+          "properties": {
+            "proposal_id": { "type": "string" },
+            "change_summary": { "type": "string" }
+          }
+        },
+        "clarification": {
+          "type": "object",
+          "description": "当 action_type = ambiguity_clarification 时",
+          "properties": {
+            "ambiguous_field": { "type": "string" },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "option_id": { "type": "string" },
+                  "label": { "type": "string" }
+                }
+              }
+            },
+            "allow_free_text": { "type": "boolean" }
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "responded", "cancelled", "timed_out"]
+    },
+    "response": {
+      "type": "object",
+      "description": "用户响应（status = responded 时填充）",
+      "properties": {
+        "responded_at": { "type": "string", "format": "date-time" },
+        "response_data": { "type": "object" },
+        "approved": { "type": "boolean" }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "可选超时时间，null 表示永不超时"
+    }
+  }
+}

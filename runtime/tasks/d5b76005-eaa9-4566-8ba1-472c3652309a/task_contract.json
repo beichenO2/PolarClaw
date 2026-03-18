@@ -1,0 +1,24 @@
+{
+  "task_id": "d5b76005-eaa9-4566-8ba1-472c3652309a",
+  "session_id": "sess_011f8b71",
+  "goal": "Explain what CLAW stands for in this system",
+  "mode": "knowledge_mode",
+  "constraints": [],
+  "context": {
+    "project_name": "CLAW",
+    "current_milestone": "Baseline v0.1"
+  },
+  "editable_scope": [],
+  "acceptance_criteria": [
+    {
+      "criterion_id": "AC-001",
+      "description": "Model produces a non-empty, relevant response",
+      "evidence_type": "command_execution_record",
+      "expected_values": {},
+      "is_tbd": false
+    }
+  ],
+  "requires_interface_proposal": false,
+  "created_at": "2026-03-18T10:54:46.641760+00:00",
+  "created_by": "CLAW_baseline_v0.1"
+}

@@ -1,0 +1,85 @@
+{
+  "_comment": "示例文件：验证 S1 切片（WebUI -> Backend -> EchoProvider）的 evidence_pack 样例。此文件为 Runtime Artifact（C 类），可以自动生成和更新。",
+  "evidence_pack_id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "run_id": "run_s1_verification_001",
+  "agent_id": "agent_project_worker_001",
+  "created_at": "2026-03-04T14:30:00Z",
+  "evidence_items": [
+    {
+      "item_id": "ev_001",
+      "type": "port_probe_record",
+      "data": {
+        "type": "port_probe_record",
+        "timestamp": "2026-03-04T14:28:00Z",
+        "host": "localhost",
+        "port": 8000,
+        "probe_method": "http_get",
+        "probe_url": "http://localhost:8000/health",
+        "expected_response": { "status": "ok" },
+        "actual_response": { "status": "ok" },
+        "status": "reachable",
+        "latency_ms": 12,
+        "raw_output": "HTTP/1.1 200 OK\n{\"status\":\"ok\"}"
+      }
+    },
+    {
+      "item_id": "ev_002",
+      "type": "port_probe_record",
+      "data": {
+        "type": "port_probe_record",
+        "timestamp": "2026-03-04T14:28:05Z",
+        "host": "localhost",
+        "port": 3000,
+        "probe_method": "http_get",
+        "probe_url": "http://localhost:3000",
+        "expected_response": null,
+        "actual_response": { "_status_code": 200 },
+        "status": "reachable",
+        "latency_ms": 25,
+        "raw_output": "HTTP/1.1 200 OK\n<!DOCTYPE html>..."
+      }
+    },
+    {
+      "item_id": "ev_003",
+      "type": "port_probe_record",
+      "data": {
+        "type": "port_probe_record",
+        "timestamp": "2026-03-04T14:28:10Z",
+        "host": "localhost",
+        "port": 8000,
+        "probe_method": "http_get",
+        "probe_url": "http://localhost:8000/chat",
+        "expected_response": {
+          "text": "Echo: hello",
+          "meta": { "model": "echo" }
+        },
+        "actual_response": {
+          "text": "Echo: hello",
+          "meta": { "model": "echo", "latency_ms": 5 }
+        },
+        "status": "reachable",
+        "latency_ms": 18,
+        "raw_output": "HTTP/1.1 200 OK\n{\"text\":\"Echo: hello\",\"meta\":{\"model\":\"echo\",\"latency_ms\":5}}"
+      }
+    },
+    {
+      "item_id": "ev_004",
+      "type": "docs_change_record",
+      "data": {
+        "type": "docs_change_record",
+        "timestamp": "2026-03-04T14:29:00Z",
+        "file_path": "docs/state.md",
+        "change_type": "update",
+        "backup_path": "docs/state.md.bak",
+        "summary": "更新 S1 状态为 DONE，添加 S1 验收测试通过记录",
+        "diff_summary": "S1 acceptance tests: all [x] marked"
+      }
+    }
+  ],
+  "completeness_check": {
+    "required_types": ["port_probe_record", "docs_change_record"],
+    "present_types": ["port_probe_record", "docs_change_record"],
+    "missing_types": [],
+    "is_complete": true
+  }
+}

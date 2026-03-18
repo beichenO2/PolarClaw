@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/agent_result",
+  "title": "AgentResult",
+  "description": "Agent 完成子任务后产出的结果对象。注意：此对象不包含最终判定（判定由 Validator 完成）。",
+  "type": "object",
+  "required": [
+    "result_id",
+    "agent_task_id",
+    "agent_id",
+    "run_id",
+    "status",
+    "outputs",
+    "fact_status",
+    "evidence_refs",
+    "created_at"
+  ],
+  "properties": {
+    "result_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "agent_task_id": {
+      "type": "string"
+    },
+    "agent_id": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "description": "Agent 自身对执行状态的报告（非最终判定）",
+      "enum": ["completed", "partial", "failed", "blocked", "needs_escalation"]
+    },
+    "outputs": {
+      "type": "array",
+      "description": "Agent 产出的输出列表（文件修改、命令结果等）",
+      "items": {
+        "type": "object",
+        "required": ["output_type", "description"],
+        "properties": {
+          "output_type": {
+            "type": "string",
+            "enum": ["file_modified", "file_created", "command_executed", "analysis_produced", "document_updated"]
+          },
+          "description": { "type": "string" },
+          "file_path": { "type": "string" },
+          "is_in_whitelist": {
+            "type": "boolean",
+            "description": "Agent 自检：此文件是否在 editable_scope 中"
+          }
+        }
+      }
+    },
+    "fact_status": {
+      "type": "object",
+      "description": "Non-Fabrication 合规声明：区分确认事实、推断假设、未知值",
+      "required": ["confirmed_facts", "inferred_hypotheses", "unknowns"],
+      "properties": {
+        "confirmed_facts": {
+          "type": "array",
+          "description": "已通过执行验证的事实",
+          "items": { "type": "string" }
+        },
+        "inferred_hypotheses": {
+          "type": "array",
+          "description": "推断的假设（未直接验证）",
+          "items": { "type": "string" }
+        },
+        "unknowns": {
+          "type": "array",
+          "description": "当前无法确认的值（TBD）",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "evidence_refs": {
+      "type": "array",
+      "description": "关联的 evidence 记录 ID 列表",
+      "items": { "type": "string" }
+    },
+    "violations": {
+      "type": "array",
+      "description": "Agent 检测到的约束违规（如白名单越界尝试）",
+      "items": {
+        "type": "object",
+        "properties": {
+          "violation_type": { "type": "string" },
+          "description": { "type": "string" }
+        }
+      }
+    },
+    "escalation_needed": {
+      "type": "boolean",
+      "description": "是否需要上报给 CLAW 处理"
+    },
+    "escalation_reason": {
+      "type": "string",
+      "description": "escalation_needed 为 true 时必填"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

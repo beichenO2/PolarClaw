@@ -1,0 +1,6 @@
+{
+  "task_id": "0630b030-1c78-4608-8572-3658af6417b2",
+  "status": "failed",
+  "updated_at": "2026-03-18T10:52:48.258063+00:00",
+  "error": "Qwen API error: AuthenticationError: Error code: 401 - {'error': {'message': 'Incorrect API key provided. For details, see: https://help.aliyun.com/zh/model-studio/error-code#apikey-error', 'type': 'invalid_request_error', 'param': None, 'code': 'invalid_api_key'}, 'request_id': '59eaace5-39cf-9ba9-96f6-9b3bdd132678'}"
+}

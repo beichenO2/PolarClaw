@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/blocked_task_state",
+  "title": "BlockedTaskState",
+  "description": "任务阻塞状态快照。当 Run 进入 BLOCKED 状态时生成，记录阻塞原因、当前 FSM 状态快照及恢复条件。",
+  "type": "object",
+  "required": [
+    "blocked_state_id",
+    "run_id",
+    "task_id",
+    "blocked_at",
+    "blocked_reason_type",
+    "blocked_reason_description",
+    "fsm_state_snapshot",
+    "resume_conditions",
+    "status"
+  ],
+  "properties": {
+    "blocked_state_id": { "type": "string", "format": "uuid" },
+    "run_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "blocked_at": { "type": "string", "format": "date-time" },
+    "blocked_reason_type": {
+      "type": "string",
+      "enum": [
+        "waiting_interface_approval",
+        "waiting_human_confirmation",
+        "waiting_secret_input",
+        "waiting_resource",
+        "insufficient_evidence",
+        "scope_violation_detected",
+        "clarification_needed",
+        "fsm_undefined_transition",
+        "validation_fail"
+      ]
+    },
+    "blocked_reason_description": {
+      "type": "string",
+      "description": "阻塞原因的人类可读描述"
+    },
+    "fsm_state_snapshot": {
+      "type": "object",
+      "description": "阻塞时的 FSM 状态快照",
+      "properties": {
+        "fsm_name": { "type": "string" },
+        "current_state": { "type": "string" },
+        "history": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "related_request_id": {
+      "type": "string",
+      "description": "关联的 human_action_request.request_id 或 interface_change_proposal.proposal_id"
+    },
+    "resume_conditions": {
+      "type": "array",
+      "description": "恢复执行所需的条件列表",
+      "items": { "type": "string" }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "resolved", "cancelled"]
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolution_summary": {
+      "type": "string",
+      "description": "阻塞如何解除的说明"
+    }
+  }
+}

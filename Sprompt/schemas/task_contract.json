@@ -1,0 +1,161 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/task_contract",
+  "title": "TaskContract",
+  "description": "CLAW 向 Executor 传递的标准化任务对象。由 CLAW 创建，下游只能读取，不能修改。editable_scope 是硬边界。",
+  "type": "object",
+  "required": [
+    "task_id",
+    "session_id",
+    "goal",
+    "mode",
+    "constraints",
+    "context",
+    "editable_scope",
+    "acceptance_criteria",
+    "requires_interface_proposal",
+    "created_at",
+    "created_by"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "任务唯一标识符（UUID）",
+      "format": "uuid"
+    },
+    "session_id": {
+      "type": "string",
+      "description": "会话标识符"
+    },
+    "goal": {
+      "type": "string",
+      "description": "任务目标的明确描述（非原始用户 prompt，必须经过 CLAW 标准化）",
+      "minLength": 10
+    },
+    "mode": {
+      "type": "string",
+      "description": "任务模式",
+      "enum": ["knowledge_mode", "project_mode", "research_mode", "writing_mode", "debug_mode", "analysis_mode"]
+    },
+    "constraints": {
+      "type": "array",
+      "description": "约束列表（时间、资源、禁止事项等）",
+      "items": {
+        "type": "string"
+      }
+    },
+    "context": {
+      "type": "object",
+      "description": "项目上下文，从 docs/state.md 读取并注入",
+      "properties": {
+        "project_name": { "type": "string" },
+        "current_slice": { "type": "string" },
+        "tech_stack": {
+          "type": "object",
+          "properties": {
+            "frontend": { "type": "string" },
+            "backend": { "type": "string" },
+            "ports": {
+              "type": "object",
+              "properties": {
+                "frontend": { "type": "integer" },
+                "backend": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "state_md_snapshot": {
+          "type": "string",
+          "description": "state.md 的关键摘要，在 task 创建时快照"
+        }
+      }
+    },
+    "editable_scope": {
+      "type": "array",
+      "description": "【硬边界】允许修改的文件路径列表。下游不得修改此列表。必须逐一列出完整路径，禁止通配符。",
+      "items": {
+        "type": "string",
+        "pattern": "^[^*?]+$"
+      },
+      "minItems": 1
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "description": "验收标准列表。Validator 将基于此列表进行判定。",
+      "items": {
+        "type": "object",
+        "required": ["criterion_id", "description", "evidence_type"],
+        "properties": {
+          "criterion_id": { "type": "string" },
+          "description": { "type": "string" },
+          "evidence_type": {
+            "type": "string",
+            "enum": [
+              "port_probe_record",
+              "command_execution_record",
+              "test_execution_record",
+              "docs_change_record",
+              "git_change_record",
+              "quarantine_record",
+              "human_verification"
+            ]
+          },
+          "expected_values": {
+            "type": "object",
+            "description": "期望的 evidence 字段值，用于 Validator 比对"
+          },
+          "is_tbd": {
+            "type": "boolean",
+            "description": "如果为 true，此验收标准需要在执行前进一步确认"
+          },
+          "tbd_reason": {
+            "type": "string",
+            "description": "is_tbd 为 true 时，说明为什么是 TBD"
+          }
+        }
+      }
+    },
+    "requires_interface_proposal": {
+      "type": "boolean",
+      "description": "如果为 true，Executor 在执行前必须先完成接口变更提案流程"
+    },
+    "mode_review_result": {
+      "type": "object",
+      "description": "CLAW 对 Mode 和执行路径的审视结论",
+      "properties": {
+        "mode_review": {
+          "type": "string",
+          "enum": ["accepted", "accepted_with_warnings", "rejected", "needs_revision"]
+        },
+        "path_review": {
+          "type": "string",
+          "enum": ["accepted", "accepted_with_warnings", "rejected", "needs_revision"]
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "tbd_fields": {
+      "type": "array",
+      "description": "无法在任务创建时安全推断的字段列表",
+      "items": {
+        "type": "object",
+        "properties": {
+          "field_name": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "created_by": {
+      "type": "string",
+      "description": "创建者（通常是 CLAW）"
+    }
+  }
+}

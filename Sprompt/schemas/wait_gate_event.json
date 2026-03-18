@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/wait_gate_event",
+  "title": "WaitGateEvent",
+  "description": "Wait Gate 事件对象。FSM 在进入等待状态时创建，等待条件满足后关闭。这不是临时约定，是消息协议的正式组成部分。",
+  "type": "object",
+  "required": [
+    "gate_id",
+    "run_id",
+    "fsm_name",
+    "fsm_state",
+    "gate_type",
+    "created_at",
+    "resolved"
+  ],
+  "properties": {
+    "gate_id": { "type": "string", "format": "uuid" },
+    "run_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "fsm_name": { "type": "string" },
+    "fsm_state": {
+      "type": "string",
+      "description": "触发 wait gate 时 FSM 所处的状态"
+    },
+    "gate_type": {
+      "type": "string",
+      "description": "等待门控类型",
+      "enum": [
+        "WAITING_SECRET_INPUT",
+        "WAITING_LOGIN",
+        "WAITING_DANGEROUS_APPROVAL",
+        "WAITING_INTERFACE_APPROVAL",
+        "WAITING_RESOURCE",
+        "WAITING_MANUAL_VERIFICATION",
+        "WAITING_CLARIFICATION"
+      ]
+    },
+    "related_request_id": {
+      "type": "string",
+      "description": "关联的 human_action_request.request_id"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "resolved": {
+      "type": "boolean",
+      "description": "是否已解除等待"
+    },
+    "resolved_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "resolution": {
+      "type": "object",
+      "description": "解除等待的详情（如用户确认信息等）",
+      "properties": {
+        "resolved_by": { "type": "string" },
+        "outcome": {
+          "type": "string",
+          "enum": ["approved", "rejected", "provided", "cancelled"]
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

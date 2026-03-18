@@ -1,0 +1,102 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/bot_run_plan",
+  "title": "BotRunPlan",
+  "description": "Executor 基于 task_contract 制定的执行计划，传递给 FSM。editable_scope 必须继承自 task_contract，只能是其子集。",
+  "type": "object",
+  "required": [
+    "plan_id",
+    "task_id",
+    "executor_id",
+    "mode",
+    "selected_fsm",
+    "runs",
+    "editable_scope",
+    "created_at"
+  ],
+  "properties": {
+    "plan_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "task_id": {
+      "type": "string",
+      "description": "关联的 task_contract.task_id"
+    },
+    "executor_id": {
+      "type": "string",
+      "description": "执行该计划的 Executor（如 project_executor）"
+    },
+    "mode": {
+      "type": "string"
+    },
+    "selected_fsm": {
+      "type": "object",
+      "required": ["fsm_name", "fsm_type"],
+      "properties": {
+        "fsm_name": { "type": "string" },
+        "fsm_type": {
+          "type": "string",
+          "enum": ["main", "shared"]
+        },
+        "initial_state": { "type": "string" }
+      }
+    },
+    "shared_fsms": {
+      "type": "array",
+      "description": "需要激活的 Shared Workflow FSM 列表",
+      "items": {
+        "type": "object",
+        "properties": {
+          "fsm_name": { "type": "string" },
+          "trigger_condition": { "type": "string" }
+        }
+      }
+    },
+    "runs": {
+      "type": "array",
+      "description": "计划创建的 Run 列表（可以是一个或多个）",
+      "items": {
+        "type": "object",
+        "required": ["run_sequence", "goal", "agent_assignments"],
+        "properties": {
+          "run_sequence": { "type": "integer" },
+          "goal": { "type": "string" },
+          "agent_assignments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "agent_role": { "type": "string" },
+                "subtask": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "editable_scope": {
+      "type": "array",
+      "description": "【硬边界】继承自 task_contract.editable_scope，只能是其子集。下游不得扩展。",
+      "items": {
+        "type": "string",
+        "pattern": "^[^*?]+$"
+      }
+    },
+    "wait_gates_expected": {
+      "type": "array",
+      "description": "预期可能触发的 wait gate 列表",
+      "items": {
+        "type": "object",
+        "properties": {
+          "trigger_condition": { "type": "string" },
+          "action_type": { "type": "string" }
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

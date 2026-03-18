@@ -1,0 +1,86 @@
+{
+  "_comment": "示例文件：project_mode 下实现 S2（会话管理切片）的 task_contract 样例。此文件为 Runtime Artifact（C 类），可以自动生成和更新。",
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "session_id": "sess_20260318_001",
+  "goal": "实现 S2 切片：会话创建、切换、列表 API，以及会话数据持久化到本地文件系统。",
+  "mode": "project_mode",
+  "constraints": [
+    "只在 backend/ 和 docs/ 目录中操作",
+    "不引入新的外部依赖（除 Python 标准库外）",
+    "会话存储只使用本地文件系统，不引入数据库",
+    "不修改 S1 已验证的 /health 和 /chat 接口"
+  ],
+  "context": {
+    "project_name": "Personal Local Agent Cloud",
+    "current_slice": "S1 DONE -> S2 NOT STARTED",
+    "tech_stack": {
+      "frontend": "Vite + React",
+      "backend": "FastAPI + uvicorn",
+      "ports": {
+        "frontend": 3000,
+        "backend": 8000
+      }
+    },
+    "state_md_snapshot": "S1 DONE: WebUI -> Backend -> EchoProvider -> WebUI 链路已验证。S2 NOT STARTED: 会话管理功能尚未实现。"
+  },
+  "editable_scope": [
+    "backend/main.py",
+    "backend/session_store.py",
+    "backend/requirements.txt",
+    "docs/state.md",
+    "docs/interfaces.md",
+    "docs/decisions.md",
+    "docs/roadmap.md"
+  ],
+  "acceptance_criteria": [
+    {
+      "criterion_id": "AC-S2-001",
+      "description": "POST /sessions 接口可创建新会话，返回 session_id",
+      "evidence_type": "port_probe_record",
+      "expected_values": {
+        "probe_method": "http_get",
+        "status": "reachable"
+      },
+      "is_tbd": false
+    },
+    {
+      "criterion_id": "AC-S2-002",
+      "description": "GET /sessions 接口返回会话列表",
+      "evidence_type": "command_execution_record",
+      "expected_values": {
+        "exit_code": 0
+      },
+      "is_tbd": false
+    },
+    {
+      "criterion_id": "AC-S2-003",
+      "description": "会话数据持久化到本地文件（会话创建后服务重启仍可读取）",
+      "evidence_type": "test_execution_record",
+      "expected_values": {
+        "status": "all_passed"
+      },
+      "is_tbd": false
+    },
+    {
+      "criterion_id": "AC-S2-004",
+      "description": "docs/state.md 更新 S2 状态为 DONE",
+      "evidence_type": "docs_change_record",
+      "expected_values": {
+        "change_type": "update",
+        "file_path": "docs/state.md"
+      },
+      "is_tbd": false
+    }
+  ],
+  "requires_interface_proposal": true,
+  "mode_review_result": {
+    "mode_review": "accepted",
+    "path_review": "accepted_with_warnings",
+    "warnings": [
+      "S2 需要新增 session 相关接口，必须先完成 interface_change_proposal 流程"
+    ]
+  },
+  "tbd_fields": [],
+  "created_at": "2026-03-18T10:00:00Z",
+  "created_by": "CLAW"
+}

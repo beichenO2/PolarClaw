@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/escalation_request",
+  "title": "EscalationRequest",
+  "description": "任何层级的组件检测到无法自行处理的情况时，向 CLAW 或人类发出的上报请求。",
+  "type": "object",
+  "required": [
+    "escalation_id",
+    "source_layer",
+    "source_id",
+    "run_id",
+    "escalation_type",
+    "description",
+    "context_snapshot",
+    "created_at",
+    "status"
+  ],
+  "properties": {
+    "escalation_id": { "type": "string", "format": "uuid" },
+    "source_layer": {
+      "type": "string",
+      "description": "发起上报的层级",
+      "enum": ["agent", "evidence_collector", "validator", "executor", "fsm"]
+    },
+    "source_id": { "type": "string" },
+    "run_id": { "type": "string" },
+    "task_id": { "type": "string" },
+    "escalation_type": {
+      "type": "string",
+      "enum": [
+        "scope_violation",
+        "fsm_undefined_transition",
+        "validation_insufficient_evidence",
+        "mode_capability_exceeded",
+        "constraint_conflict",
+        "unauthorized_interface_change",
+        "non_fabrication_violation",
+        "unknown_error"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "description": "上报原因的详细描述",
+      "minLength": 10
+    },
+    "context_snapshot": {
+      "type": "object",
+      "description": "发生上报时的执行上下文",
+      "properties": {
+        "fsm_state": { "type": "string" },
+        "last_action": { "type": "string" },
+        "relevant_file": { "type": "string" }
+      }
+    },
+    "suggested_actions": {
+      "type": "array",
+      "description": "建议的处理动作",
+      "items": { "type": "string" }
+    },
+    "status": {
+      "type": "string",
+      "enum": ["pending", "acknowledged", "resolved", "dismissed"]
+    },
+    "resolved_by": { "type": "string" },
+    "resolved_at": { "type": "string", "format": "date-time" },
+    "resolution_notes": { "type": "string" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

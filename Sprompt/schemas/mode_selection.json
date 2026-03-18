@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "claw://schemas/mode_selection",
+  "title": "ModeSelection",
+  "description": "CLAW 对用户输入进行 Mode 分析后输出的模式选择对象。在生成 task_contract 前产出。",
+  "type": "object",
+  "required": [
+    "selection_id",
+    "session_id",
+    "candidate_modes",
+    "selected_mode",
+    "review_result",
+    "created_at"
+  ],
+  "properties": {
+    "selection_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "session_id": {
+      "type": "string"
+    },
+    "raw_user_intent_summary": {
+      "type": "string",
+      "description": "CLAW 对用户意图的摘要（非原始 prompt）"
+    },
+    "candidate_modes": {
+      "type": "array",
+      "description": "候选 Mode 列表，含推荐原因",
+      "items": {
+        "type": "object",
+        "required": ["mode", "confidence", "reason"],
+        "properties": {
+          "mode": { "type": "string" },
+          "confidence": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "selected_mode": {
+      "type": "string",
+      "description": "最终选定的 Mode"
+    },
+    "selection_basis": {
+      "type": "string",
+      "description": "选定此 Mode 的依据"
+    },
+    "review_result": {
+      "type": "object",
+      "required": ["mode_review", "path_review"],
+      "properties": {
+        "mode_review": {
+          "type": "string",
+          "enum": ["accepted", "accepted_with_warnings", "rejected", "needs_revision"]
+        },
+        "path_review": {
+          "type": "string",
+          "enum": ["accepted", "accepted_with_warnings", "rejected", "needs_revision"]
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "risks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "requires_user_confirmation": {
+      "type": "boolean",
+      "description": "是否需要用户确认 Mode 选择后才继续"
+    },
+    "user_confirmed": {
+      "type": "boolean",
+      "description": "用户是否已确认此 Mode 选择"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}
