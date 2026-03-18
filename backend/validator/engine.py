@@ -1,17 +1,9 @@
 """
-Validator Engine (Baseline)
-Performs structural validation of task execution results.
+Validator Engine (Router baseline v0.1)
+Performs structural validation of task execution results and Router layer.
 
-This is a baseline skeleton — not the full Deterministic Validator spec
-described in Sprompt/operational/03_validator_spec.md.
-Full evidence-based validation will be phased in as evidence collection matures.
-
-Current checks:
-1. task_contract completeness (required fields)
-2. agent_result format completeness
-3. editable_scope presence
-4. Non-fabrication field presence (fact_status)
-5. Output presence (model actually responded)
+Baseline checks (V-001 to V-005): task execution validation.
+Router checks (R-001 to R-005): Router layer structural validation.
 """
 from datetime import datetime, timezone
 import uuid
@@ -145,4 +137,69 @@ def validate(task_contract: dict, agent_result: dict) -> dict:
         "blocked_reason": None,
         "need_human_reason": None,
         "summary": summary,
+        "router_validation": None,  # populated separately by validate_router()
+    }
+
+
+def validate_router(router_decision: dict) -> dict:
+    """
+    Validate Router layer outputs: WorkItems and RouteGroups.
+
+    Returns a router_validation sub-report to be merged into the main validation_report.
+    """
+    work_items = router_decision.get("work_items", [])
+    route_groups = router_decision.get("route_groups", [])
+    violations: list[str] = []
+
+    # R-001: At least one WorkItem must exist
+    work_items_valid = len(work_items) > 0
+    if not work_items_valid:
+        violations.append("R-001: No WorkItems produced by Router")
+
+    # R-002: Every WorkItem must have non-empty goal
+    for wi in work_items:
+        if not wi.get("goal", "").strip():
+            violations.append(f"R-002: WorkItem {wi.get('work_item_id', '?')[:8]} has empty goal")
+            work_items_valid = False
+
+    # R-003: At least one RouteGroup must exist
+    route_groups_valid = len(route_groups) > 0
+    if not route_groups_valid:
+        violations.append("R-003: No RouteGroups produced by Router")
+
+    # R-004: Every RouteGroup must reference at least one valid WorkItem
+    work_item_ids = {wi.get("work_item_id") for wi in work_items}
+    for rg in route_groups:
+        rg_wi_ids = rg.get("work_item_ids", [])
+        if not rg_wi_ids:
+            violations.append(f"R-004: RouteGroup {rg.get('route_group_id', '?')[:8]} has no work_item_ids")
+            route_groups_valid = False
+        else:
+            invalid = [wid for wid in rg_wi_ids if wid not in work_item_ids]
+            if invalid:
+                violations.append(
+                    f"R-004: RouteGroup {rg.get('route_group_id', '?')[:8]} references "
+                    f"unknown WorkItem IDs: {invalid}"
+                )
+                route_groups_valid = False
+
+    # R-005: RouterDecision must have task_id and created_at for traceability
+    decision_traceable = bool(router_decision.get("task_id")) and bool(router_decision.get("created_at"))
+    if not decision_traceable:
+        violations.append("R-005: RouterDecision missing task_id or created_at — not traceable")
+
+    if violations:
+        judgment = "FAIL"
+    elif router_decision.get("warnings"):
+        judgment = "PARTIAL"
+    else:
+        judgment = "PASS"
+
+    return {
+        "work_items_valid": work_items_valid,
+        "route_groups_valid": route_groups_valid,
+        "decision_traceable": decision_traceable,
+        "violations": violations,
+        "judgment": judgment,
+        "checked_at": datetime.now(timezone.utc).isoformat(),
     }

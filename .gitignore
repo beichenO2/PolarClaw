@@ -25,8 +25,10 @@ frontend/.vite/
 # Keep the structure but ignore the content
 runtime/tasks/*/runs/*/
 
-# IDE
-.cursor/
+# IDE — ignore .cursor internals but track project rules
+.cursor/*
+!.cursor/rules
+!.cursor/rules/**
 .vscode/
 *.swp
 *.swo

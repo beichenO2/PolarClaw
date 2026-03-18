@@ -2,7 +2,7 @@
 
 Rule: This file is the API contract. Do NOT change request/response shapes in code unless you first update this file.
 
-Last Updated: 2026-03-18
+Last Updated: 2026-03-18 (Router baseline v0.1)
 
 ---
 
@@ -15,7 +15,7 @@ Response 200:
 ```
 
 ### POST /api/tasks
-**Purpose:** 创建新任务，启动后台处理流程
+**Purpose:** 创建新任务，启动后台处理流程（含 Router 阶段）
 
 Request:
 ```json
@@ -60,14 +60,18 @@ Response 200:
 ```
 
 ### GET /api/tasks/{task_id}/result
-**Purpose:** 获取任务执行结果
+**Purpose:** 获取任务执行结果（含 Router 层产物）
 
 Response 200:
 ```json
 {
   "task_id": "uuid",
-  "run_id": "uuid",
+  "run_id": "uuid | null",
   "status": "string",
+  "router_decision": "RouterDecision | null",
+  "router_review_result": "RouterReviewResult | null",
+  "work_items": ["WorkItem"],
+  "route_groups": ["RouteGroup"],
   "agent_result": {
     "outputs": [{"output_type": "string", "description": "string"}],
     "model_response": "string",
@@ -81,7 +85,13 @@ Response 200:
     "judgment": "PASS | FAIL | BLOCKED | NEED_HUMAN",
     "criteria_results": [],
     "violations": [],
-    "summary": "string"
+    "summary": "string",
+    "router_validation": {
+      "work_items_valid": "boolean",
+      "route_groups_valid": "boolean",
+      "decision_traceable": "boolean",
+      "judgment": "PASS | FAIL | PARTIAL"
+    }
   },
   "human_actions": [],
   "blocked_reason": "string | null"
@@ -108,6 +118,108 @@ Response 200:
 
 ---
 
+## Runtime Objects (Contract)
+
+### WorkItem
+```json
+{
+  "work_item_id": "uuid",
+  "task_id": "uuid",
+  "title": "string",
+  "goal": "string",
+  "constraints": ["string"],
+  "context": {},
+  "editable_whitelist": ["string"],
+  "acceptance_criteria": [{"criterion_id": "string", "description": "string"}],
+  "recommended_mode": "knowledge_mode | project_mode",
+  "priority": "high | medium | low",
+  "status": "pending | assigned | running | done | failed | blocked",
+  "isolation_required": "boolean",
+  "dependency_ids": ["work_item_id"],
+  "conflict_ids": ["work_item_id"],
+  "created_at": "ISO8601"
+}
+```
+
+### RouteGroup
+```json
+{
+  "route_group_id": "uuid",
+  "task_id": "uuid",
+  "work_item_ids": ["work_item_id"],
+  "mode": "knowledge_mode | project_mode",
+  "bot_name": "string | null",
+  "fsm_name": "string | null",
+  "priority": "high | medium | low",
+  "status": "pending | running | done | failed | blocked",
+  "editable_whitelist": ["string"],
+  "blocking_reason": "string | null",
+  "wait_gate_event": "string | null",
+  "human_confirmation_required": "boolean",
+  "created_at": "ISO8601"
+}
+```
+
+### RouterDecision
+```json
+{
+  "task_id": "uuid",
+  "work_items": ["WorkItem"],
+  "route_groups": ["RouteGroup"],
+  "warnings": ["string"],
+  "required_confirmations": ["string"],
+  "dispatch_ready": "boolean",
+  "blocked_task_state": "string | null",
+  "interface_change_proposal": "string | null",
+  "created_at": "ISO8601"
+}
+```
+
+### RouterReviewResult
+```json
+{
+  "task_id": "uuid",
+  "status": "accepted | accepted_with_warnings | rejected | needs_revision",
+  "decomposition_summary": "string",
+  "conflict_summary": "string | null",
+  "route_group_summary": "string",
+  "warnings": ["string"],
+  "created_at": "ISO8601"
+}
+```
+
+### RouteGroupRuntime
+```json
+{
+  "route_group_id": "uuid",
+  "task_id": "uuid",
+  "status": "pending | running | done | failed | blocked",
+  "current_stage": "string",
+  "run_ids": ["uuid"],
+  "waiting_for": "string | null",
+  "blocking_reason": "string | null",
+  "wait_gate_event": "string | null",
+  "human_confirmation_required": "boolean",
+  "updated_at": "ISO8601"
+}
+```
+
+### RouteGroupResult
+```json
+{
+  "route_group_id": "uuid",
+  "task_id": "uuid",
+  "status": "done | failed | partial | blocked",
+  "summary": "string",
+  "result_ref": "string | null",
+  "validation_report_refs": ["string"],
+  "warnings": ["string"],
+  "created_at": "ISO8601"
+}
+```
+
+---
+
 ## Internal Interfaces (Backend)
 
 ### ModelProvider (abstract)
@@ -125,6 +237,19 @@ def save_run_result(task_id: str, run_id: str, result: dict) -> None
 def load_run_result(task_id: str, run_id: str) -> dict | None
 def update_task_status(task_id: str, status: str, run_id: str | None) -> None
 def list_tasks() -> list[dict]
+# Router extensions:
+def save_router_decision(task_id: str, decision: dict) -> None
+def load_router_decision(task_id: str) -> dict | None
+def save_router_review_result(task_id: str, review: dict) -> None
+def load_router_review_result(task_id: str) -> dict | None
+def save_work_items(task_id: str, items: list[dict]) -> None
+def load_work_items(task_id: str) -> list[dict]
+def save_route_groups(task_id: str, groups: list[dict]) -> None
+def load_route_groups(task_id: str) -> list[dict]
+def save_route_group_runtime(task_id: str, rg_id: str, runtime: dict) -> None
+def load_route_group_runtime(task_id: str, rg_id: str) -> dict | None
+def save_route_group_result(task_id: str, rg_id: str, result: dict) -> None
+def load_route_group_result(task_id: str, rg_id: str) -> dict | None
 ```
 
 ### PromptAssembler
@@ -136,8 +261,15 @@ def assemble(role: str, mode: str, task_context: dict) -> list[dict]
 ### ValidatorEngine
 ```python
 def validate(task_contract: dict, agent_result: dict) -> dict
+def validate_router(router_decision: dict) -> dict
 ```
 - Returns validation_report dict
+
+### Router
+```python
+def route(task_contract: dict) -> RouterDecision
+```
+- Decomposes normalized task into WorkItem[] and RouteGroup[]
 
 ---
 

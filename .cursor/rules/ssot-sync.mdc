@@ -1,0 +1,59 @@
+---
+description: Enforce SSOT document sync after every implementation change in PolarClaw
+globs:
+  - "backend/**/*.py"
+  - "frontend/src/**/*.jsx"
+  - "SSOT/**/*.md"
+  - "Sprompt/**/*.md"
+alwaysApply: true
+---
+
+# SSOT 同步规则（PolarClaw）
+
+每次完成实现工作后，**必须在回复末尾执行以下检查并更新相关文档**。不允许只更新 decisions.md 而跳过其他 SSOT 文件。
+
+## 必检清单（每个功能块完成后逐项判断）
+
+### decisions.md
+- 是否有新的非平凡技术决策？（模型选型、架构变化、策略变更）
+- 只追加，不修改已有条目
+
+### interfaces.md
+- 是否有 API schema / runtime object 字段变化？
+- **contract-first 原则**：接口变化必须先在此落地，再改代码
+
+### state.md — 重点，最容易遗漏
+以下任意一项变化时必须更新：
+- Provider 架构 / 模型配置（最常遗漏！）
+- 当前 milestone 状态
+- 环境变量表
+- 项目文件结构
+
+### roadmap.md — 第二常遗漏
+- 已完成的 Now 项 → 移入 Done（打 `[x]`）
+- 新发现的工作项 → 加入 Next 或 Later
+- 已失效的 Now 项 → 删除或注释
+
+### 设计文档/
+- 架构图、结构框图、接口关系是否与实现对齐？
+
+## 典型遗漏场景（必须警惕）
+
+| 改动类型 | 容易漏更新的文件 |
+|---------|----------------|
+| 新增/修改 LLM provider 或模型 | `state.md` Provider 架构部分 |
+| 新增 API endpoint | `interfaces.md`, `state.md` |
+| 完成 roadmap Now 项 | `roadmap.md`（移入 Done）, `state.md` |
+| 新增环境变量 | `state.md` 环境变量表, `decisions.md` |
+| 修改 runtime store 结构 | `state.md` Runtime Store 部分, `interfaces.md` |
+
+## 对话结束前的最终检查
+
+在每次对话的**最后一个回复**中，必须包含：
+```
+SSOT 同步状态：
+- decisions.md: [已更新 / 无变化]
+- interfaces.md: [已更新 / 无变化]
+- state.md: [已更新 / 无变化]
+- roadmap.md: [已更新 / 无变化]
+```

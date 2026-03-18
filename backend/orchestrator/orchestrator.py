@@ -1,18 +1,26 @@
 """
 Orchestrator — manages task lifecycle from task_contract to validation_report.
 
-Flow:
-  task_contract → PromptAssembler → ContextPacker → ModelGateway
-      → agent_result → ValidatorEngine → validation_report → RuntimeStore
+Flow (Router baseline v0.1):
+  raw_input
+    → normalize_task_input()    → task_contract
+    → run_router()              → RouterDecision + WorkItems + RouteGroups
+    → build_route_group_runtime()
+    → dispatch_route_groups()   → per-RouteGroup execution
+      → PromptAssembler → ContextPacker → ModelGateway
+      → agent_result → ValidatorEngine (base + router)
+      → validation_report → RuntimeStore
 """
 import uuid
 import logging
 from datetime import datetime, timezone
 
-from model_gateway import get_provider, ModelProviderError
+from model_gateway import get_provider_for_task, ModelProviderError
 from prompt_runtime.assembler import assemble, MODE_EXECUTOR_MAP
 from prompt_runtime.context_packer import pack
-from validator.engine import validate
+from validator.engine import validate, validate_router
+from router.router import route as router_route
+from router.types import RouteGroupResult
 import runtime_store.store as store
 
 logger = logging.getLogger(__name__)
@@ -31,10 +39,10 @@ def _detect_mode(goal: str) -> str:
     return "knowledge_mode"
 
 
-def _normalize_task(raw_input: dict) -> dict:
+def normalize_task_input(raw_input: dict) -> dict:
     """
     Normalize raw user input into a task_contract.
-    This is the CLAW intake layer for baseline v0.1.
+    Router baseline v0.1: includes raw_input and normalized_input fields.
     """
     goal = raw_input.get("goal", "").strip()
     if not goal:
@@ -49,14 +57,16 @@ def _normalize_task(raw_input: dict) -> dict:
     return {
         "task_id": task_id,
         "session_id": session_id,
+        "raw_input": goal,
+        "normalized_input": goal,      # baseline: same as raw; future: LLM-normalized
         "goal": goal,
         "mode": mode,
         "constraints": constraints,
         "context": {
             "project_name": "CLAW",
-            "current_milestone": "Baseline v0.1",
+            "current_milestone": "Router baseline v0.1",
         },
-        "editable_scope": [],  # knowledge mode default
+        "editable_scope": [],          # knowledge mode default; project mode fills via patterns
         "acceptance_criteria": [
             {
                 "criterion_id": "AC-001",
@@ -68,8 +78,131 @@ def _normalize_task(raw_input: dict) -> dict:
         ],
         "requires_interface_proposal": False,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "created_by": "CLAW_baseline_v0.1",
+        "created_by": "CLAW_router_baseline_v0.1",
     }
+
+
+# Keep legacy alias for backward compat
+_normalize_task = normalize_task_input
+
+
+def build_task_contract(raw_input: dict) -> dict:
+    """Alias for normalize_task_input — explicit contract-building step."""
+    return normalize_task_input(raw_input)
+
+
+def run_router(task_contract: dict) -> tuple[dict, dict, list[dict]]:
+    """
+    Run Router pipeline on task_contract.
+
+    Returns:
+        (router_decision_dict, router_review_result_dict, rg_runtime_dicts)
+    """
+    decision, review, rg_runtimes = router_route(task_contract)
+    return decision.to_dict(), review.to_dict(), [r.to_dict() for r in rg_runtimes]
+
+
+def build_route_group_runtime(task_contract: dict, router_decision: dict) -> list[dict]:
+    """
+    Build and save RouteGroupRuntime objects for each RouteGroup.
+    Returns list of runtime dicts.
+    """
+    task_id = task_contract["task_id"]
+    runtimes = []
+    for rg in router_decision.get("route_groups", []):
+        rg_id = rg["route_group_id"]
+        existing = store.load_route_group_runtime(task_id, rg_id)
+        if not existing:
+            store.save_route_group_runtime(task_id, rg_id, {
+                "route_group_id": rg_id,
+                "task_id": task_id,
+                "status": "pending",
+                "current_stage": "init",
+                "run_ids": [],
+                "waiting_for": None,
+                "blocking_reason": None,
+                "wait_gate_event": None,
+                "human_confirmation_required": rg.get("human_confirmation_required", False),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+        runtimes.append(store.load_route_group_runtime(task_id, rg_id))
+    return runtimes
+
+
+def dispatch_route_groups(task_contract: dict, router_decision: dict) -> tuple[str, dict, dict, dict]:
+    """
+    Dispatch RouteGroups for execution (serial baseline).
+
+    Currently executes the first RouteGroup's first WorkItem through the
+    existing task execution pipeline. Future: true parallel per-RouteGroup execution.
+
+    Returns:
+        (run_id, agent_result, evidence_pack, validation_report)
+    """
+    task_id = task_contract["task_id"]
+    route_groups = router_decision.get("route_groups", [])
+    work_items = {wi["work_item_id"]: wi for wi in router_decision.get("work_items", [])}
+
+    if not route_groups:
+        raise ValueError("No RouteGroups to dispatch")
+
+    results_by_rg: dict[str, dict] = {}
+
+    for rg in route_groups:
+        rg_id = rg["route_group_id"]
+
+        # Update runtime to running
+        rg_runtime = store.load_route_group_runtime(task_id, rg_id) or {}
+        rg_runtime.update({"status": "running", "current_stage": "executing",
+                           "updated_at": datetime.now(timezone.utc).isoformat()})
+        store.save_route_group_runtime(task_id, rg_id, rg_runtime)
+
+        # Build a merged task_contract for this RouteGroup
+        # Use first WorkItem as the representative goal
+        wi_ids = rg.get("work_item_ids", [])
+        primary_wi = work_items.get(wi_ids[0]) if wi_ids else None
+        rg_contract = dict(task_contract)
+        if primary_wi:
+            rg_contract["goal"] = primary_wi.get("goal", task_contract["goal"])
+            rg_contract["mode"] = primary_wi.get("recommended_mode", task_contract["mode"])
+            rg_contract["editable_scope"] = primary_wi.get("editable_whitelist", [])
+
+        run_id, agent_result, evidence_pack, validation_report = run_task(rg_contract)
+
+        # Attach router validation to the report
+        router_val = validate_router(router_decision)
+        validation_report["router_validation"] = router_val
+
+        # Update RouteGroupRuntime
+        rg_runtime["status"] = "done" if validation_report["judgment"] != "FAIL" else "done_with_issues"
+        rg_runtime["current_stage"] = "completed"
+        rg_runtime["run_ids"] = rg_runtime.get("run_ids", []) + [run_id]
+        rg_runtime["updated_at"] = datetime.now(timezone.utc).isoformat()
+        store.save_route_group_runtime(task_id, rg_id, rg_runtime)
+
+        # Save RouteGroupResult
+        rg_result = RouteGroupResult(
+            route_group_id=rg_id,
+            task_id=task_id,
+            status="done" if validation_report["judgment"] != "FAIL" else "failed",
+            summary=validation_report.get("summary", ""),
+            result_ref=run_id,
+            validation_report_refs=[run_id],
+            warnings=router_decision.get("warnings", []),
+            created_at=datetime.now(timezone.utc).isoformat(),
+        )
+        store.save_route_group_result(task_id, rg_id, rg_result.to_dict())
+
+        results_by_rg[rg_id] = {
+            "run_id": run_id,
+            "agent_result": agent_result,
+            "evidence_pack": evidence_pack,
+            "validation_report": validation_report,
+        }
+
+    # Return the last RouteGroup's result as primary (serial baseline)
+    last = list(results_by_rg.values())[-1]
+    return last["run_id"], last["agent_result"], last["evidence_pack"], last["validation_report"]
 
 
 def _parse_agent_result(model_response: str, task_contract: dict, run_id: str) -> dict:
@@ -185,9 +318,16 @@ def run_task(task_contract: dict) -> tuple[str, dict, dict, dict]:
     # Assemble prompt
     messages = assemble(role, mode, task_contract, packed_context)
 
-    # Call model
-    provider = get_provider()
-    logger.info(f"[Task {task_id[:8]}] Calling {provider.MODEL_NAME}")
+    # Infer task_type from mode for model routing
+    _MODE_TO_TASK_TYPE = {
+        "project_mode":   "coding",   # CP/qwen3-coder-plus ~1.8s
+        "knowledge_mode": "agent",    # CP/kimi-k2.5        ~2.4s
+        "debug_mode":     "debug",    # MM/MiniMax-M2.7     ~5.6s (cross-provider)
+        "vision_mode":    "vision",   # MM/MiniMax-M2.7     ~5.6s
+    }
+    task_type = _MODE_TO_TASK_TYPE.get(mode, "agent")
+    provider = get_provider_for_task(task_type)
+    logger.info(f"[Task {task_id[:8]}] Calling {provider.MODEL_NAME} (task_type={task_type})")
     model_response = provider.generate(messages)
 
     # Parse result
@@ -208,14 +348,31 @@ def run_task(task_contract: dict) -> tuple[str, dict, dict, dict]:
 
 def process_task_async(task_contract: dict) -> None:
     """
-    Full task processing pipeline called from background.
-    Saves all results to runtime store.
+    Full task processing pipeline (Router baseline v0.1).
+    Pipeline: task_contract → Router → RouteGroups → execute → validate → store.
     """
     task_id = task_contract["task_id"]
     try:
         store.update_task_status(task_id, "processing")
 
-        run_id, agent_result, evidence_pack, validation_report = run_task(task_contract)
+        # Stage 1: Router
+        router_decision, router_review, rg_runtime_dicts = run_router(task_contract)
+        store.save_router_decision(task_id, router_decision)
+        store.save_router_review_result(task_id, router_review)
+        store.save_work_items(task_id, router_decision["work_items"])
+        store.save_route_groups(task_id, router_decision["route_groups"])
+        build_route_group_runtime(task_contract, router_decision)
+
+        logger.info(
+            f"[Task {task_id[:8]}] Router: {len(router_decision['work_items'])} WorkItems, "
+            f"{len(router_decision['route_groups'])} RouteGroups, "
+            f"dispatch_ready={router_decision['dispatch_ready']}"
+        )
+
+        # Stage 2: Dispatch RouteGroups
+        run_id, agent_result, evidence_pack, validation_report = dispatch_route_groups(
+            task_contract, router_decision
+        )
 
         store.save_run_result(task_id, run_id, agent_result)
         store.save_evidence_pack(task_id, run_id, evidence_pack)
@@ -226,22 +383,27 @@ def process_task_async(task_contract: dict) -> None:
 
     except ModelProviderError as e:
         logger.warning(f"[Task {task_id[:8]}] ModelProviderError: {e}, retrying with EchoProvider")
-        # Fallback: retry with echo provider
         try:
-            from model_gateway import reset_provider, EchoProvider
-            reset_provider()
-            # Temporarily force echo
-            from model_gateway import _provider_instance
+            from model_gateway import reset_providers, EchoProvider
             import model_gateway as _mg
-            _mg._provider_instance = EchoProvider()
-            run_id, agent_result, evidence_pack, validation_report = run_task(task_contract)
-            # Re-add model error info to result
+            reset_providers()
+            echo = EchoProvider()
+            for _tt in ("agent", "coding", "router", "debug", "vision", "general"):
+                _mg._provider_cache[_tt] = echo
+
+            router_decision = store.load_router_decision(task_id) or {}
+            if not router_decision:
+                router_decision, router_review, _ = run_router(task_contract)
+                router_decision = router_decision if isinstance(router_decision, dict) else router_decision.to_dict()
+
+            run_id, agent_result, evidence_pack, validation_report = dispatch_route_groups(
+                task_contract, router_decision
+            )
             agent_result["model_gateway_note"] = f"Fell back to EchoProvider: {str(e)}"
             store.save_run_result(task_id, run_id, agent_result)
             store.save_evidence_pack(task_id, run_id, evidence_pack)
             store.save_validation_report(task_id, run_id, validation_report)
-            final_status = "done_echo_fallback"
-            store.update_task_status(task_id, final_status, run_id=run_id)
+            store.update_task_status(task_id, "done_echo_fallback", run_id=run_id)
         except Exception as e2:
             logger.error(f"[Task {task_id[:8]}] Fallback also failed: {e2}")
             store.update_task_status(task_id, "failed", error=f"Primary: {str(e)} | Fallback: {str(e2)}")
@@ -252,10 +414,10 @@ def process_task_async(task_contract: dict) -> None:
 
 def create_and_queue_task(raw_input: dict) -> dict:
     """
-    Normalize input, save task, return initial response.
-    Actual processing happens in background.
+    Normalize input, save task_contract, return initial response.
+    Actual processing (including Router) happens in background.
     """
-    task_contract = _normalize_task(raw_input)
+    task_contract = normalize_task_input(raw_input)
     task_id = task_contract["task_id"]
 
     store.save_task(task_id, task_contract)

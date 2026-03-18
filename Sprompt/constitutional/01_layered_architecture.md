@@ -102,6 +102,69 @@ CLAW 必须对以下五个维度进行审视，输出 `mode_review_result`：
 
 ---
 
+## Layer 1.5: Router
+
+### 定位
+
+Router 是 CLAW 层与 Executor 层之间的**分解与路由层**。
+
+Router **不是简单转发器**，而是：
+- 输入拆解者（WorkItem Splitter）
+- 路由组织者（RouteGroup Assembler）
+- 并发/串行编排的前置决策者
+- Wait Gate 与 Human Confirmation 挂点的守门人
+
+### 职责
+
+1. 接收 `task_contract`（来自 CLAW/Orchestrator）
+2. 将 `normalized_input` 拆解为一个或多个 `WorkItem`
+3. 将 `WorkItem[]` 组装为一个或多个 `RouteGroup`
+4. 输出 `RouterDecision`（含 WorkItems、RouteGroups、warnings、dispatch_ready）
+5. 输出 `RouterReviewResult`（摘要与状态）
+6. 为每个 RouteGroup 生成 `RouteGroupRuntime`
+
+### Router 不做的事
+
+- 不执行任务（不调用 Model / FSM）
+- 不修改 task_contract 的核心字段
+- 不猜测用户意图（只基于规则拆分，不确定时保守处理并记录 warning）
+
+### 核心对象
+
+| 对象 | 说明 |
+|------|------|
+| `WorkItem` | 单个独立目标单元，含完整结构化字段 |
+| `RouteGroup` | 一组可一起执行的 WorkItem 集合 |
+| `RouterDecision` | Router 的最终决策输出 |
+| `RouterReviewResult` | Router 自审结果 |
+| `RouteGroupRuntime` | 每个 RouteGroup 的运行时状态 |
+| `RouteGroupResult` | 每个 RouteGroup 的执行结果 |
+
+### 拆分规则（Router baseline v0.1）
+
+1. 默认：整段输入 → 1 个 WorkItem
+2. 检测到显式序号列表（`1. / 2.`、`(1) (2)`）→ 每项拆成独立 WorkItem
+3. 检测到 bullet 列表（`- / • / *`）→ 每项拆成独立 WorkItem
+4. 检测到分隔词（另外/再/顺便/同时/additionally/also/furthermore）→ 拆分
+5. 不确定时保守处理，记录 warning，不强行拆分
+
+### RouteGroup 组装规则（Router baseline v0.1）
+
+多个 WorkItem 合并为同一 RouteGroup 的条件（全部满足）：
+1. `recommended_mode` 相同
+2. `isolation_required` 均为 false
+3. 无 dependency_ids / conflict_ids 相互引用
+4. `editable_whitelist` 无路径冲突
+
+否则保守隔离，一个 WorkItem 一个 RouteGroup。
+
+### Authority / Precedence
+
+Router 层规范优先于 `operational/router_policy.md`。  
+Router 层不得绕过 SSOT/interfaces.md 中定义的对象契约。
+
+---
+
 ## Layer 2: Mode
 
 ### 定位

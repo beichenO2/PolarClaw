@@ -18,10 +18,42 @@ state.md > interfaces.md > decisions.md > roadmap.md
 
 ## Update Triggers
 
-- **state.md**: milestone 状态变化、端口/命令变化、验收测试结果变化
+- **state.md**: milestone 状态变化、端口/命令变化、验收测试结果变化、Provider/模型配置变化
 - **interfaces.md**: 任何接口 schema 变化（先改此文件，再改代码）
 - **decisions.md**: 做出了非平凡的技术选择（只追加）
-- **roadmap.md**: 发现新需求、优先级变化
+- **roadmap.md**: 完成任何 Now 项、发现新需求、优先级变化
+
+---
+
+## SSOT 完成清单（每次完成一个功能块后必须逐项检查）
+
+> **规则：完成任何实现工作后，必须过一遍以下清单。不是每项都要改，但每项都要主动判断。**
+
+```
+完成事项: ___________________________
+日期: ____________________
+
+[ ] decisions.md  — 是否有新的非平凡技术决策需要记录？
+[ ] interfaces.md — 是否有接口 schema 变化？（变化必须先在此落地）
+[ ] state.md      — 以下任意一项有变化时必须更新：
+    [ ] 当前 milestone 状态
+    [ ] 系统架构图（Provider 架构 / 层级结构）
+    [ ] 环境变量表
+    [ ] Runtime Store 结构
+    [ ] 验收测试列表
+    [ ] 项目文件结构
+[ ] roadmap.md    — 是否需要：
+    [ ] 将 Now 项移入 Done？
+    [ ] 将 Next 项移入 Now？
+    [ ] 新增 Next/Later 项？
+    [ ] 删除已失效的 Now 项？
+[ ] 设计文档/    — 设计文档与实现是否对齐？（结构框图/架构/接口关系）
+```
+
+**检查时机：**
+- 实现完一个功能模块后（coding session 内）
+- 每次对话结束前（最后一步必须做）
+- 遇到 Provider / 模型配置变化时（立即同步 state.md Provider 架构部分）
 
 ## Backup Policy
 

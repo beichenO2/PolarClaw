@@ -1,24 +1,33 @@
 """
-Qwen Provider — DashScope OpenAI-compatible API.
-Uses PolarClaw_DASHSCOPE_API_KEY environment variable.
-Security: key is never logged or exposed.
+MiniMaxProvider — MiniMax API (OpenAI-compatible).
+
+Used for:
+  1. Vision tasks (MiniMax-M2.7 supports image input)
+  2. Multi-model debug: A模型写的 bug 让 B模型(MiniMax)来 debug，
+     与 Qwen/CodingPlan 互补形成交叉验证
+
+Per SSOT/decisions.md D036:
+  - Key:      Minimax_Token_Plan_API_KEY
+  - Endpoint: https://api.minimaxi.com/v1  (OpenAI-compatible)
+  - Model:    MiniMax-M2.7
+  - Scope:    vision tasks, secondary debug model
+
+Reference: https://platform.minimaxi.com/docs/guides/text-ai-coding-tools
 """
 import os
 from .base import ModelProvider, ModelProviderError
 
-# DashScope OpenAI-compatible base URL
-DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-DEFAULT_MODEL = "qwen-plus"
-
-# Canonical env var name for this project (per SSOT/decisions.md D032)
-_ENV_VAR = "PolarClaw_DASHSCOPE_API_KEY"
+MINIMAX_BASE_URL = "https://api.minimaxi.com/v1"
+_ENV_VAR = "Minimax_Token_Plan_API_KEY"
+DEFAULT_MODEL = "MiniMax-M2.7"
 
 
-class QwenProvider(ModelProvider):
+class MiniMaxProvider(ModelProvider):
     MODEL_NAME = DEFAULT_MODEL
 
     def __init__(self, model: str = DEFAULT_MODEL):
         self.MODEL_NAME = model
+
         api_key = os.environ.get(_ENV_VAR)
         if not api_key:
             raise ModelProviderError(f"{_ENV_VAR} is not set")
@@ -28,7 +37,7 @@ class QwenProvider(ModelProvider):
             from openai import OpenAI
             self._client = OpenAI(
                 api_key=api_key,
-                base_url=DASHSCOPE_BASE_URL,
+                base_url=MINIMAX_BASE_URL,
             )
         except ImportError:
             raise ModelProviderError("openai package not installed. Run: pip install openai")
@@ -40,16 +49,19 @@ class QwenProvider(ModelProvider):
                 model=self.MODEL_NAME,
                 messages=messages,
                 temperature=params.get("temperature", 0.7),
-                max_tokens=params.get("max_tokens", 2048),
+                max_tokens=params.get("max_tokens", 8192),
             )
             return response.choices[0].message.content
         except Exception as e:
-            raise ModelProviderError(f"Qwen API error: {type(e).__name__}: {str(e)}")
+            raise ModelProviderError(f"MiniMax API error: {type(e).__name__}: {str(e)}")
 
     def health_check(self) -> dict:
         return {
             "status": "ok",
-            "provider": self.MODEL_NAME,
+            "provider": "minimax",
+            "model": self.MODEL_NAME,
+            "endpoint": MINIMAX_BASE_URL,
             "key_configured": True,
             "key_len": self._key_len,
+            "vision": True,
         }

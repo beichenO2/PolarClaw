@@ -8,7 +8,7 @@ from typing import Optional
 
 from orchestrator.orchestrator import create_and_queue_task, process_task_async
 import runtime_store.store as store
-from model_gateway import get_provider
+from model_gateway import get_provider, get_provider_for_task, provider_status
 
 router = APIRouter()
 
@@ -83,9 +83,18 @@ async def health():
 
 @router.get("/api/system/provider")
 async def get_provider_info():
-    """Return current active model provider info (safe — no key exposure)."""
+    """Return active agent provider info (safe — no key exposure)."""
     try:
-        provider = get_provider()
+        provider = get_provider_for_task("agent")
         return provider.health_check()
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@router.get("/api/system/providers")
+async def get_all_providers():
+    """Return availability status for all configured providers."""
+    try:
+        return provider_status()
     except Exception as e:
         return {"status": "error", "message": str(e)}

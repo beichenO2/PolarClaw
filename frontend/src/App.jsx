@@ -105,10 +105,13 @@ function KeyVal({ k, v, mono }) {
 
 function ProviderBadge({ info }) {
   if (!info) return null
-  const isFallback = info.provider === 'echo'
+  const isEcho = info.provider === 'echo'
+  const isMinimax = info.provider === 'minimax'
+  const color = isEcho ? C.warning : isMinimax ? '#8b5cf6' : C.accent
+  const label = info.model || info.provider
   return (
-    <span style={badge(isFallback ? C.warning : C.accent)}>
-      {info.provider}{isFallback ? ' (echo)' : ''}
+    <span style={badge(color)} title={info.endpoint || ''}>
+      {label}{isEcho ? ' (echo)' : ''}
     </span>
   )
 }
@@ -152,6 +155,14 @@ function App() {
     fetch(`${BACKEND}/api/system/provider`)
       .then(r => r.json())
       .then(setProviderInfo)
+      .catch(() => {})
+  }, [])
+
+  const [allProviders, setAllProviders] = useState(null)
+  useEffect(() => {
+    fetch(`${BACKEND}/api/system/providers`)
+      .then(r => r.json())
+      .then(setAllProviders)
       .catch(() => {})
   }, [])
 
@@ -257,9 +268,49 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontWeight: 700, fontSize: '1rem', letterSpacing: '-0.01em', color: C.accent }}>CLAW</span>
           <span style={{ color: C.textFaint, fontSize: '0.75rem' }}>Contextual Layered Agent Workbench</span>
-          <span style={{ color: C.textFaint, fontSize: '0.7rem' }}>v0.1 baseline</span>
+          <span style={{ color: C.textFaint, fontSize: '0.7rem' }}>v0.1 router</span>
         </div>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {allProviders && (
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {/* Provider availability dots */}
+              {[
+                ['CP', 'coding_plan',    '#6366f1'],
+                ['MM', 'minimax',        '#8b5cf6'],
+                ['QW', 'qwen_dashscope', '#0ea5e9'],
+              ].map(([abbr, key, color]) => {
+                const p = allProviders[key]
+                const ok = p?.available
+                const model = ok ? p.model : 'unavailable'
+                return (
+                  <span key={key} title={`${key}: ${model}`} style={{
+                    fontSize: '0.62rem', fontWeight: 700, padding: '1px 5px',
+                    borderRadius: 4, background: ok ? color + '22' : '#33333388',
+                    color: ok ? color : '#666', border: `1px solid ${ok ? color + '44' : '#333'}`,
+                  }}>{abbr}</span>
+                )
+              })}
+              {/* Active model per task type */}
+              {allProviders.task_assignments && (
+                <span style={{ color: '#555', fontSize: '0.6rem', marginLeft: 4 }}>|</span>
+              )}
+              {allProviders.task_assignments && [
+                ['code', 'coding'],
+                ['route', 'router'],
+                ['dbg', 'debug'],
+              ].map(([abbr, tt]) => {
+                const m = allProviders.task_assignments[tt]
+                if (!m) return null
+                const short = m.replace('qwen3-', 'q3-').replace('MiniMax-', 'MM-').replace('qwen-plus', 'qw+').replace('kimi-k2.5', 'kimi')
+                return (
+                  <span key={tt} title={`${tt}: ${m}`} style={{
+                    fontSize: '0.58rem', padding: '1px 4px', borderRadius: 3,
+                    background: '#1a1a1a', color: '#aaa', border: '1px solid #333',
+                  }}>{abbr}:{short}</span>
+                )
+              })}
+            </div>
+          )}
           <ProviderBadge info={providerInfo} />
           <HealthDot status={health} />
         </div>
@@ -439,6 +490,121 @@ function App() {
                 )}
               </Section>
 
+              {/* Router Summary */}
+              {taskResult?.router_decision && (
+                <Section title="Router Summary">
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: '0.75rem' }}>
+                    <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.6rem 0.75rem', textAlign: 'center' }}>
+                      <div style={{ ...label, marginBottom: '0.3rem' }}>WorkItems</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700, color: C.accent }}>{taskResult.work_items?.length ?? 0}</div>
+                    </div>
+                    <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.6rem 0.75rem', textAlign: 'center' }}>
+                      <div style={{ ...label, marginBottom: '0.3rem' }}>RouteGroups</div>
+                      <div style={{ fontSize: '1.5rem', fontWeight: 700, color: C.accent }}>{taskResult.route_groups?.length ?? 0}</div>
+                    </div>
+                    <div style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6, padding: '0.6rem 0.75rem', textAlign: 'center' }}>
+                      <div style={{ ...label, marginBottom: '0.3rem' }}>Dispatch Ready</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700, color: taskResult.router_decision.dispatch_ready ? C.success : C.warning }}>
+                        {taskResult.router_decision.dispatch_ready ? '✓ Yes' : '⚠ No'}
+                      </div>
+                    </div>
+                  </div>
+                  {taskResult.router_decision.warnings?.length > 0 && (
+                    <div style={{ marginBottom: '0.5rem' }}>
+                      <div style={{ ...label, color: C.warning }}>Warnings</div>
+                      {taskResult.router_decision.warnings.map((w, i) => (
+                        <div key={i} style={{ color: C.warning, fontSize: '0.75rem', marginBottom: 2 }}>⚠ {w}</div>
+                      ))}
+                    </div>
+                  )}
+                  {taskResult.router_decision.required_confirmations?.length > 0 && (
+                    <div>
+                      <div style={{ ...label, color: C.danger }}>Required Confirmations</div>
+                      {taskResult.router_decision.required_confirmations.map((c, i) => (
+                        <div key={i} style={{ color: C.danger, fontSize: '0.75rem', marginBottom: 2 }}>✗ {c}</div>
+                      ))}
+                    </div>
+                  )}
+                </Section>
+              )}
+
+              {/* WorkItems */}
+              {taskResult?.work_items?.length > 0 && (
+                <Section title={`WorkItems (${taskResult.work_items.length})`}>
+                  {taskResult.work_items.map((wi, i) => (
+                    <div key={wi.work_item_id} style={{
+                      background: C.bg,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      padding: '0.6rem 0.75rem',
+                      marginBottom: 6,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ color: C.textDim, fontSize: '0.72rem', fontFamily: 'monospace' }}>
+                          WI-{i + 1} · {wi.work_item_id?.slice(0, 8)}
+                        </span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <span style={badge(C.accent)}>{wi.recommended_mode?.replace('_mode', '')}</span>
+                          <span style={badge(wi.priority === 'high' ? C.danger : wi.priority === 'medium' ? C.warning : C.muted)}>{wi.priority}</span>
+                          <span style={badge(STATUS_COLOR[wi.status] || C.muted)}>{wi.status}</span>
+                          {wi.isolation_required && <span style={badge(C.warning)}>isolated</span>}
+                        </div>
+                      </div>
+                      <div style={{ color: C.text, fontSize: '0.82rem', marginBottom: 4 }}>
+                        <strong>{wi.title}</strong>
+                      </div>
+                      {wi.goal !== wi.title && (
+                        <div style={{ color: C.textDim, fontSize: '0.78rem', fontStyle: 'italic' }}>{wi.goal}</div>
+                      )}
+                    </div>
+                  ))}
+                </Section>
+              )}
+
+              {/* RouteGroups */}
+              {taskResult?.route_groups?.length > 0 && (
+                <Section title={`RouteGroups (${taskResult.route_groups.length})`}>
+                  {taskResult.route_groups.map((rg, i) => (
+                    <div key={rg.route_group_id} style={{
+                      background: C.bg,
+                      border: `1px solid ${C.border}`,
+                      borderRadius: 6,
+                      padding: '0.6rem 0.75rem',
+                      marginBottom: 6,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ color: C.textDim, fontSize: '0.72rem', fontFamily: 'monospace' }}>
+                          RG-{i + 1} · {rg.route_group_id?.slice(0, 8)}
+                        </span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <span style={badge(C.accent)}>{rg.mode?.replace('_mode', '')}</span>
+                          <span style={badge(STATUS_COLOR[rg.status] || C.muted)}>{rg.status}</span>
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                        <KeyVal k="Bot" v={rg.bot_name || '—'} />
+                        <KeyVal k="FSM" v={rg.fsm_name || 'TBD'} />
+                        <KeyVal k="WorkItems" v={rg.work_item_ids?.length} />
+                        <KeyVal k="Priority" v={rg.priority} />
+                      </div>
+                      {rg.blocking_reason && (
+                        <div style={{ marginTop: 4, color: C.danger, fontSize: '0.75rem' }}>⛔ {rg.blocking_reason}</div>
+                      )}
+                      {rg.work_item_ids?.length > 0 && (
+                        <div style={{ marginTop: 4 }}>
+                          <div style={{ ...label, marginBottom: 2 }}>WorkItem IDs</div>
+                          {rg.work_item_ids.map(wid => (
+                            <span key={wid} style={{ ...badge(C.muted), marginRight: 4, fontFamily: 'monospace', fontSize: '0.68rem' }}>
+                              {wid.slice(0, 8)}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </Section>
+              )}
+
               {/* Result */}
               {taskResult?.agent_result && (
                 <Section title="Agent Result">
@@ -528,6 +694,26 @@ function App() {
                         <div key={i} style={{ color: C.danger, fontSize: '0.78rem', marginBottom: 4 }}>
                           ✗ [{v.violation_type}] {v.description}
                         </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Router Validation sub-report */}
+                  {taskResult.validation_report.router_validation && (
+                    <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 6 }}>
+                      <div style={{ ...label, marginBottom: '0.4rem' }}>Router Validation</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={badge(JUDGMENT_COLOR[taskResult.validation_report.router_validation.judgment] || C.muted)}>
+                          {taskResult.validation_report.router_validation.judgment}
+                        </span>
+                        <span style={{ color: C.textDim, fontSize: '0.75rem' }}>
+                          WorkItems: {taskResult.validation_report.router_validation.work_items_valid ? '✓' : '✗'} ·
+                          RouteGroups: {taskResult.validation_report.router_validation.route_groups_valid ? '✓' : '✗'} ·
+                          Traceable: {taskResult.validation_report.router_validation.decision_traceable ? '✓' : '✗'}
+                        </span>
+                      </div>
+                      {taskResult.validation_report.router_validation.violations?.map((v, i) => (
+                        <div key={i} style={{ color: C.danger, fontSize: '0.73rem' }}>✗ {v}</div>
                       ))}
                     </div>
                   )}
