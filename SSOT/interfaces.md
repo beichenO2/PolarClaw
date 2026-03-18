@@ -67,11 +67,13 @@ Response 200:
 {
   "task_id": "uuid",
   "run_id": "uuid | null",
+  "all_run_ids": ["uuid"],
   "status": "string",
   "router_decision": "RouterDecision | null",
   "router_review_result": "RouterReviewResult | null",
   "work_items": ["WorkItem"],
   "route_groups": ["RouteGroup"],
+  "route_group_runtimes": { "rg_id": "RouteGroupRuntime" },
   "agent_result": {
     "outputs": [{"output_type": "string", "description": "string"}],
     "model_response": "string",

@@ -35,9 +35,9 @@
 
 ## Now
 
-- [ ] **项目文件结构清理**：梳理多余文档、脚本，归档到 ClawBin
-- [ ] **整体联合调试**：确认 Web UI 端到端可用性，补全 smoke test
-- [ ] GitHub 推送（本阶段完整提交）
+- [x] **项目文件结构清理**：root 遗留文件移除，docs/ 归档完成，.gitignore 修复
+- [x] **整体联合调试**：21/21 smoke tests pass，backend+frontend 健康
+- [x] GitHub 推送（fd27a17，含 Router + multi-provider + benchmark + docs）
 - [ ] RouteGroup 串行执行升级为真正独立执行链（目前用 task_contract 代理）
 - [ ] WorkItem 拆分关键词扩展（当前仅基础规则）
 

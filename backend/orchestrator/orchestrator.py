@@ -129,15 +129,18 @@ def build_route_group_runtime(task_contract: dict, router_decision: dict) -> lis
     return runtimes
 
 
-def dispatch_route_groups(task_contract: dict, router_decision: dict) -> tuple[str, dict, dict, dict]:
+def dispatch_route_groups(task_contract: dict, router_decision: dict) -> dict[str, dict]:
     """
-    Dispatch RouteGroups for execution (serial baseline).
+    Dispatch RouteGroups for execution (serial baseline, independent run_id per RG).
 
-    Currently executes the first RouteGroup's first WorkItem through the
-    existing task execution pipeline. Future: true parallel per-RouteGroup execution.
+    Each RouteGroup:
+      - Gets its own task_contract derived from its primary WorkItem
+      - Runs independently via run_task() → unique run_id
+      - Persists its run_id in RouteGroupRuntime.run_ids[]
+      - Saves its own RouteGroupResult
 
     Returns:
-        (run_id, agent_result, evidence_pack, validation_report)
+        dict mapping route_group_id → {run_id, agent_result, evidence_pack, validation_report}
     """
     task_id = task_contract["task_id"]
     route_groups = router_decision.get("route_groups", [])
@@ -146,19 +149,24 @@ def dispatch_route_groups(task_contract: dict, router_decision: dict) -> tuple[s
     if not route_groups:
         raise ValueError("No RouteGroups to dispatch")
 
+    # Pre-compute router validation once (same decision object for all RGs)
+    router_val = validate_router(router_decision)
+
     results_by_rg: dict[str, dict] = {}
 
     for rg in route_groups:
         rg_id = rg["route_group_id"]
 
-        # Update runtime to running
+        # Mark runtime as running
         rg_runtime = store.load_route_group_runtime(task_id, rg_id) or {}
-        rg_runtime.update({"status": "running", "current_stage": "executing",
-                           "updated_at": datetime.now(timezone.utc).isoformat()})
+        rg_runtime.update({
+            "status": "running",
+            "current_stage": "executing",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        })
         store.save_route_group_runtime(task_id, rg_id, rg_runtime)
 
-        # Build a merged task_contract for this RouteGroup
-        # Use first WorkItem as the representative goal
+        # Build per-RouteGroup task_contract from primary WorkItem
         wi_ids = rg.get("work_item_ids", [])
         primary_wi = work_items.get(wi_ids[0]) if wi_ids else None
         rg_contract = dict(task_contract)
@@ -166,15 +174,24 @@ def dispatch_route_groups(task_contract: dict, router_decision: dict) -> tuple[s
             rg_contract["goal"] = primary_wi.get("goal", task_contract["goal"])
             rg_contract["mode"] = primary_wi.get("recommended_mode", task_contract["mode"])
             rg_contract["editable_scope"] = primary_wi.get("editable_whitelist", [])
+        # Tag which work_items belong to this RG (for context packer / traceability)
+        rg_contract["route_group_id"] = rg_id
+        rg_contract["work_item_ids"] = wi_ids
 
+        # Independent execution → unique run_id
         run_id, agent_result, evidence_pack, validation_report = run_task(rg_contract)
 
-        # Attach router validation to the report
-        router_val = validate_router(router_decision)
+        # Attach router validation to this RG's report
         validation_report["router_validation"] = router_val
 
-        # Update RouteGroupRuntime
-        rg_runtime["status"] = "done" if validation_report["judgment"] != "FAIL" else "done_with_issues"
+        # Persist run data under the task's runs/ directory
+        store.save_run_result(task_id, run_id, agent_result)
+        store.save_evidence_pack(task_id, run_id, evidence_pack)
+        store.save_validation_report(task_id, run_id, validation_report)
+
+        # Update RouteGroupRuntime — append this run_id to the list
+        rg_status = "done" if validation_report["judgment"] != "FAIL" else "done_with_issues"
+        rg_runtime["status"] = rg_status
         rg_runtime["current_stage"] = "completed"
         rg_runtime["run_ids"] = rg_runtime.get("run_ids", []) + [run_id]
         rg_runtime["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -200,9 +217,12 @@ def dispatch_route_groups(task_contract: dict, router_decision: dict) -> tuple[s
             "validation_report": validation_report,
         }
 
-    # Return the last RouteGroup's result as primary (serial baseline)
-    last = list(results_by_rg.values())[-1]
-    return last["run_id"], last["agent_result"], last["evidence_pack"], last["validation_report"]
+        logger.info(
+            f"[Task {task_id[:8]}] RG {rg_id[:8]} done: "
+            f"run_id={run_id[:8]}, judgment={validation_report['judgment']}"
+        )
+
+    return results_by_rg
 
 
 def _parse_agent_result(model_response: str, task_contract: dict, run_id: str) -> dict:
@@ -369,17 +389,28 @@ def process_task_async(task_contract: dict) -> None:
             f"dispatch_ready={router_decision['dispatch_ready']}"
         )
 
-        # Stage 2: Dispatch RouteGroups
-        run_id, agent_result, evidence_pack, validation_report = dispatch_route_groups(
-            task_contract, router_decision
+        # Stage 2: Dispatch RouteGroups — each gets its own run_id
+        results_by_rg = dispatch_route_groups(task_contract, router_decision)
+
+        # Aggregate across all RouteGroups
+        all_judgments = [r["validation_report"]["judgment"] for r in results_by_rg.values()]
+        all_run_ids = [r["run_id"] for r in results_by_rg.values()]
+
+        # Overall status: PASS only if all RGs pass; any FAIL → done_with_issues
+        if all(j == "PASS" for j in all_judgments):
+            final_status = "done"
+        elif any(j == "FAIL" for j in all_judgments):
+            final_status = "done_with_issues"
+        else:
+            final_status = "done"  # PARTIAL / BLOCKED treated as done for now
+
+        # Use last run_id as the primary for backward-compat status.json field
+        primary_run_id = all_run_ids[-1]
+        store.update_task_status(task_id, final_status, run_id=primary_run_id)
+        logger.info(
+            f"[Task {task_id[:8]}] All {len(results_by_rg)} RouteGroup(s) done. "
+            f"judgments={all_judgments}, status={final_status}"
         )
-
-        store.save_run_result(task_id, run_id, agent_result)
-        store.save_evidence_pack(task_id, run_id, evidence_pack)
-        store.save_validation_report(task_id, run_id, validation_report)
-
-        final_status = "done" if validation_report["judgment"] == "PASS" else "done_with_issues"
-        store.update_task_status(task_id, final_status, run_id=run_id)
 
     except ModelProviderError as e:
         logger.warning(f"[Task {task_id[:8]}] ModelProviderError: {e}, retrying with EchoProvider")
@@ -396,14 +427,13 @@ def process_task_async(task_contract: dict) -> None:
                 router_decision, router_review, _ = run_router(task_contract)
                 router_decision = router_decision if isinstance(router_decision, dict) else router_decision.to_dict()
 
-            run_id, agent_result, evidence_pack, validation_report = dispatch_route_groups(
-                task_contract, router_decision
-            )
-            agent_result["model_gateway_note"] = f"Fell back to EchoProvider: {str(e)}"
-            store.save_run_result(task_id, run_id, agent_result)
-            store.save_evidence_pack(task_id, run_id, evidence_pack)
-            store.save_validation_report(task_id, run_id, validation_report)
-            store.update_task_status(task_id, "done_echo_fallback", run_id=run_id)
+            results_by_rg = dispatch_route_groups(task_contract, router_decision)
+            all_run_ids = [r["run_id"] for r in results_by_rg.values()]
+            # Annotate fallback on all agent results
+            for r in results_by_rg.values():
+                r["agent_result"]["model_gateway_note"] = f"Fell back to EchoProvider: {str(e)}"
+            primary_run_id = all_run_ids[-1]
+            store.update_task_status(task_id, "done_echo_fallback", run_id=primary_run_id)
         except Exception as e2:
             logger.error(f"[Task {task_id[:8]}] Fallback also failed: {e2}")
             store.update_task_status(task_id, "failed", error=f"Primary: {str(e)} | Fallback: {str(e2)}")

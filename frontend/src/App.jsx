@@ -587,6 +587,24 @@ function App() {
                         <KeyVal k="WorkItems" v={rg.work_item_ids?.length} />
                         <KeyVal k="Priority" v={rg.priority} />
                       </div>
+                      {/* Per-RG run_ids from RouteGroupRuntime */}
+                      {(() => {
+                        const rt = taskResult?.route_group_runtimes?.[rg.route_group_id]
+                        const runIds = rt?.run_ids || []
+                        if (!runIds.length) return null
+                        return (
+                          <div style={{ marginTop: 6 }}>
+                            <div style={{ ...label, marginBottom: 2 }}>Run IDs ({runIds.length})</div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                              {runIds.map(rid => (
+                                <span key={rid} style={{ ...badge('#0ea5e9'), fontFamily: 'monospace', fontSize: '0.65rem' }}>
+                                  {rid.slice(0, 8)}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })()}
                       {rg.blocking_reason && (
                         <div style={{ marginTop: 4, color: C.danger, fontSize: '0.75rem' }}>⛔ {rg.blocking_reason}</div>
                       )}

@@ -123,25 +123,59 @@ def load_validation_report(task_id: str, run_id: str) -> dict | None:
     return _read(RUNTIME_BASE / task_id / "runs" / run_id / "validation_report.json")
 
 
+def get_all_route_group_run_ids(task_id: str) -> list[str]:
+    """Collect all run_ids from all RouteGroupRuntimes for this task."""
+    rg_runtime_dir = RUNTIME_BASE / task_id / "route_group_runtime"
+    if not rg_runtime_dir.exists():
+        return []
+    run_ids = []
+    for f in sorted(rg_runtime_dir.glob("*.json"), key=lambda p: p.stat().st_mtime):
+        runtime = _read(f)
+        if runtime:
+            run_ids.extend(runtime.get("run_ids", []))
+    return run_ids
+
+
 def get_full_task_result(task_id: str) -> dict | None:
-    """Load complete task result including Router objects and agent_result/validation_report."""
+    """
+    Load complete task result including Router objects and all per-RG run results.
+
+    When multiple RouteGroups exist, aggregates:
+    - all_run_ids: every run_id across all RGs (in execution order)
+    - agent_result / validation_report: from the primary (last) run for backward compat
+    - route_group_runtimes: per-RG runtime status with their individual run_ids
+    """
     status = load_task_status(task_id)
     if not status:
         return None
-    run_id = status.get("run_id")
 
-    agent_result = load_run_result(task_id, run_id) if run_id else None
-    validation_report = load_validation_report(task_id, run_id) if run_id else None
-    evidence_pack = load_evidence_pack(task_id, run_id) if run_id else None
+    # Collect all run_ids from RouteGroupRuntimes (preserves per-RG traceability)
+    all_run_ids = get_all_route_group_run_ids(task_id)
+    primary_run_id = status.get("run_id") or (all_run_ids[-1] if all_run_ids else None)
+
+    agent_result = load_run_result(task_id, primary_run_id) if primary_run_id else None
+    validation_report = load_validation_report(task_id, primary_run_id) if primary_run_id else None
+    evidence_pack = load_evidence_pack(task_id, primary_run_id) if primary_run_id else None
+
+    # Load per-RG runtimes (shows individual run_ids per RouteGroup)
+    route_groups = load_route_groups(task_id)
+    rg_runtimes = {}
+    for rg in route_groups:
+        rg_id = rg["route_group_id"]
+        rt = load_route_group_runtime(task_id, rg_id)
+        if rt:
+            rg_runtimes[rg_id] = rt
 
     return {
         "task_id": task_id,
-        "run_id": run_id,
+        "run_id": primary_run_id,
+        "all_run_ids": all_run_ids,
         "status": status.get("status"),
         "router_decision": load_router_decision(task_id),
         "router_review_result": load_router_review_result(task_id),
         "work_items": load_work_items(task_id),
-        "route_groups": load_route_groups(task_id),
+        "route_groups": route_groups,
+        "route_group_runtimes": rg_runtimes,
         "agent_result": agent_result,
         "validation_report": validation_report,
         "evidence_pack": evidence_pack,
