@@ -86,3 +86,14 @@ D022: Qwen_Pro_API_KEY (len=38) causes 401 on DashScope - likely wrong format or
 
 - D041: get_provider_for_task() 使用 functools.partial 绑定 model 参数，使同一 CodingPlanProvider 类可按 task_type 实例化不同模型，而不引入多个子类。
 - D042: Minimax_Token_Plan_API_KEY 已确认配置正确（MiniMax provider 可用）；此前显示 "未配置" 是因为未 source ~/.bashrc，运行时已解决。
+
+## 2026-03-18 (反悔/Regret 功能)
+
+- D043: 引入"反悔"（Regret/Undo）功能，包含三个操作：Pause / Supplement / Revise。
+  - Pause：将 processing 任务标记为 paused，在下一个 RouteGroup 启动前生效（不中断当前 RG 执行）
+  - Supplement：向 paused 任务追加额外描述，Router 对增量重新路由，合并新 WorkItem 后恢复执行
+  - Revise：编辑原始 goal，系统标记原任务为 superseded，尝试 git revert 编辑过的文件，创建新任务
+- D044: git_checkpoint 存储在 task_contract 中（创建时 git rev-parse HEAD），作为 revise 时的 revert 基准点。
+- D045: git revert 策略：从 WorkItem.editable_whitelist 和 evidence_pack.actions 收集实际修改过的文件列表，使用 git checkout {checkpoint} -- {file} 逐文件恢复。revert 失败不阻断新任务创建，记录到 revert_result。
+- D046: Revise 时原任务状态设为 superseded，新任务继承 session_id 和 git_checkpoint，并记录 revised_from_task_id 用于追溯。
+- D047: 前端 UI：processing 状态显示 ⏸ Pause 按钮；paused 状态显示 ＋ Supplement 和 ↺ Revise 两个入口；Revise 模式下原始 goal 变为可编辑 textarea。

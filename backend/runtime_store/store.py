@@ -62,6 +62,7 @@ def update_task_status(
     status: str,
     run_id: str | None = None,
     error: str | None = None,
+    extra: dict | None = None,
 ) -> None:
     path = RUNTIME_BASE / task_id / "status.json"
     existing = _read(path) or {}
@@ -74,6 +75,8 @@ def update_task_status(
         existing["run_id"] = run_id
     if error is not None:
         existing["error"] = error
+    if extra:
+        existing.update(extra)
     _write(path, existing)
 
 

@@ -105,6 +105,76 @@ Response 404 (task not found or not yet done):
 { "error": { "code": "not_ready", "message": "Task result not yet available" } }
 ```
 
+### PATCH /api/tasks/{task_id}/pause
+**Purpose:** Signal a running task to pause after its current RouteGroup completes.
+
+Response 200:
+```json
+{ "task_id": "uuid", "status": "paused", "paused_at": "ISO8601" }
+```
+Error 400: task is not in `processing` or `queued` state.
+
+### POST /api/tasks/{task_id}/supplement
+**Purpose:** Append additional goal text to a paused task and resume execution.
+
+Request:
+```json
+{ "additional_goal": "string (required)" }
+```
+Response 200:
+```json
+{ "task_id": "uuid", "status": "processing", "enriched_goal": "string" }
+```
+
+### POST /api/tasks/{task_id}/revise
+**Purpose:** Revise the original goal. Marks original as `superseded`, attempts git revert, creates new task.
+
+Request:
+```json
+{ "new_goal": "string (required)" }
+```
+Response 200:
+```json
+{
+  "original_task_id": "uuid",
+  "new_task_id": "uuid",
+  "new_goal": "string",
+  "revert_result": {
+    "reverted": ["filepath"],
+    "failed": [{"file": "...", "error": "..."}],
+    "skipped": ["TBD"]
+  },
+  "status": "processing"
+}
+```
+
+---
+
+### Task status values (extended)
+```
+processing | done | done_with_issues | done_echo_fallback |
+failed | blocked | need_human |
+paused       ← task paused mid-execution, awaiting supplement or revision
+superseded   ← task replaced by a revision (new task created)
+```
+
+### task_contract extension
+```json
+{
+  "git_checkpoint": "sha1 | null"
+}
+```
+
+### status.json extension
+```json
+{
+  "paused_at": "ISO8601 | null",
+  "supplement_history": [{"text": "...", "added_at": "ISO8601"}],
+  "revert_result": {},
+  "superseded_at": "ISO8601 | null"
+}
+```
+
 ### POST /chat (legacy, kept for backward compat)
 Purpose: 单轮聊天（S1 legacy）
 

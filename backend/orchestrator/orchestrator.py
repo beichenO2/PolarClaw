@@ -3,14 +3,22 @@ Orchestrator — manages task lifecycle from task_contract to validation_report.
 
 Flow (Router baseline v0.1):
   raw_input
-    → normalize_task_input()    → task_contract
+    → normalize_task_input()    → task_contract (git_checkpoint stored)
     → run_router()              → RouterDecision + WorkItems + RouteGroups
     → build_route_group_runtime()
     → dispatch_route_groups()   → per-RouteGroup execution
       → PromptAssembler → ContextPacker → ModelGateway
       → agent_result → ValidatorEngine (base + router)
       → validation_report → RuntimeStore
+
+Regret/Undo features (v0.2):
+  - pause:      PATCH /api/tasks/{id}/pause  → sets status=paused
+  - supplement: POST  /api/tasks/{id}/supplement {additional_goal}
+                → appends context, creates new WorkItems, resumes
+  - revise:     POST  /api/tasks/{id}/revise {new_goal}
+                → git-revert editable files, create replacement task
 """
+import subprocess
 import uuid
 import logging
 from datetime import datetime, timezone
@@ -24,6 +32,238 @@ from router.types import RouteGroupResult
 import runtime_store.store as store
 
 logger = logging.getLogger(__name__)
+
+# ─── Git helpers ──────────────────────────────────────────────────────────────
+
+def _get_git_head() -> str | None:
+    """Return current git HEAD hash for use as a revert checkpoint."""
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, cwd=str(store.RUNTIME_BASE.parent.parent),
+            timeout=5,
+        )
+        return result.stdout.strip() if result.returncode == 0 else None
+    except Exception:
+        return None
+
+
+def _git_revert_files(files: list[str], checkpoint: str | None) -> dict:
+    """
+    Attempt to revert a list of files to the given git checkpoint.
+    Returns {reverted: [...], failed: [...], skipped: [...]}
+    """
+    if not checkpoint or not files:
+        return {"reverted": [], "failed": [], "skipped": files or []}
+
+    repo_root = str(store.RUNTIME_BASE.parent.parent)
+    reverted, failed, skipped = [], [], []
+
+    for f in files:
+        if f in ("TBD", "") or not f:
+            skipped.append(f)
+            continue
+        try:
+            r = subprocess.run(
+                ["git", "checkout", checkpoint, "--", f],
+                capture_output=True, text=True, cwd=repo_root, timeout=10,
+            )
+            if r.returncode == 0:
+                reverted.append(f)
+                logger.info(f"[Revert] Reverted {f} to {checkpoint[:8]}")
+            else:
+                failed.append({"file": f, "error": r.stderr.strip()})
+                logger.warning(f"[Revert] Failed {f}: {r.stderr.strip()}")
+        except Exception as e:
+            failed.append({"file": f, "error": str(e)})
+    return {"reverted": reverted, "failed": failed, "skipped": skipped}
+
+
+def _is_paused(task_id: str) -> bool:
+    """Check if a task has been externally paused (live check against store)."""
+    status = store.load_task_status(task_id)
+    return (status or {}).get("status") == "paused"
+
+
+# ─── Regret / Undo operations ─────────────────────────────────────────────────
+
+def pause_task(task_id: str) -> dict:
+    """
+    Signal a running task to pause after its current RouteGroup completes.
+    Returns the updated status dict.
+    """
+    status = store.load_task_status(task_id)
+    if not status:
+        raise ValueError(f"Task {task_id} not found")
+    current = status.get("status")
+    if current not in ("processing", "queued"):
+        raise ValueError(f"Cannot pause task with status '{current}'. Only processing/queued tasks can be paused.")
+    store.update_task_status(task_id, "paused", extra={"paused_at": datetime.now(timezone.utc).isoformat()})
+    logger.info(f"[Task {task_id[:8]}] Paused (will take effect between RouteGroups)")
+    return store.load_task_status(task_id)
+
+
+def supplement_task(task_id: str, additional_goal: str, background_tasks=None) -> dict:
+    """
+    Append additional context to a paused task and resume execution.
+    The supplement is added as new WorkItems via Router re-run on the delta.
+    """
+    additional_goal = additional_goal.strip()
+    if not additional_goal:
+        raise ValueError("additional_goal cannot be empty")
+
+    status = store.load_task_status(task_id)
+    if not status or status.get("status") != "paused":
+        raise ValueError(f"Task must be paused to supplement. Current status: {(status or {}).get('status')}")
+
+    # Load original contract and append supplement
+    contract = store.load_task(task_id)
+    if not contract:
+        raise ValueError(f"Task contract not found for {task_id}")
+
+    # Store supplement history
+    history = status.get("supplement_history", [])
+    history.append({
+        "text": additional_goal,
+        "added_at": datetime.now(timezone.utc).isoformat(),
+    })
+    # Enrich goal with supplement
+    enriched_goal = contract["goal"] + f"\n\n[SUPPLEMENT {len(history)}]: {additional_goal}"
+    contract["goal"] = enriched_goal
+    contract["normalized_input"] = enriched_goal
+    store.save_task(task_id, contract)
+    store.update_task_status(task_id, "processing", extra={"supplement_history": history})
+
+    logger.info(f"[Task {task_id[:8]}] Supplemented, resuming execution")
+
+    # Re-run router on supplement delta, then dispatch new RouteGroups
+    if background_tasks is not None:
+        background_tasks.add_task(_resume_with_supplement, contract, additional_goal)
+    else:
+        import threading
+        threading.Thread(
+            target=_resume_with_supplement, args=(contract, additional_goal), daemon=True
+        ).start()
+
+    return {"task_id": task_id, "status": "processing", "enriched_goal": enriched_goal}
+
+
+def _resume_with_supplement(task_contract: dict, additional_goal: str) -> None:
+    """Background: run router only on the supplement text, dispatch new RouteGroups."""
+    task_id = task_contract["task_id"]
+    try:
+        supplement_contract = dict(task_contract)
+        supplement_contract["goal"] = additional_goal
+        supplement_contract["task_id"] = task_id  # share the same task
+
+        router_decision, router_review, _ = run_router(supplement_contract)
+        build_route_group_runtime(task_contract, router_decision)
+
+        # Merge new WorkItems / RouteGroups into existing
+        existing_wis = store.load_work_items(task_id)
+        existing_rgs = store.load_route_groups(task_id)
+        new_wis = existing_wis + router_decision["work_items"]
+        new_rgs = existing_rgs + router_decision["route_groups"]
+        store.save_work_items(task_id, new_wis)
+        store.save_route_groups(task_id, new_rgs)
+
+        results_by_rg = dispatch_route_groups(task_contract, router_decision)
+        all_judgments = [r["validation_report"]["judgment"] for r in results_by_rg.values()]
+        all_run_ids = [r["run_id"] for r in results_by_rg.values()]
+        final_status = "done" if all(j == "PASS" for j in all_judgments) else "done_with_issues"
+        store.update_task_status(task_id, final_status, run_id=all_run_ids[-1])
+    except Exception as e:
+        logger.error(f"[Task {task_id[:8]}] Supplement execution failed: {e}", exc_info=True)
+        store.update_task_status(task_id, "failed", error=f"Supplement failed: {str(e)}")
+
+
+def revise_task(task_id: str, new_goal: str, background_tasks=None) -> dict:
+    """
+    Revise a paused task's goal.
+    - Marks the original task as 'superseded'
+    - Attempts git revert of files from the original execution
+    - Creates and queues a new replacement task
+    Returns {new_task_id, revert_result, original_task_id}
+    """
+    new_goal = new_goal.strip()
+    if not new_goal:
+        raise ValueError("new_goal cannot be empty")
+
+    status = store.load_task_status(task_id)
+    if not status or status.get("status") not in ("paused", "processing", "done", "done_with_issues"):
+        raise ValueError(f"Cannot revise task with status: {(status or {}).get('status')}")
+
+    contract = store.load_task(task_id)
+    if not contract:
+        raise ValueError(f"Task contract not found for {task_id}")
+
+    # Collect files that were edited during original execution
+    editable_files = _collect_editable_files(task_id, contract)
+    git_checkpoint = contract.get("git_checkpoint")
+
+    # Attempt git revert
+    revert_result = _git_revert_files(editable_files, git_checkpoint)
+    logger.info(f"[Task {task_id[:8]}] Revert result: {revert_result}")
+
+    # Mark original task as superseded
+    store.update_task_status(task_id, "superseded", extra={
+        "superseded_at": datetime.now(timezone.utc).isoformat(),
+        "revert_result": revert_result,
+    })
+
+    # Create replacement task inheriting session_id
+    new_raw = {
+        "goal": new_goal,
+        "mode": contract.get("mode"),
+        "constraints": contract.get("constraints", []),
+        "session_id": contract.get("session_id"),
+    }
+    new_contract = normalize_task_input(new_raw)
+    new_contract["revised_from_task_id"] = task_id
+    new_contract["git_checkpoint"] = git_checkpoint  # same checkpoint for the new task
+    store.save_task(new_contract["task_id"], new_contract)
+    store.update_task_status(new_contract["task_id"], "processing")
+
+    # Queue new task
+    if background_tasks is not None:
+        background_tasks.add_task(process_task_async, new_contract)
+    else:
+        import threading
+        threading.Thread(target=process_task_async, args=(new_contract,), daemon=True).start()
+
+    logger.info(f"[Task {task_id[:8]}] Superseded → new task {new_contract['task_id'][:8]}")
+    return {
+        "original_task_id": task_id,
+        "new_task_id": new_contract["task_id"],
+        "new_goal": new_goal,
+        "revert_result": revert_result,
+        "status": "processing",
+    }
+
+
+def _collect_editable_files(task_id: str, contract: dict) -> list[str]:
+    """Gather all non-TBD editable files from WorkItems and evidence packs."""
+    files: set[str] = set()
+
+    # From WorkItems
+    for wi in store.load_work_items(task_id):
+        for f in wi.get("editable_whitelist", []):
+            if f and f != "TBD":
+                files.add(f)
+
+    # From evidence packs (if they recorded actual file writes)
+    status = store.load_task_status(task_id) or {}
+    run_id = status.get("run_id")
+    if run_id:
+        pack = store.load_evidence_pack(task_id, run_id)
+        if pack:
+            for action in pack.get("actions", []):
+                if action.get("type") in ("file_write", "file_modify"):
+                    path = action.get("path", "")
+                    if path and path != "TBD":
+                        files.add(path)
+
+    return list(files)
 
 
 def _detect_mode(goal: str) -> str:
@@ -54,6 +294,9 @@ def normalize_task_input(raw_input: dict) -> dict:
 
     task_id = str(uuid.uuid4())
 
+    # Git checkpoint — enables revert-on-revise
+    git_checkpoint = _get_git_head()
+
     return {
         "task_id": task_id,
         "session_id": session_id,
@@ -66,7 +309,7 @@ def normalize_task_input(raw_input: dict) -> dict:
             "project_name": "CLAW",
             "current_milestone": "Router baseline v0.1",
         },
-        "editable_scope": [],          # knowledge mode default; project mode fills via patterns
+        "editable_scope": [],
         "acceptance_criteria": [
             {
                 "criterion_id": "AC-001",
@@ -77,6 +320,7 @@ def normalize_task_input(raw_input: dict) -> dict:
             }
         ],
         "requires_interface_proposal": False,
+        "git_checkpoint": git_checkpoint,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "created_by": "CLAW_router_baseline_v0.1",
     }
@@ -156,6 +400,11 @@ def dispatch_route_groups(task_contract: dict, router_decision: dict) -> dict[st
 
     for rg in route_groups:
         rg_id = rg["route_group_id"]
+
+        # Check pause flag before starting each RouteGroup
+        if _is_paused(task_id):
+            logger.info(f"[Task {task_id[:8]}] Paused — halting before RG {rg_id[:8]}")
+            break
 
         # Mark runtime as running
         rg_runtime = store.load_route_group_runtime(task_id, rg_id) or {}

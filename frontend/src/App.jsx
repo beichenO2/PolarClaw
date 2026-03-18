@@ -29,6 +29,8 @@ const STATUS_COLOR = {
   failed: C.danger,
   blocked: C.danger,
   need_human: C.warning,
+  paused: '#f59e0b',
+  superseded: '#666',
 }
 
 const JUDGMENT_COLOR = {
@@ -138,6 +140,13 @@ function App() {
   // task history (recent)
   const [recentTasks, setRecentTasks] = useState([])
 
+  // ── Regret / Undo state ──────────────────────────────────────────────────────
+  const [regretMode, setRegretMode] = useState(null)   // null | 'supplement' | 'revise'
+  const [regretText, setRegretText] = useState('')
+  const [revisedGoal, setRevisedGoal] = useState('')
+  const [regretLoading, setRegretLoading] = useState(false)
+  const [regretError, setRegretError] = useState(null)
+
   // ── Health check ────────────────────────────────────────────────────────────
   useEffect(() => {
     const check = () => {
@@ -177,6 +186,9 @@ function App() {
   const startPolling = useCallback((task_id) => {
     setPolling(true)
     setTaskResult(null)
+    setRegretMode(null)
+    setRegretText('')
+    setRegretError(null)
 
     const poll = async () => {
       try {
@@ -186,14 +198,20 @@ function App() {
           const statusData = await statusRes.json()
           setActiveTask(prev => prev ? { ...prev, ...statusData } : statusData)
 
-          const done = ['done', 'done_with_issues', 'done_echo_fallback', 'failed', 'blocked', 'need_human']
-          if (done.includes(statusData.status)) {
-            // Fetch result
+          const terminalStatuses = ['done', 'done_with_issues', 'done_echo_fallback', 'failed', 'blocked', 'need_human', 'superseded']
+          const pauseStatuses = ['paused']
+          if (terminalStatuses.includes(statusData.status)) {
             const resultRes = await fetch(`${BACKEND}/api/tasks/${task_id}/result`)
             if (resultRes.ok) {
               const resultData = await resultRes.json()
               setTaskResult(resultData)
             }
+            setPolling(false)
+            clearInterval(pollRef.current)
+            return
+          }
+          if (pauseStatuses.includes(statusData.status)) {
+            // Paused: stop polling loop but show state (user will act)
             setPolling(false)
             clearInterval(pollRef.current)
             return
@@ -243,6 +261,64 @@ function App() {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitTask() }
+  }
+
+  // ── Regret handlers ──────────────────────────────────────────────────────────
+  const handlePause = async () => {
+    if (!activeTask?.task_id) return
+    setRegretLoading(true); setRegretError(null)
+    try {
+      const res = await fetch(`${BACKEND}/api/tasks/${activeTask.task_id}/pause`, { method: 'PATCH' })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.detail?.message || `HTTP ${res.status}`)
+      setActiveTask(prev => ({ ...prev, status: 'paused' }))
+      setRegretMode(null)
+    } catch (e) { setRegretError(e.message) }
+    finally { setRegretLoading(false) }
+  }
+
+  const handleSupplement = async () => {
+    if (!activeTask?.task_id || !regretText.trim()) return
+    setRegretLoading(true); setRegretError(null)
+    try {
+      const res = await fetch(`${BACKEND}/api/tasks/${activeTask.task_id}/supplement`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ additional_goal: regretText.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.detail?.message || `HTTP ${res.status}`)
+      setRegretMode(null); setRegretText('')
+      setActiveTask(prev => ({ ...prev, status: 'processing' }))
+      startPolling(activeTask.task_id)
+    } catch (e) { setRegretError(e.message) }
+    finally { setRegretLoading(false) }
+  }
+
+  const handleRevise = async () => {
+    if (!activeTask?.task_id || !revisedGoal.trim()) return
+    setRegretLoading(true); setRegretError(null)
+    try {
+      const res = await fetch(`${BACKEND}/api/tasks/${activeTask.task_id}/revise`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_goal: revisedGoal.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data?.detail?.message || `HTTP ${res.status}`)
+      // Switch tracking to the new task
+      const newTaskId = data.new_task_id
+      setRegretMode(null); setRevisedGoal(''); setTaskResult(null)
+      setActiveTask({ task_id: newTaskId, status: 'processing', goal: revisedGoal.trim() })
+      startPolling(newTaskId)
+    } catch (e) { setRegretError(e.message) }
+    finally { setRegretLoading(false) }
+  }
+
+  const openRevise = () => {
+    setRevisedGoal(activeTask?.goal || '')
+    setRegretMode('revise')
+    setRegretError(null)
   }
 
   // ── Render ───────────────────────────────────────────────────────────────────
@@ -461,11 +537,47 @@ function App() {
               <Section
                 title="Run Status"
                 extra={
-                  polling ? (
-                    <span style={{ color: C.warning, fontSize: '0.72rem', animation: 'pulse 1s infinite' }}>
-                      ● polling
-                    </span>
-                  ) : null
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                    {polling && (
+                      <span style={{ color: C.warning, fontSize: '0.72rem' }}>● polling</span>
+                    )}
+                    {/* Pause button — only during active processing */}
+                    {activeTask.status === 'processing' && (
+                      <button
+                        onClick={handlePause}
+                        disabled={regretLoading}
+                        title="Pause after current step"
+                        style={{
+                          padding: '2px 8px', borderRadius: 4, border: `1px solid ${C.warning}66`,
+                          background: C.warning + '15', color: C.warning,
+                          fontSize: '0.68rem', cursor: 'pointer', fontWeight: 600,
+                        }}
+                      >⏸ Pause</button>
+                    )}
+                    {/* Regret buttons — when paused */}
+                    {activeTask.status === 'paused' && !regretMode && (
+                      <>
+                        <button
+                          onClick={() => { setRegretMode('supplement'); setRegretError(null) }}
+                          title="Add more instructions"
+                          style={{
+                            padding: '2px 8px', borderRadius: 4, border: `1px solid ${C.accent}66`,
+                            background: C.accent + '15', color: C.accent,
+                            fontSize: '0.68rem', cursor: 'pointer', fontWeight: 600,
+                          }}
+                        >＋ Supplement</button>
+                        <button
+                          onClick={openRevise}
+                          title="Edit original prompt and restart"
+                          style={{
+                            padding: '2px 8px', borderRadius: 4, border: `1px solid #f59e0b66`,
+                            background: '#f59e0b15', color: '#f59e0b',
+                            fontSize: '0.68rem', cursor: 'pointer', fontWeight: 600,
+                          }}
+                        >↺ Revise</button>
+                      </>
+                    )}
+                  </div>
                 }
               >
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.25rem' }}>
@@ -478,14 +590,104 @@ function App() {
                     </span>
                   } />
                 </div>
-                {activeTask.goal && (
+
+                {/* Goal display — normal or revise-editable */}
+                {activeTask.goal && regretMode !== 'revise' && (
                   <div style={{ marginTop: '0.75rem', padding: '0.6rem 0.75rem', background: C.bg, borderRadius: 6, fontSize: '0.85rem', color: C.text }}>
                     {activeTask.goal}
                   </div>
                 )}
+
+                {/* ── Supplement panel ── */}
+                {regretMode === 'supplement' && (
+                  <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: C.accent + '0d', border: `1px solid ${C.accent}33`, borderRadius: 8 }}>
+                    <div style={{ ...label, color: C.accent, marginBottom: '0.4rem' }}>＋ Add instructions</div>
+                    <textarea
+                      autoFocus
+                      value={regretText}
+                      onChange={e => setRegretText(e.target.value)}
+                      placeholder="Type additional requirements here…"
+                      rows={3}
+                      style={{
+                        width: '100%', boxSizing: 'border-box',
+                        background: C.bg, border: `1px solid ${C.border}`,
+                        borderRadius: 6, color: C.text, padding: '0.5rem',
+                        fontSize: '0.85rem', resize: 'vertical', outline: 'none',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                      <button
+                        onClick={handleSupplement}
+                        disabled={regretLoading || !regretText.trim()}
+                        style={{
+                          flex: 1, padding: '6px', borderRadius: 5,
+                          background: regretText.trim() ? C.accent : '#333',
+                          color: regretText.trim() ? '#fff' : '#666',
+                          border: 'none', cursor: regretText.trim() ? 'pointer' : 'not-allowed',
+                          fontSize: '0.8rem', fontWeight: 600,
+                        }}
+                      >{regretLoading ? 'Sending…' : '▶ Add & Resume'}</button>
+                      <button
+                        onClick={() => { setRegretMode(null); setRegretText('') }}
+                        style={{ padding: '6px 12px', borderRadius: 5, background: '#333', color: '#aaa', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}
+                      >Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Revise panel ── */}
+                {regretMode === 'revise' && (
+                  <div style={{ marginTop: '0.75rem', padding: '0.75rem', background: '#f59e0b0d', border: '1px solid #f59e0b33', borderRadius: 8 }}>
+                    <div style={{ ...label, color: '#f59e0b', marginBottom: '0.4rem' }}>↺ Revise original prompt</div>
+                    <div style={{ fontSize: '0.72rem', color: C.textFaint, marginBottom: '0.5rem' }}>
+                      Edit your original request. Changes made during the previous execution will be rolled back.
+                    </div>
+                    <textarea
+                      autoFocus
+                      value={revisedGoal}
+                      onChange={e => setRevisedGoal(e.target.value)}
+                      rows={4}
+                      style={{
+                        width: '100%', boxSizing: 'border-box',
+                        background: C.bg, border: `1px solid #f59e0b66`,
+                        borderRadius: 6, color: C.text, padding: '0.5rem',
+                        fontSize: '0.85rem', resize: 'vertical', outline: 'none',
+                      }}
+                    />
+                    <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                      <button
+                        onClick={handleRevise}
+                        disabled={regretLoading || !revisedGoal.trim()}
+                        style={{
+                          flex: 1, padding: '6px', borderRadius: 5,
+                          background: revisedGoal.trim() ? '#f59e0b' : '#333',
+                          color: revisedGoal.trim() ? '#000' : '#666',
+                          border: 'none', cursor: revisedGoal.trim() ? 'pointer' : 'not-allowed',
+                          fontSize: '0.8rem', fontWeight: 700,
+                        }}
+                      >{regretLoading ? 'Processing…' : '↺ Revise & Restart'}</button>
+                      <button
+                        onClick={() => { setRegretMode(null); setRevisedGoal('') }}
+                        style={{ padding: '6px 12px', borderRadius: 5, background: '#333', color: '#aaa', border: 'none', cursor: 'pointer', fontSize: '0.8rem' }}
+                      >Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {regretError && (
+                  <div style={{ marginTop: '0.5rem', color: C.danger, fontSize: '0.78rem' }}>⚠ {regretError}</div>
+                )}
+
                 {activeTask.error && (
                   <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: C.danger + '11', border: `1px solid ${C.danger}44`, borderRadius: 6, color: C.danger, fontSize: '0.8rem' }}>
                     {activeTask.error}
+                  </div>
+                )}
+
+                {/* Superseded notice */}
+                {activeTask.status === 'superseded' && (
+                  <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: '#f59e0b11', border: '1px solid #f59e0b44', borderRadius: 6, color: '#f59e0b', fontSize: '0.8rem' }}>
+                    ↺ This task was superseded by a revision. Tracking the new task.
                   </div>
                 )}
               </Section>
