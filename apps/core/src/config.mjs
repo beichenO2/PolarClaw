@@ -112,6 +112,8 @@ function configFromEnv(env) {
       adminAppSecret: env.FEISHU_ADMIN_APP_SECRET?.trim() || undefined,
       girlfriendAppId: env.FEISHU_GIRLFRIEND_APP_ID?.trim() || undefined,
       girlfriendAppSecret: env.FEISHU_GIRLFRIEND_APP_SECRET?.trim() || undefined,
+      girlfriendVerificationToken: env.FEISHU_GIRLFRIEND_VERIFICATION_TOKEN?.trim() || undefined,
+      girlfriendEncryptKey: env.FEISHU_GIRLFRIEND_ENCRYPT_KEY?.trim() || undefined,
       allowFrom: env.FEISHU_ALLOW_FROM?.trim()
         ? env.FEISHU_ALLOW_FROM.split(",")
             .map((s) => s.trim())
@@ -441,6 +443,12 @@ export function loadConfig(configPath, env = process.env) {
       appSecret: String(pick(feishu.appSecret, "") ?? ""),
       verificationToken: String(pick(feishu.verificationToken, "") ?? ""),
       encryptKey: String(pick(feishu.encryptKey, "") ?? ""),
+      adminAppId: String(pick(feishu.adminAppId, "") ?? ""),
+      adminAppSecret: String(pick(feishu.adminAppSecret, "") ?? ""),
+      girlfriendAppId: String(pick(feishu.girlfriendAppId, "") ?? ""),
+      girlfriendAppSecret: String(pick(feishu.girlfriendAppSecret, "") ?? ""),
+      girlfriendVerificationToken: String(pick(feishu.girlfriendVerificationToken, "") ?? ""),
+      girlfriendEncryptKey: String(pick(feishu.girlfriendEncryptKey, "") ?? ""),
       domain: String(pick(feishu.domain, "feishu")),
       allowFrom: new Set(
         Array.isArray(feishu.allowFrom) ? feishu.allowFrom.map(String) : [],

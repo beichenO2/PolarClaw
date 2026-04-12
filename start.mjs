@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { createMyClawAgent, loadConfig } from "./apps/core/src/index.mjs";
 import { createHealthServer } from "./apps/core/src/health.mjs";
+import { loadSecretsFromPolarPrivate } from "./apps/security/src/secrets-loader.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 
@@ -114,6 +115,11 @@ function printBanner(rows) {
 
 async function main() {
   process.chdir(ROOT);
+
+  // 1) Try PolarPrivate first (won't overwrite already-set env vars)
+  await loadSecretsFromPolarPrivate();
+
+  // 2) .env fallback for anything PolarPrivate didn't provide
   loadEnvFile(join(ROOT, ".env"));
   validateLlmKey();
 
