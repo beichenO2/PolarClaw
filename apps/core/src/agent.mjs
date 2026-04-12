@@ -97,6 +97,9 @@ export function createMyClawAgent(config) {
   let started = false;
   /** @type {number | null} */
   let startedAt = null;
+  let emergencyStopActive = false;
+  /** @type {AbortController | null} */
+  let currentAbortController = null;
   /** @type {Set<string>} */
   const knownUserIds = new Set();
   /** @type {string | null} */
@@ -336,6 +339,20 @@ export function createMyClawAgent(config) {
 
       if (!started) {
         return "MyClaw 尚未启动，请稍后再试。";
+      }
+
+      if (/^\[card action\].*"action"\s*:\s*"emergency_stop"/i.test(text) ||
+          /^紧急停车|^停车|^emergency\s*stop|^abort/i.test(text)) {
+        emergencyStopActive = true;
+        if (currentAbortController) currentAbortController.abort();
+        console.error("[@myclaw/core] ⛔ EMERGENCY STOP activated by user");
+        return "⛔ 紧急停车已激活。所有正在执行的任务已终止。发送任意消息恢复。";
+      }
+
+      if (emergencyStopActive) {
+        emergencyStopActive = false;
+        console.error("[@myclaw/core] Emergency stop cleared, resuming normal operation");
+        return "✅ 已恢复正常模式。" + (text.length > 2 ? `\n\n关于你的消息：${text}` : "");
       }
 
       let userId = rawUserId;
