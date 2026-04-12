@@ -16,6 +16,21 @@ cd "$(dirname "$0")/.."
 PROJECT_ROOT="$(pwd)"
 LOG_PREFIX="[run-with-update]"
 
+# Use the Node version that native modules were compiled against.
+# .nvmrc or NODE_VERSION pin takes precedence, else default to v20.
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+if [ -f "$PROJECT_ROOT/.nvmrc" ]; then
+  WANTED="$(cat "$PROJECT_ROOT/.nvmrc" | tr -d '[:space:]')"
+elif [ -n "${NODE_VERSION:-}" ]; then
+  WANTED="$NODE_VERSION"
+else
+  WANTED="v20"
+fi
+NVM_NODE="$(ls -d "$NVM_DIR/versions/node/${WANTED}"* 2>/dev/null | sort -V | tail -1)"
+if [ -n "$NVM_NODE" ] && [ -x "$NVM_NODE/bin/node" ]; then
+  export PATH="$NVM_NODE/bin:$PATH"
+fi
+
 log() { echo "$LOG_PREFIX $(date '+%Y-%m-%d %H:%M:%S') $*" >&2; }
 
 # --- Auto-update check ---
