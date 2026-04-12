@@ -185,6 +185,38 @@ export function createChannelManager(agent, config) {
     },
 
     /**
+     * Send a message to a specific chat on a specific channel.
+     * @param {string} channel
+     * @param {string} chatId
+     * @param {string} text
+     */
+    async sendToChat(channel, chatId, text) {
+      if (channel === "telegram") {
+        for (const [, bot] of telegramBots) {
+          try {
+            await bot.telegram.sendMessage(chatId, text);
+            return;
+          } catch {
+            /* try next bot */
+          }
+        }
+        throw new Error(`No Telegram bot could send to chat ${chatId}`);
+      }
+      if (channel === "feishu" && feishuApp?.client) {
+        await feishuApp.client.im.message.create({
+          params: { receive_id_type: "chat_id" },
+          data: {
+            receive_id: chatId,
+            msg_type: "text",
+            content: JSON.stringify({ text }),
+          },
+        });
+        return;
+      }
+      throw new Error(`Cannot send to channel "${channel}" / chat "${chatId}"`);
+    },
+
+    /**
      * Best-effort fan-out to all known Telegram chats and Feishu chats (from prior inbound traffic).
      * @param {string} message
      */

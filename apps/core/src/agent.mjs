@@ -648,6 +648,96 @@ export function createMyClawAgent(config) {
         });
       }
 
+      tools.register({
+        name: "group_register",
+        description: "注册一个群组并设置其消息类别（digest/debug/alert/study/general）。仅管理员可用。",
+        parameters: {
+          type: "object",
+          properties: {
+            channel: { type: "string", description: "渠道：telegram 或 feishu" },
+            chatId: { type: "string", description: "群组的 chat ID" },
+            category: { type: "string", description: "类别：digest, debug, alert, study, general" },
+            label: { type: "string", description: "可选标签/备注" },
+          },
+          required: ["channel", "chatId", "category"],
+        },
+        handler(args) {
+          if (!groupRouter) throw new Error("群组路由未初始化");
+          const ch = String(args.channel ?? "").trim();
+          const chatId = String(args.chatId ?? "").trim();
+          const cat = String(args.category ?? "").trim();
+          if (!ch || !chatId || !cat) throw new Error("channel, chatId, category 均为必填");
+          const result = groupRouter.registerGroup({
+            channel: ch,
+            externalChatId: chatId,
+            category: cat,
+            label: args.label != null ? String(args.label) : undefined,
+          });
+          return { ok: true, group: result };
+        },
+      });
+
+      tools.register({
+        name: "group_list",
+        description: "列出所有已注册的群组及其类别。",
+        parameters: { type: "object", properties: {} },
+        handler() {
+          if (!groupRouter) throw new Error("群组路由未初始化");
+          return { groups: groupRouter.listAll() };
+        },
+      });
+
+      tools.register({
+        name: "group_push",
+        description: "向指定类别的所有群组推送消息（定向推送）。",
+        parameters: {
+          type: "object",
+          properties: {
+            category: { type: "string", description: "目标类别：digest, debug, alert, study, general" },
+            message: { type: "string", description: "要推送的消息内容" },
+          },
+          required: ["category", "message"],
+        },
+        async handler(args) {
+          if (!groupRouter || !channels) throw new Error("群组路由或频道管理未初始化");
+          const cat = String(args.category ?? "").trim();
+          const msg = String(args.message ?? "").trim();
+          if (!cat || !msg) throw new Error("category 和 message 必填");
+          const targets = groupRouter.getTargets(cat);
+          if (targets.length === 0) return { ok: true, sent: 0, note: `没有 ${cat} 类别的群组` };
+          let sent = 0;
+          for (const t of targets) {
+            try {
+              await channels.sendToChat(t.channel, t.externalChatId, msg);
+              sent += 1;
+            } catch (e) {
+              console.error(`[@myclaw/core] group_push failed: ${t.channel}/${t.externalChatId}`, e);
+            }
+          }
+          return { ok: true, sent, total: targets.length };
+        },
+      });
+
+      tools.register({
+        name: "user_info",
+        description: "查询用户的完整画像（角色、渠道绑定、偏好）。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string", description: "内部用户ID (admin/girlfriend)" },
+          },
+          required: ["userId"],
+        },
+        handler(args) {
+          if (!userManager) throw new Error("用户管理未初始化");
+          const uid = String(args.userId ?? "").trim();
+          if (!uid) throw new Error("userId 必填");
+          const profile = userManager.getFullProfile(uid);
+          if (!profile) return { error: `用户 ${uid} 不存在` };
+          return profile;
+        },
+      });
+
       scheduler = createScheduler();
 
       if (config.proactive.enabled) {
