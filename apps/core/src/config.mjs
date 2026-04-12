@@ -353,15 +353,19 @@ export function loadConfig(configPath, env = process.env) {
   const fsAppId = String(pick(feishu.appId, "") ?? "").trim();
   const fsSecret = String(pick(feishu.appSecret, "") ?? "").trim();
   const fsVerify = String(pick(feishu.verificationToken, "") ?? "").trim();
+  const fsAdminId = String(pick(feishu.adminAppId, "") ?? "").trim();
+  const fsAdminSecret = String(pick(feishu.adminAppSecret, "") ?? "").trim();
+  const hasFsMultiBot = !!(fsAdminId && fsAdminSecret);
+  const hasFsLegacy = !!(fsAppId && fsSecret && fsVerify);
 
   if (channelsOn.telegram && !tgToken && !hasTgMultiBot) {
     throw new Error(
       "channels.telegram 已启用但缺少 telegram.token（或 admin/girlfriend token）：请在配置中设置或导出 TELEGRAM_BOT_TOKEN，或将 channels.telegram / MYCLAW_TELEGRAM 设为关闭",
     );
   }
-  if (channelsOn.feishu && (!fsAppId || !fsSecret || !fsVerify)) {
+  if (channelsOn.feishu && !hasFsLegacy && !hasFsMultiBot) {
     throw new Error(
-      "channels.feishu 已启用但缺少凭证：需要 feishu.appId、feishu.appSecret、feishu.verificationToken（或对应 FEISHU_* 环境变量）",
+      "channels.feishu 已启用但缺少凭证：需要 FEISHU_APP_ID+SECRET+TOKEN（或 FEISHU_ADMIN_APP_ID+SECRET 多Bot模式）",
     );
   }
 
