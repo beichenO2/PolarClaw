@@ -21,6 +21,7 @@ import { checkForModelUpdates } from "@myclaw/evolution";
 import { parseContent } from "@myclaw/content";
 import { myclawGatewayWsUrl } from "@myclaw/gateway";
 import { openUserDb, createUserManager, createGroupRouter } from "@myclaw/users";
+import { createPrivacyController } from "@myclaw/privacy";
 import { createChannelManager } from "./channels.mjs";
 
 /**
@@ -106,6 +107,8 @@ export function createMyClawAgent(config) {
   let userManager = null;
   /** @type {ReturnType<typeof createGroupRouter> | null} */
   let groupRouter = null;
+  /** @type {ReturnType<typeof createPrivacyController> | null} */
+  let privacyController = null;
 
   /**
    * @param {string} lang
@@ -351,8 +354,52 @@ export function createMyClawAgent(config) {
         memoryStore.saveProfile(userId, "lastChannel", channel);
       }
 
+      if (privacyController && /我要输入隐私信息|进入隐私模式|privacy\s*mode/i.test(text)) {
+        const result = await privacyController.enterPrivacyMode(userId);
+        if (!result.ok) {
+          return result.error ?? "无法进入隐私模式";
+        }
+        return "已进入隐私模式 🔒 你的输入将通过本地 LLM 处理，敏感信息不会发送到云端。输入「退出隐私模式」可切换回标准模式。";
+      }
+
+      if (privacyController && /退出隐私模式|exit\s*privacy/i.test(text)) {
+        privacyController.exitPrivacyMode(userId);
+        return "已退出隐私模式。后续消息将使用云端 LLM 处理。";
+      }
+
       try {
-        const reply = await runLlmWithTools(text, userId);
+        let processedText = text;
+        let reply;
+
+        if (privacyController?.isInPrivacyMode(userId)) {
+          const sanitized = privacyController.sanitizeInput(userId, text);
+          if (sanitized.entities.length > 0) {
+            console.error(`[@myclaw/core] Privacy: stripped ${sanitized.entities.length} PII entities`);
+          }
+          processedText = sanitized.sanitized;
+
+          try {
+            const localReply = await privacyController.localChat([
+              { role: "system", content: systemPrompt },
+              { role: "user", content: processedText },
+            ]);
+            reply = privacyController.desanitizeOutput(userId, localReply);
+          } catch (localErr) {
+            console.error("[@myclaw/core] Local LLM failed, falling back to cloud with sanitized input:", localErr);
+            reply = await runLlmWithTools(processedText, userId);
+            reply = privacyController.desanitizeOutput(userId, reply);
+          }
+        } else {
+          if (privacyController?.containsPii(text)) {
+            const sanitized = privacyController.sanitizeInput(userId, text);
+            processedText = sanitized.sanitized;
+            reply = await runLlmWithTools(processedText, userId);
+            reply = privacyController.desanitizeOutput(userId, reply);
+          } else {
+            reply = await runLlmWithTools(text, userId);
+          }
+        }
+
         if (profileManager && userId !== "anonymous") {
           try {
             profileManager.recordInteraction(userId, {
@@ -394,6 +441,11 @@ export function createMyClawAgent(config) {
       if (config.telegram.token) {
         userManager.registerBotForUser({ botToken: config.telegram.token, userId: "admin", channel: "telegram" });
       }
+
+      privacyController = createPrivacyController({
+        ollamaUrl: config.privacy.ollamaUrl,
+        ollamaModel: config.privacy.ollamaModel,
+      });
 
       memoryStore = createMemoryStore(config.memory.dbPath);
       searchEngine = createSearchEngine(memoryStore);
@@ -649,6 +701,48 @@ export function createMyClawAgent(config) {
       }
 
       tools.register({
+        name: "privacy_status",
+        description: "查询当前用户的隐私模式状态和本地 LLM 可用性。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+          },
+          required: ["userId"],
+        },
+        async handler(args) {
+          if (!privacyController) return { error: "隐私控制器未初始化" };
+          const uid = String(args.userId ?? "").trim();
+          const inMode = privacyController.isInPrivacyMode(uid);
+          const localAvail = await privacyController.isLocalLlmAvailable();
+          const vault = privacyController.getVault(uid);
+          return {
+            privacyMode: inMode,
+            localLlmAvailable: localAvail,
+            vaultSize: vault.size,
+          };
+        },
+      });
+
+      tools.register({
+        name: "privacy_clear_vault",
+        description: "清除用户的 PII vault（所有替换映射）。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+          },
+          required: ["userId"],
+        },
+        handler(args) {
+          if (!privacyController) return { error: "隐私控制器未初始化" };
+          const uid = String(args.userId ?? "").trim();
+          privacyController.clearVault(uid);
+          return { ok: true };
+        },
+      });
+
+      tools.register({
         name: "group_register",
         description: "注册一个群组并设置其消息类别（digest/debug/alert/study/general）。仅管理员可用。",
         parameters: {
@@ -823,6 +917,7 @@ export function createMyClawAgent(config) {
       }
       userManager = null;
       groupRouter = null;
+      privacyController = null;
 
       searchEngine = null;
       profileManager = null;

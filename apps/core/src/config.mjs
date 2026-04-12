@@ -150,6 +150,10 @@ function configFromEnv(env) {
       adminName: env.MYCLAW_ADMIN_NAME?.trim() || undefined,
       girlfriendName: env.MYCLAW_GIRLFRIEND_NAME?.trim() || undefined,
     },
+    privacy: {
+      ollamaUrl: env.MYCLAW_OLLAMA_URL?.trim() || undefined,
+      ollamaModel: env.MYCLAW_OLLAMA_MODEL?.trim() || undefined,
+    },
   };
 
   return patch;
@@ -252,6 +256,10 @@ export function loadConfig(configPath, env = process.env) {
       adminName: "管理员",
       girlfriendName: "女友",
     },
+    privacy: {
+      ollamaUrl: "http://127.0.0.1:11434",
+      ollamaModel: "qwen2.5:7b",
+    },
     channels: {
       /** 默认关闭，避免未配置 Bot 时启动失败；需要时在配置或环境中开启。 */
       telegram: false,
@@ -319,6 +327,7 @@ export function loadConfig(configPath, env = process.env) {
   const web = /** @type {Record<string, unknown>} */ (merged.web ?? {});
   const runtime = /** @type {Record<string, unknown>} */ (merged.runtime ?? {});
   const planner = /** @type {Record<string, unknown>} */ (merged.planner ?? {});
+  const privacy = /** @type {Record<string, unknown>} */ (merged.privacy ?? {});
 
   /** @type {Record<string, string>} */
   const models = {
@@ -411,6 +420,10 @@ export function loadConfig(configPath, env = process.env) {
       dbPath: usersDbPath,
       adminName: String(pick(users.adminName, defaults.users.adminName)),
       girlfriendName: String(pick(users.girlfriendName, defaults.users.girlfriendName)),
+    },
+    privacy: {
+      ollamaUrl: String(pick(privacy.ollamaUrl, defaults.privacy.ollamaUrl)),
+      ollamaModel: String(pick(privacy.ollamaModel, defaults.privacy.ollamaModel)),
     },
     channels: channelsOn,
     telegram: {
