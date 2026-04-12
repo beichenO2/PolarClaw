@@ -10,9 +10,9 @@
  */
 export const MYCLAW_DEFAULT_MODEL_BY_INTENT = {
   coding: "qwen3-coder-plus",
-  research: "qwen3.5-plus",
-  vision: "qwen3.5-plus",
-  general: "qwen3.5-plus",
+  research: "qwen3.6-plus",
+  vision: "qwen3.6-plus",
+  general: "qwen3.6-plus",
 };
 
 /**

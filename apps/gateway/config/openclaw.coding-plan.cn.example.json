@@ -10,7 +10,7 @@
   "agents": {
     "defaults": {
       "model": {
-        "primary": "qwen/qwen3.5-plus",
+        "primary": "qwen/qwen3.6-plus",
         "fallbacks": ["qwen/qwen3-coder-next", "qwen/qwen3-coder-plus"]
       }
     }
