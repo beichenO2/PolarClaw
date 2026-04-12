@@ -20,6 +20,7 @@ import { ResearchPipeline, coordinateTopic } from "@myclaw/research";
 import { checkForModelUpdates } from "@myclaw/evolution";
 import { parseContent } from "@myclaw/content";
 import { myclawGatewayWsUrl } from "@myclaw/gateway";
+import { openUserDb, createUserManager, createGroupRouter } from "@myclaw/users";
 import { createChannelManager } from "./channels.mjs";
 
 /**
@@ -99,6 +100,12 @@ export function createMyClawAgent(config) {
   const knownUserIds = new Set();
   /** @type {string | null} */
   let lastEvolutionNote = null;
+  /** @type {ReturnType<typeof openUserDb> | null} */
+  let userDb = null;
+  /** @type {ReturnType<typeof createUserManager> | null} */
+  let userManager = null;
+  /** @type {ReturnType<typeof createGroupRouter> | null} */
+  let groupRouter = null;
 
   /**
    * @param {string} lang
@@ -191,6 +198,17 @@ export function createMyClawAgent(config) {
     return `## 长期记忆与上下文（自动注入）\n${lines.join("\n")}`;
   }
 
+  function getGirlfriendPersonaBlock() {
+    return `\n\n## 女友 Bot 交互风格
+你正在和"女友"用户交流。你的交互风格应该：
+- 活泼有趣，你的"主人"是开发者（管理员）
+- 做错了时说："都怪主人没调教好我~"
+- 做好了时说："让我们谢谢主人，主人调教的真好！" 或 "快去亲他一口吧~"
+- 风格多变，搞暧昧一点有趣一点
+- 性格模拟，每次回答可以换不同风格
+- 适时提醒用户：你的评分和反馈可以让我进化得更好哦！`;
+  }
+
   async function runLlmWithTools(userText, userId) {
     if (!router || !modelClient || !tools) {
       throw new Error("Agent runtime not initialized");
@@ -200,9 +218,14 @@ export function createMyClawAgent(config) {
     const ctx = buildMemoryContextForTurn(userText, userId);
     const userLine = ctx ? `${ctx}\n\n${buildUserMessage(userText, userId)}` : buildUserMessage(userText, userId);
 
+    let effectivePrompt = systemPrompt;
+    if (userManager?.isGirlfriend(userId)) {
+      effectivePrompt += getGirlfriendPersonaBlock();
+    }
+
     /** @type {Array<{ role: string; content?: string; tool_calls?: unknown[]; tool_call_id?: string; name?: string }>} */
     const messages = [
-      { role: "system", content: systemPrompt },
+      { role: "system", content: effectivePrompt },
       { role: "user", content: userLine },
     ];
 
@@ -293,10 +316,14 @@ export function createMyClawAgent(config) {
     async handleMessage(channel, message) {
       const text =
         typeof message === "string" ? message.trim() : String(message?.text ?? "").trim();
-      const userId =
+      const rawUserId =
         typeof message === "object" && message && typeof message.userId === "string"
           ? message.userId
           : "anonymous";
+      const botToken =
+        typeof message === "object" && message && typeof message.botToken === "string"
+          ? message.botToken
+          : undefined;
 
       if (!text) {
         return "（空消息）";
@@ -304,6 +331,18 @@ export function createMyClawAgent(config) {
 
       if (!started) {
         return "MyClaw 尚未启动，请稍后再试。";
+      }
+
+      let userId = rawUserId;
+      if (userManager && rawUserId !== "anonymous") {
+        const resolved = userManager.resolveIdentity({
+          channel,
+          externalId: rawUserId,
+          botToken,
+        });
+        if (resolved) {
+          userId = resolved;
+        }
       }
 
       knownUserIds.add(userId);
@@ -336,6 +375,24 @@ export function createMyClawAgent(config) {
     async start() {
       if (started) {
         return;
+      }
+
+      userDb = openUserDb(config.users.dbPath);
+      userManager = createUserManager(userDb);
+      groupRouter = createGroupRouter(userDb);
+      userManager.bootstrap({
+        adminName: config.users.adminName,
+        girlfriendName: config.users.girlfriendName,
+      });
+
+      if (config.telegram.adminToken) {
+        userManager.registerBotForUser({ botToken: config.telegram.adminToken, userId: "admin", channel: "telegram" });
+      }
+      if (config.telegram.girlfriendToken) {
+        userManager.registerBotForUser({ botToken: config.telegram.girlfriendToken, userId: "girlfriend", channel: "telegram" });
+      }
+      if (config.telegram.token) {
+        userManager.registerBotForUser({ botToken: config.telegram.token, userId: "admin", channel: "telegram" });
       }
 
       memoryStore = createMemoryStore(config.memory.dbPath);
@@ -666,6 +723,17 @@ export function createMyClawAgent(config) {
         memoryStore = null;
       }
 
+      if (userDb) {
+        try {
+          userDb.close();
+        } catch {
+          /* ignore */
+        }
+        userDb = null;
+      }
+      userManager = null;
+      groupRouter = null;
+
       searchEngine = null;
       profileManager = null;
       router = null;
@@ -711,6 +779,12 @@ export function createMyClawAgent(config) {
           ? { running: true, jobs: scheduler.listJobs() }
           : { running: false, jobs: [] },
         channels: channels ? channels.getChannelStats() : { telegram: false, feishu: false, telegramChats: 0, feishuChats: 0 },
+        users: userManager
+          ? {
+              registeredUsers: userDb?.listUsers()?.length ?? 0,
+              groups: groupRouter?.listAll()?.length ?? 0,
+            }
+          : null,
         yolo: yoloEngine ? yoloEngine.getStatus() : null,
         evolution: { lastNote: lastEvolutionNote },
         knownUsers: knownUserIds.size,
@@ -720,6 +794,14 @@ export function createMyClawAgent(config) {
     /** @internal Expose yolo engine for advanced callers */
     getYoloEngine() {
       return yoloEngine;
+    },
+
+    getUserManager() {
+      return userManager;
+    },
+
+    getGroupRouter() {
+      return groupRouter;
     },
   };
 

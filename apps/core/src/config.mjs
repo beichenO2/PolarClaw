@@ -94,6 +94,8 @@ function configFromEnv(env) {
     },
     telegram: {
       token: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
+      adminToken: env.TELEGRAM_ADMIN_BOT_TOKEN?.trim() || undefined,
+      girlfriendToken: env.TELEGRAM_GIRLFRIEND_BOT_TOKEN?.trim() || undefined,
       allowFrom: env.TELEGRAM_ALLOW_FROM?.trim()
         ? env.TELEGRAM_ALLOW_FROM.split(",")
             .map((s) => s.trim())
@@ -106,6 +108,10 @@ function configFromEnv(env) {
       verificationToken: env.FEISHU_VERIFICATION_TOKEN?.trim() || undefined,
       encryptKey: env.FEISHU_ENCRYPT_KEY?.trim() || undefined,
       domain: env.FEISHU_DOMAIN?.trim() || undefined,
+      adminAppId: env.FEISHU_ADMIN_APP_ID?.trim() || undefined,
+      adminAppSecret: env.FEISHU_ADMIN_APP_SECRET?.trim() || undefined,
+      girlfriendAppId: env.FEISHU_GIRLFRIEND_APP_ID?.trim() || undefined,
+      girlfriendAppSecret: env.FEISHU_GIRLFRIEND_APP_SECRET?.trim() || undefined,
       allowFrom: env.FEISHU_ALLOW_FROM?.trim()
         ? env.FEISHU_ALLOW_FROM.split(",")
             .map((s) => s.trim())
@@ -138,6 +144,11 @@ function configFromEnv(env) {
     },
     planner: {
       enabled: env.MYCLAW_PLANNER === "0" ? false : undefined,
+    },
+    users: {
+      dbPath: env.MYCLAW_USERS_DB?.trim() || undefined,
+      adminName: env.MYCLAW_ADMIN_NAME?.trim() || undefined,
+      girlfriendName: env.MYCLAW_GIRLFRIEND_NAME?.trim() || undefined,
     },
   };
 
@@ -236,6 +247,11 @@ export function loadConfig(configPath, env = process.env) {
     content: {
       enabled: true,
     },
+    users: {
+      dbPath: resolve(process.cwd(), "data", "myclaw-users.db"),
+      adminName: "管理员",
+      girlfriendName: "女友",
+    },
     channels: {
       /** 默认关闭，避免未配置 Bot 时启动失败；需要时在配置或环境中开启。 */
       telegram: false,
@@ -243,6 +259,8 @@ export function loadConfig(configPath, env = process.env) {
     },
     telegram: {
       token: "",
+      adminToken: "",
+      girlfriendToken: "",
       allowFrom: /** @type {string[]} */ ([]),
     },
     feishu: {
@@ -312,14 +330,22 @@ export function loadConfig(configPath, env = process.env) {
     telegram: pickBool(channels.telegram, false),
     feishu: pickBool(channels.feishu, false),
   };
+  const users = /** @type {Record<string, unknown>} */ (merged.users ?? {});
+  const usersDbPath = resolve(
+    String(pick(users.dbPath, defaults.users.dbPath)),
+  );
+
   const tgToken = String(pick(telegram.token, "") ?? "").trim();
+  const tgAdminToken = String(pick(telegram.adminToken, "") ?? "").trim();
+  const tgGirlfriendToken = String(pick(telegram.girlfriendToken, "") ?? "").trim();
+  const hasTgMultiBot = !!(tgAdminToken || tgGirlfriendToken);
   const fsAppId = String(pick(feishu.appId, "") ?? "").trim();
   const fsSecret = String(pick(feishu.appSecret, "") ?? "").trim();
   const fsVerify = String(pick(feishu.verificationToken, "") ?? "").trim();
 
-  if (channelsOn.telegram && !tgToken) {
+  if (channelsOn.telegram && !tgToken && !hasTgMultiBot) {
     throw new Error(
-      "channels.telegram 已启用但缺少 telegram.token：请在配置中设置或导出 TELEGRAM_BOT_TOKEN，或将 channels.telegram / MYCLAW_TELEGRAM 设为关闭",
+      "channels.telegram 已启用但缺少 telegram.token（或 admin/girlfriend token）：请在配置中设置或导出 TELEGRAM_BOT_TOKEN，或将 channels.telegram / MYCLAW_TELEGRAM 设为关闭",
     );
   }
   if (channelsOn.feishu && (!fsAppId || !fsSecret || !fsVerify)) {
@@ -381,9 +407,16 @@ export function loadConfig(configPath, env = process.env) {
     },
     yolo: { enabled: pickBool(yolo.enabled, true) },
     content: { enabled: pickBool(content.enabled, true) },
+    users: {
+      dbPath: usersDbPath,
+      adminName: String(pick(users.adminName, defaults.users.adminName)),
+      girlfriendName: String(pick(users.girlfriendName, defaults.users.girlfriendName)),
+    },
     channels: channelsOn,
     telegram: {
       token: tgToken,
+      adminToken: tgAdminToken,
+      girlfriendToken: tgGirlfriendToken,
       allowFrom: new Set(
         Array.isArray(telegram.allowFrom)
           ? telegram.allowFrom.map(String)

@@ -10,12 +10,12 @@ import { createFeishuBot } from "@myclaw/feishu";
  */
 
 /**
- * @param {{ handleMessage: (channel: string, message: string | { text: string; userId?: string }) => Promise<string> }} agent
+ * @param {{ handleMessage: (channel: string, message: string | { text: string; userId?: string; botToken?: string }) => Promise<string> }} agent
  * @param {ResolvedConfig} config
  */
 export function createChannelManager(agent, config) {
-  /** @type {import('telegraf').Telegraf | null} */
-  let telegramBot = null;
+  /** @type {Map<string, import('telegraf').Telegraf>} */
+  const telegramBots = new Map();
   /** @type {Set<string>} */
   const telegramChatIds = new Set();
   /** @type {ReturnType<import('@myclaw/feishu').createFeishuBot> | null} */
@@ -40,19 +40,11 @@ export function createChannelManager(agent, config) {
 
   return {
     /**
-     * Start Telegram long-polling when token is configured and channels.telegram is enabled.
-     * @returns {Promise<{ stop: () => Promise<void> } | null>}
+     * Launch a single Telegram bot instance.
+     * @param {string} token
+     * @param {string} label
      */
-    async registerTelegram() {
-      if (!config.channels.telegram) {
-        return null;
-      }
-      const token = config.telegram.token?.trim();
-      if (!token) {
-        console.error("[@myclaw/core] Telegram skipped: missing telegram.token / TELEGRAM_BOT_TOKEN");
-        return null;
-      }
-
+    async launchTelegramBot(token, label) {
       const bot = createTelegrafBot(
         { token, allowFrom: config.telegram.allowFrom },
         {
@@ -60,7 +52,7 @@ export function createChannelManager(agent, config) {
             const chatId = String(ctx.chat?.id ?? "");
             const uid = String(ctx.from?.id ?? chatId);
             trackTelegramChat(chatId);
-            const replyText = await agent.handleMessage("telegram", { text, userId: uid });
+            const replyText = await agent.handleMessage("telegram", { text, userId: uid, botToken: token });
             await ctx.reply(replyText);
           },
           async onUserDocument(ctx, meta) {
@@ -73,21 +65,55 @@ export function createChannelManager(agent, config) {
               return;
             }
             const hint = `[用户上传文件] ${meta.fileName}（${meta.mimeType ?? "unknown"}）`;
-            const replyText = await agent.handleMessage("telegram", { text: hint, userId: uid });
+            const replyText = await agent.handleMessage("telegram", { text: hint, userId: uid, botToken: token });
             await ctx.reply(replyText);
           },
         },
       );
 
-      telegramBot = bot;
+      telegramBots.set(label, bot);
       await bot.launch();
-      console.error("[@myclaw/core] Telegram polling started");
+      console.error(`[@myclaw/core] Telegram bot "${label}" polling started`);
+    },
+
+    /**
+     * Start Telegram long-polling. Supports multi-bot (admin + girlfriend) or single legacy token.
+     * @returns {Promise<{ stop: () => Promise<void> } | null>}
+     */
+    async registerTelegram() {
+      if (!config.channels.telegram) {
+        return null;
+      }
+
+      const hasMulti = !!(config.telegram.adminToken || config.telegram.girlfriendToken);
+      const hasLegacy = !!config.telegram.token;
+
+      if (!hasMulti && !hasLegacy) {
+        console.error("[@myclaw/core] Telegram skipped: no tokens configured");
+        return null;
+      }
+
+      if (hasMulti) {
+        if (config.telegram.adminToken) {
+          await this.launchTelegramBot(config.telegram.adminToken, "admin");
+        }
+        if (config.telegram.girlfriendToken) {
+          await this.launchTelegramBot(config.telegram.girlfriendToken, "girlfriend");
+        }
+      } else {
+        await this.launchTelegramBot(config.telegram.token, "default");
+      }
+
       return {
         async stop() {
-          if (telegramBot) {
-            await telegramBot.stop();
-            telegramBot = null;
+          for (const [label, bot] of telegramBots) {
+            try {
+              await bot.stop();
+            } catch (e) {
+              console.error(`[@myclaw/core] Telegram bot "${label}" stop error:`, e);
+            }
           }
+          telegramBots.clear();
         },
       };
     },
@@ -166,10 +192,10 @@ export function createChannelManager(agent, config) {
       const text = String(message ?? "");
       if (!text) return;
 
-      if (telegramBot) {
+      for (const [, bot] of telegramBots) {
         for (const chatId of telegramChatIds) {
           try {
-            await telegramBot.telegram.sendMessage(chatId, text);
+            await bot.telegram.sendMessage(chatId, text);
           } catch (e) {
             console.error(`[@myclaw/core] Telegram broadcast failed for ${chatId}:`, e);
           }
@@ -194,10 +220,11 @@ export function createChannelManager(agent, config) {
       }
     },
 
-    /** @returns {{ telegram: boolean; feishu: boolean; telegramChats: number; feishuChats: number }} */
+    /** @returns {{ telegram: boolean; telegramBotCount: number; feishu: boolean; telegramChats: number; feishuChats: number }} */
     getChannelStats() {
       return {
-        telegram: telegramBot != null,
+        telegram: telegramBots.size > 0,
+        telegramBotCount: telegramBots.size,
         feishu: feishuApp != null,
         telegramChats: telegramChatIds.size,
         feishuChats: feishuChatIds.size,
