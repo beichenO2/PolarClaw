@@ -1,0 +1,16 @@
+{
+  "name": "@myclaw/feishu",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "MyClaw Feishu / Lark bot — messages, files, interactive cards, task notifications",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.mjs"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.0.0"
+  }
+}

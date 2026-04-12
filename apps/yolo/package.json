@@ -1,0 +1,12 @@
+{
+  "name": "@myclaw/yolo",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "MyClaw YOLO layer — autonomous execution and recovery",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  }
+}

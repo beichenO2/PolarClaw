@@ -1,0 +1,10 @@
+{
+  "name": "@myclaw/integrations",
+  "version": "0.1.0",
+  "description": "External project integration adapters (Digest, KnowLeverage, LLMWiki, AutoOffice)",
+  "type": "module",
+  "main": "src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs"
+  }
+}

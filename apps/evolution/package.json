@@ -1,0 +1,23 @@
+{
+  "name": "@myclaw/evolution",
+  "version": "0.0.1",
+  "description": "MyClaw evolution: skill synthesis, AI news scanning, model catalog drift checks",
+  "type": "module",
+  "main": "./src/index.mjs",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./skill-gen": "./src/skill-gen.mjs",
+    "./scanner": "./src/scanner.mjs",
+    "./model-updater": "./src/model-updater.mjs"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@myclaw/research",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "MyClaw deep research engine — Coordinator → Planner → Reporter (DeerFlow-style pipeline)",
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.mjs"
+  }
+}

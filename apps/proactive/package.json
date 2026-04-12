@@ -1,0 +1,12 @@
+{
+  "name": "@myclaw/proactive",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "MyClaw proactive layer — scheduler and care engine",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  }
+}

@@ -1,6 +1,15 @@
+.env
+.env.local
 node_modules/
 dist/
 .DS_Store
 *.log
+.data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 venv/
 __pycache__/
+gsd-2/
+.planning/reports/
+.planning/hub/

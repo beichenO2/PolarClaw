@@ -1,0 +1,16 @@
+{
+  "name": "myclaw",
+  "private": true,
+  "version": "0.0.1",
+  "description": "MyClaw — AI agent fusion platform (OpenClaw + DeerFlow + Hermes)",
+  "scripts": {
+    "start": "node start.mjs",
+    "test": "bash scripts/test-all.sh",
+    "dev:web": "cd apps/web && npm run dev",
+    "build:web": "cd apps/web && npm run build",
+    "lint": "echo 'TODO: add linting'"
+  },
+  "workspaces": [
+    "apps/*"
+  ]
+}

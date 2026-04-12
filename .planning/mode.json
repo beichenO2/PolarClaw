@@ -1,0 +1,8 @@
+{
+  "mode": "cluster",
+  "max_sub_agents": 3,
+  "model": "GPT-5.4 Extra High Fast",
+  "resolved_model": "GPT-5.4 Extra High Fast",
+  "chosen_at": "2026-04-10T12:50:00+08:00",
+  "round": 2
+}

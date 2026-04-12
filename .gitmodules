@@ -1,0 +1,9 @@
+[submodule "openclaw"]
+	path = openclaw
+	url = git@github.com:jiulingyun/openclaw-cn.git
+[submodule "deer-flow"]
+	path = deer-flow
+	url = git@github.com:bytedance/deer-flow.git
+[submodule "hermes-agent"]
+	path = hermes-agent
+	url = git@github.com:NousResearch/hermes-agent.git
