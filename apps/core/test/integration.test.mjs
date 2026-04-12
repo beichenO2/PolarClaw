@@ -57,7 +57,7 @@ test("LLM router: coding / research / vision intents map to expected models", ()
     { lastUserOnly: true },
   );
   assert.equal(research.intent, "research");
-  assert.equal(research.model, "qwen/qwen3.6-plus");
+  assert.equal(research.model, "qwen/qwen3.5-plus");
 
   const vision = router.resolveModelForMessages(
     [{ role: "user", content: "describe this screenshot png image" }],

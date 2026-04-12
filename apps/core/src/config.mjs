@@ -94,8 +94,6 @@ function configFromEnv(env) {
     },
     telegram: {
       token: env.TELEGRAM_BOT_TOKEN?.trim() || undefined,
-      adminToken: env.TELEGRAM_ADMIN_BOT_TOKEN?.trim() || undefined,
-      girlfriendToken: env.TELEGRAM_GIRLFRIEND_BOT_TOKEN?.trim() || undefined,
       allowFrom: env.TELEGRAM_ALLOW_FROM?.trim()
         ? env.TELEGRAM_ALLOW_FROM.split(",")
             .map((s) => s.trim())
@@ -108,12 +106,6 @@ function configFromEnv(env) {
       verificationToken: env.FEISHU_VERIFICATION_TOKEN?.trim() || undefined,
       encryptKey: env.FEISHU_ENCRYPT_KEY?.trim() || undefined,
       domain: env.FEISHU_DOMAIN?.trim() || undefined,
-      adminAppId: env.FEISHU_ADMIN_APP_ID?.trim() || undefined,
-      adminAppSecret: env.FEISHU_ADMIN_APP_SECRET?.trim() || undefined,
-      girlfriendAppId: env.FEISHU_GIRLFRIEND_APP_ID?.trim() || undefined,
-      girlfriendAppSecret: env.FEISHU_GIRLFRIEND_APP_SECRET?.trim() || undefined,
-      girlfriendVerificationToken: env.FEISHU_GIRLFRIEND_VERIFICATION_TOKEN?.trim() || undefined,
-      girlfriendEncryptKey: env.FEISHU_GIRLFRIEND_ENCRYPT_KEY?.trim() || undefined,
       allowFrom: env.FEISHU_ALLOW_FROM?.trim()
         ? env.FEISHU_ALLOW_FROM.split(",")
             .map((s) => s.trim())
@@ -146,15 +138,6 @@ function configFromEnv(env) {
     },
     planner: {
       enabled: env.MYCLAW_PLANNER === "0" ? false : undefined,
-    },
-    users: {
-      dbPath: env.MYCLAW_USERS_DB?.trim() || undefined,
-      adminName: env.MYCLAW_ADMIN_NAME?.trim() || undefined,
-      girlfriendName: env.MYCLAW_GIRLFRIEND_NAME?.trim() || undefined,
-    },
-    privacy: {
-      ollamaUrl: env.MYCLAW_OLLAMA_URL?.trim() || undefined,
-      ollamaModel: env.MYCLAW_OLLAMA_MODEL?.trim() || undefined,
     },
   };
 
@@ -253,15 +236,6 @@ export function loadConfig(configPath, env = process.env) {
     content: {
       enabled: true,
     },
-    users: {
-      dbPath: resolve(process.cwd(), "data", "myclaw-users.db"),
-      adminName: "管理员",
-      girlfriendName: "女友",
-    },
-    privacy: {
-      ollamaUrl: "http://127.0.0.1:11434",
-      ollamaModel: "qwen2.5:7b",
-    },
     channels: {
       /** 默认关闭，避免未配置 Bot 时启动失败；需要时在配置或环境中开启。 */
       telegram: false,
@@ -269,8 +243,6 @@ export function loadConfig(configPath, env = process.env) {
     },
     telegram: {
       token: "",
-      adminToken: "",
-      girlfriendToken: "",
       allowFrom: /** @type {string[]} */ ([]),
     },
     feishu: {
@@ -329,7 +301,6 @@ export function loadConfig(configPath, env = process.env) {
   const web = /** @type {Record<string, unknown>} */ (merged.web ?? {});
   const runtime = /** @type {Record<string, unknown>} */ (merged.runtime ?? {});
   const planner = /** @type {Record<string, unknown>} */ (merged.planner ?? {});
-  const privacy = /** @type {Record<string, unknown>} */ (merged.privacy ?? {});
 
   /** @type {Record<string, string>} */
   const models = {
@@ -341,31 +312,19 @@ export function loadConfig(configPath, env = process.env) {
     telegram: pickBool(channels.telegram, false),
     feishu: pickBool(channels.feishu, false),
   };
-  const users = /** @type {Record<string, unknown>} */ (merged.users ?? {});
-  const usersDbPath = resolve(
-    String(pick(users.dbPath, defaults.users.dbPath)),
-  );
-
   const tgToken = String(pick(telegram.token, "") ?? "").trim();
-  const tgAdminToken = String(pick(telegram.adminToken, "") ?? "").trim();
-  const tgGirlfriendToken = String(pick(telegram.girlfriendToken, "") ?? "").trim();
-  const hasTgMultiBot = !!(tgAdminToken || tgGirlfriendToken);
   const fsAppId = String(pick(feishu.appId, "") ?? "").trim();
   const fsSecret = String(pick(feishu.appSecret, "") ?? "").trim();
   const fsVerify = String(pick(feishu.verificationToken, "") ?? "").trim();
-  const fsAdminId = String(pick(feishu.adminAppId, "") ?? "").trim();
-  const fsAdminSecret = String(pick(feishu.adminAppSecret, "") ?? "").trim();
-  const hasFsMultiBot = !!(fsAdminId && fsAdminSecret);
-  const hasFsLegacy = !!(fsAppId && fsSecret && fsVerify);
 
-  if (channelsOn.telegram && !tgToken && !hasTgMultiBot) {
+  if (channelsOn.telegram && !tgToken) {
     throw new Error(
-      "channels.telegram 已启用但缺少 telegram.token（或 admin/girlfriend token）：请在配置中设置或导出 TELEGRAM_BOT_TOKEN，或将 channels.telegram / MYCLAW_TELEGRAM 设为关闭",
+      "channels.telegram 已启用但缺少 telegram.token：请在配置中设置或导出 TELEGRAM_BOT_TOKEN，或将 channels.telegram / MYCLAW_TELEGRAM 设为关闭",
     );
   }
-  if (channelsOn.feishu && !hasFsLegacy && !hasFsMultiBot) {
+  if (channelsOn.feishu && (!fsAppId || !fsSecret || !fsVerify)) {
     throw new Error(
-      "channels.feishu 已启用但缺少凭证：需要 FEISHU_APP_ID+SECRET+TOKEN（或 FEISHU_ADMIN_APP_ID+SECRET 多Bot模式）",
+      "channels.feishu 已启用但缺少凭证：需要 feishu.appId、feishu.appSecret、feishu.verificationToken（或对应 FEISHU_* 环境变量）",
     );
   }
 
@@ -422,20 +381,9 @@ export function loadConfig(configPath, env = process.env) {
     },
     yolo: { enabled: pickBool(yolo.enabled, true) },
     content: { enabled: pickBool(content.enabled, true) },
-    users: {
-      dbPath: usersDbPath,
-      adminName: String(pick(users.adminName, defaults.users.adminName)),
-      girlfriendName: String(pick(users.girlfriendName, defaults.users.girlfriendName)),
-    },
-    privacy: {
-      ollamaUrl: String(pick(privacy.ollamaUrl, defaults.privacy.ollamaUrl)),
-      ollamaModel: String(pick(privacy.ollamaModel, defaults.privacy.ollamaModel)),
-    },
     channels: channelsOn,
     telegram: {
       token: tgToken,
-      adminToken: tgAdminToken,
-      girlfriendToken: tgGirlfriendToken,
       allowFrom: new Set(
         Array.isArray(telegram.allowFrom)
           ? telegram.allowFrom.map(String)
@@ -447,12 +395,6 @@ export function loadConfig(configPath, env = process.env) {
       appSecret: String(pick(feishu.appSecret, "") ?? ""),
       verificationToken: String(pick(feishu.verificationToken, "") ?? ""),
       encryptKey: String(pick(feishu.encryptKey, "") ?? ""),
-      adminAppId: String(pick(feishu.adminAppId, "") ?? ""),
-      adminAppSecret: String(pick(feishu.adminAppSecret, "") ?? ""),
-      girlfriendAppId: String(pick(feishu.girlfriendAppId, "") ?? ""),
-      girlfriendAppSecret: String(pick(feishu.girlfriendAppSecret, "") ?? ""),
-      girlfriendVerificationToken: String(pick(feishu.girlfriendVerificationToken, "") ?? ""),
-      girlfriendEncryptKey: String(pick(feishu.girlfriendEncryptKey, "") ?? ""),
       domain: String(pick(feishu.domain, "feishu")),
       allowFrom: new Set(
         Array.isArray(feishu.allowFrom) ? feishu.allowFrom.map(String) : [],

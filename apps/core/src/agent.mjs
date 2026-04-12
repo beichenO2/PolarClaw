@@ -14,14 +14,12 @@ import {
   formatMemoryContextBlock,
   getLobsterRuntimeBlock,
 } from "@myclaw/runtime";
-import { createScheduler, createCareEngine, createSupervisionEngine } from "@myclaw/proactive";
+import { createScheduler, createCareEngine } from "@myclaw/proactive";
 import { createYoloEngine } from "@myclaw/yolo";
 import { ResearchPipeline, coordinateTopic } from "@myclaw/research";
 import { checkForModelUpdates } from "@myclaw/evolution";
 import { parseContent } from "@myclaw/content";
 import { myclawGatewayWsUrl } from "@myclaw/gateway";
-import { openUserDb, createUserManager, createGroupRouter } from "@myclaw/users";
-import { createPrivacyController } from "@myclaw/privacy";
 import { createChannelManager } from "./channels.mjs";
 
 /**
@@ -97,23 +95,10 @@ export function createMyClawAgent(config) {
   let started = false;
   /** @type {number | null} */
   let startedAt = null;
-  let emergencyStopActive = false;
-  /** @type {AbortController | null} */
-  let currentAbortController = null;
   /** @type {Set<string>} */
   const knownUserIds = new Set();
   /** @type {string | null} */
   let lastEvolutionNote = null;
-  /** @type {ReturnType<typeof openUserDb> | null} */
-  let userDb = null;
-  /** @type {ReturnType<typeof createUserManager> | null} */
-  let userManager = null;
-  /** @type {ReturnType<typeof createGroupRouter> | null} */
-  let groupRouter = null;
-  /** @type {ReturnType<typeof createPrivacyController> | null} */
-  let privacyController = null;
-  /** @type {ReturnType<typeof createSupervisionEngine> | null} */
-  let supervisionEngine = null;
 
   /**
    * @param {string} lang
@@ -206,17 +191,6 @@ export function createMyClawAgent(config) {
     return `## 长期记忆与上下文（自动注入）\n${lines.join("\n")}`;
   }
 
-  function getGirlfriendPersonaBlock() {
-    return `\n\n## 女友 Bot 交互风格
-你正在和"女友"用户交流。你的交互风格应该：
-- 活泼有趣，你的"主人"是开发者（管理员）
-- 做错了时说："都怪主人没调教好我~"
-- 做好了时说："让我们谢谢主人，主人调教的真好！" 或 "快去亲他一口吧~"
-- 风格多变，搞暧昧一点有趣一点
-- 性格模拟，每次回答可以换不同风格
-- 适时提醒用户：你的评分和反馈可以让我进化得更好哦！`;
-  }
-
   async function runLlmWithTools(userText, userId) {
     if (!router || !modelClient || !tools) {
       throw new Error("Agent runtime not initialized");
@@ -226,14 +200,9 @@ export function createMyClawAgent(config) {
     const ctx = buildMemoryContextForTurn(userText, userId);
     const userLine = ctx ? `${ctx}\n\n${buildUserMessage(userText, userId)}` : buildUserMessage(userText, userId);
 
-    let effectivePrompt = systemPrompt;
-    if (userManager?.isGirlfriend(userId)) {
-      effectivePrompt += getGirlfriendPersonaBlock();
-    }
-
     /** @type {Array<{ role: string; content?: string; tool_calls?: unknown[]; tool_call_id?: string; name?: string }>} */
     const messages = [
-      { role: "system", content: effectivePrompt },
+      { role: "system", content: systemPrompt },
       { role: "user", content: userLine },
     ];
 
@@ -324,14 +293,10 @@ export function createMyClawAgent(config) {
     async handleMessage(channel, message) {
       const text =
         typeof message === "string" ? message.trim() : String(message?.text ?? "").trim();
-      const rawUserId =
+      const userId =
         typeof message === "object" && message && typeof message.userId === "string"
           ? message.userId
           : "anonymous";
-      const botToken =
-        typeof message === "object" && message && typeof message.botToken === "string"
-          ? message.botToken
-          : undefined;
 
       if (!text) {
         return "（空消息）";
@@ -341,84 +306,14 @@ export function createMyClawAgent(config) {
         return "MyClaw 尚未启动，请稍后再试。";
       }
 
-      if (/^\[card action\].*"action"\s*:\s*"emergency_stop"/i.test(text) ||
-          /^紧急停车|^停车|^emergency\s*stop|^abort/i.test(text)) {
-        emergencyStopActive = true;
-        if (currentAbortController) currentAbortController.abort();
-        console.error("[@myclaw/core] ⛔ EMERGENCY STOP activated by user");
-        return "⛔ 紧急停车已激活。所有正在执行的任务已终止。发送任意消息恢复。";
-      }
-
-      if (emergencyStopActive) {
-        emergencyStopActive = false;
-        console.error("[@myclaw/core] Emergency stop cleared, resuming normal operation");
-        return "✅ 已恢复正常模式。" + (text.length > 2 ? `\n\n关于你的消息：${text}` : "");
-      }
-
-      let userId = rawUserId;
-      if (userManager && rawUserId !== "anonymous") {
-        const resolved = userManager.resolveIdentity({
-          channel,
-          externalId: rawUserId,
-          botToken,
-        });
-        if (resolved) {
-          userId = resolved;
-        }
-      }
-
       knownUserIds.add(userId);
       if (memoryStore && userId !== "anonymous") {
         memoryStore.saveProfile(userId, "lastActiveAt", new Date().toISOString());
         memoryStore.saveProfile(userId, "lastChannel", channel);
       }
 
-      if (privacyController && /我要输入隐私信息|进入隐私模式|privacy\s*mode/i.test(text)) {
-        const result = await privacyController.enterPrivacyMode(userId);
-        if (!result.ok) {
-          return result.error ?? "无法进入隐私模式";
-        }
-        return "已进入隐私模式 🔒 你的输入将通过本地 LLM 处理，敏感信息不会发送到云端。输入「退出隐私模式」可切换回标准模式。";
-      }
-
-      if (privacyController && /退出隐私模式|exit\s*privacy/i.test(text)) {
-        privacyController.exitPrivacyMode(userId);
-        return "已退出隐私模式。后续消息将使用云端 LLM 处理。";
-      }
-
       try {
-        let processedText = text;
-        let reply;
-
-        if (privacyController?.isInPrivacyMode(userId)) {
-          const sanitized = privacyController.sanitizeInput(userId, text);
-          if (sanitized.entities.length > 0) {
-            console.error(`[@myclaw/core] Privacy: stripped ${sanitized.entities.length} PII entities`);
-          }
-          processedText = sanitized.sanitized;
-
-          try {
-            const localReply = await privacyController.localChat([
-              { role: "system", content: systemPrompt },
-              { role: "user", content: processedText },
-            ]);
-            reply = privacyController.desanitizeOutput(userId, localReply);
-          } catch (localErr) {
-            console.error("[@myclaw/core] Local LLM failed, falling back to cloud with sanitized input:", localErr);
-            reply = await runLlmWithTools(processedText, userId);
-            reply = privacyController.desanitizeOutput(userId, reply);
-          }
-        } else {
-          if (privacyController?.containsPii(text)) {
-            const sanitized = privacyController.sanitizeInput(userId, text);
-            processedText = sanitized.sanitized;
-            reply = await runLlmWithTools(processedText, userId);
-            reply = privacyController.desanitizeOutput(userId, reply);
-          } else {
-            reply = await runLlmWithTools(text, userId);
-          }
-        }
-
+        const reply = await runLlmWithTools(text, userId);
         if (profileManager && userId !== "anonymous") {
           try {
             profileManager.recordInteraction(userId, {
@@ -442,29 +337,6 @@ export function createMyClawAgent(config) {
       if (started) {
         return;
       }
-
-      userDb = openUserDb(config.users.dbPath);
-      userManager = createUserManager(userDb);
-      groupRouter = createGroupRouter(userDb);
-      userManager.bootstrap({
-        adminName: config.users.adminName,
-        girlfriendName: config.users.girlfriendName,
-      });
-
-      if (config.telegram.adminToken) {
-        userManager.registerBotForUser({ botToken: config.telegram.adminToken, userId: "admin", channel: "telegram" });
-      }
-      if (config.telegram.girlfriendToken) {
-        userManager.registerBotForUser({ botToken: config.telegram.girlfriendToken, userId: "girlfriend", channel: "telegram" });
-      }
-      if (config.telegram.token) {
-        userManager.registerBotForUser({ botToken: config.telegram.token, userId: "admin", channel: "telegram" });
-      }
-
-      privacyController = createPrivacyController({
-        ollamaUrl: config.privacy.ollamaUrl,
-        ollamaModel: config.privacy.ollamaModel,
-      });
 
       memoryStore = createMemoryStore(config.memory.dbPath);
       searchEngine = createSearchEngine(memoryStore);
@@ -719,138 +591,6 @@ export function createMyClawAgent(config) {
         });
       }
 
-      tools.register({
-        name: "privacy_status",
-        description: "查询当前用户的隐私模式状态和本地 LLM 可用性。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-          },
-          required: ["userId"],
-        },
-        async handler(args) {
-          if (!privacyController) return { error: "隐私控制器未初始化" };
-          const uid = String(args.userId ?? "").trim();
-          const inMode = privacyController.isInPrivacyMode(uid);
-          const localAvail = await privacyController.isLocalLlmAvailable();
-          const vault = privacyController.getVault(uid);
-          return {
-            privacyMode: inMode,
-            localLlmAvailable: localAvail,
-            vaultSize: vault.size,
-          };
-        },
-      });
-
-      tools.register({
-        name: "privacy_clear_vault",
-        description: "清除用户的 PII vault（所有替换映射）。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-          },
-          required: ["userId"],
-        },
-        handler(args) {
-          if (!privacyController) return { error: "隐私控制器未初始化" };
-          const uid = String(args.userId ?? "").trim();
-          privacyController.clearVault(uid);
-          return { ok: true };
-        },
-      });
-
-      tools.register({
-        name: "group_register",
-        description: "注册一个群组并设置其消息类别（digest/debug/alert/study/general）。仅管理员可用。",
-        parameters: {
-          type: "object",
-          properties: {
-            channel: { type: "string", description: "渠道：telegram 或 feishu" },
-            chatId: { type: "string", description: "群组的 chat ID" },
-            category: { type: "string", description: "类别：digest, debug, alert, study, general" },
-            label: { type: "string", description: "可选标签/备注" },
-          },
-          required: ["channel", "chatId", "category"],
-        },
-        handler(args) {
-          if (!groupRouter) throw new Error("群组路由未初始化");
-          const ch = String(args.channel ?? "").trim();
-          const chatId = String(args.chatId ?? "").trim();
-          const cat = String(args.category ?? "").trim();
-          if (!ch || !chatId || !cat) throw new Error("channel, chatId, category 均为必填");
-          const result = groupRouter.registerGroup({
-            channel: ch,
-            externalChatId: chatId,
-            category: cat,
-            label: args.label != null ? String(args.label) : undefined,
-          });
-          return { ok: true, group: result };
-        },
-      });
-
-      tools.register({
-        name: "group_list",
-        description: "列出所有已注册的群组及其类别。",
-        parameters: { type: "object", properties: {} },
-        handler() {
-          if (!groupRouter) throw new Error("群组路由未初始化");
-          return { groups: groupRouter.listAll() };
-        },
-      });
-
-      tools.register({
-        name: "group_push",
-        description: "向指定类别的所有群组推送消息（定向推送）。",
-        parameters: {
-          type: "object",
-          properties: {
-            category: { type: "string", description: "目标类别：digest, debug, alert, study, general" },
-            message: { type: "string", description: "要推送的消息内容" },
-          },
-          required: ["category", "message"],
-        },
-        async handler(args) {
-          if (!groupRouter || !channels) throw new Error("群组路由或频道管理未初始化");
-          const cat = String(args.category ?? "").trim();
-          const msg = String(args.message ?? "").trim();
-          if (!cat || !msg) throw new Error("category 和 message 必填");
-          const targets = groupRouter.getTargets(cat);
-          if (targets.length === 0) return { ok: true, sent: 0, note: `没有 ${cat} 类别的群组` };
-          let sent = 0;
-          for (const t of targets) {
-            try {
-              await channels.sendToChat(t.channel, t.externalChatId, msg);
-              sent += 1;
-            } catch (e) {
-              console.error(`[@myclaw/core] group_push failed: ${t.channel}/${t.externalChatId}`, e);
-            }
-          }
-          return { ok: true, sent, total: targets.length };
-        },
-      });
-
-      tools.register({
-        name: "user_info",
-        description: "查询用户的完整画像（角色、渠道绑定、偏好）。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string", description: "内部用户ID (admin/girlfriend)" },
-          },
-          required: ["userId"],
-        },
-        handler(args) {
-          if (!userManager) throw new Error("用户管理未初始化");
-          const uid = String(args.userId ?? "").trim();
-          if (!uid) throw new Error("userId 必填");
-          const profile = userManager.getFullProfile(uid);
-          if (!profile) return { error: `用户 ${uid} 不存在` };
-          return profile;
-        },
-      });
-
       scheduler = createScheduler();
 
       if (config.proactive.enabled) {
@@ -879,162 +619,6 @@ export function createMyClawAgent(config) {
       }
 
       scheduler.start();
-
-      supervisionEngine = createSupervisionEngine({
-        timeZone: "Asia/Shanghai",
-        async sendReminder(userId, message, entryId) {
-          if (!channels) return;
-          const lastChannel = memoryStore?.getProfile(userId, "lastChannel") ?? null;
-          if (lastChannel) {
-            try {
-              const bindings = userManager?.getFullProfile(userId)?.bindings ?? [];
-              const binding = bindings.find((b) => b.channel === lastChannel);
-              if (binding) {
-                await channels.sendToChat(lastChannel, String(binding.external_id), message);
-                return;
-              }
-            } catch { /* fallback to broadcast */ }
-          }
-          await channels.broadcast(message);
-        },
-      });
-      supervisionEngine.addDefaultReminders("admin");
-      supervisionEngine.addDefaultReminders("girlfriend");
-      supervisionEngine.start();
-
-      tools.register({
-        name: "schedule_add",
-        description: "添加一条定时提醒（上课/吃饭/睡觉/学习/考试/自定义）。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string", description: "目标用户 (admin/girlfriend)" },
-            type: { type: "string", description: "类型：class/meal/sleep/study/exam/custom" },
-            title: { type: "string", description: "提醒内容" },
-            cronLike: { type: "string", description: "时间格式 HH:MM 或 MO:HH:MM" },
-            alarmMode: { type: "boolean", description: "是否闹铃模式（重复提醒直到确认）" },
-            note: { type: "string", description: "备注" },
-          },
-          required: ["userId", "title", "cronLike"],
-        },
-        handler(args) {
-          if (!supervisionEngine) throw new Error("监管引擎未初始化");
-          const entry = supervisionEngine.addEntry(String(args.userId ?? "admin"), {
-            type: String(args.type ?? "custom"),
-            title: String(args.title),
-            cronLike: String(args.cronLike),
-            alarmMode: args.alarmMode === true,
-            note: args.note != null ? String(args.note) : undefined,
-          });
-          return { ok: true, entry };
-        },
-      });
-
-      tools.register({
-        name: "schedule_list",
-        description: "查看用户的所有提醒计划。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-          },
-          required: ["userId"],
-        },
-        handler(args) {
-          if (!supervisionEngine) throw new Error("监管引擎未初始化");
-          return { schedule: supervisionEngine.getSchedule(String(args.userId ?? "admin")) };
-        },
-      });
-
-      tools.register({
-        name: "schedule_import",
-        description: "批量导入课表/提醒（从 VLM 解析结果或手动输入）。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-            entries: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  title: { type: "string" },
-                  cronLike: { type: "string" },
-                  type: { type: "string" },
-                  durationMin: { type: "number" },
-                  note: { type: "string" },
-                },
-                required: ["title", "cronLike"],
-              },
-            },
-          },
-          required: ["userId", "entries"],
-        },
-        handler(args) {
-          if (!supervisionEngine) throw new Error("监管引擎未初始化");
-          const results = supervisionEngine.importSchedule(
-            String(args.userId ?? "admin"),
-            Array.isArray(args.entries) ? args.entries : [],
-          );
-          return { results };
-        },
-      });
-
-      tools.register({
-        name: "schedule_remove",
-        description: "删除一条提醒。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-            entryId: { type: "string" },
-          },
-          required: ["userId", "entryId"],
-        },
-        handler(args) {
-          if (!supervisionEngine) throw new Error("监管引擎未初始化");
-          const ok = supervisionEngine.removeEntry(String(args.userId), String(args.entryId));
-          return { ok };
-        },
-      });
-
-      tools.register({
-        name: "schedule_acknowledge",
-        description: "确认收到提醒（停止闹铃模式的重复提醒）。",
-        parameters: {
-          type: "object",
-          properties: {
-            entryId: { type: "string" },
-          },
-          required: ["entryId"],
-        },
-        handler(args) {
-          if (!supervisionEngine) throw new Error("监管引擎未初始化");
-          supervisionEngine.acknowledgeReminder(String(args.entryId));
-          return { ok: true };
-        },
-      });
-
-      tools.register({
-        name: "schedule_reschedule",
-        description: "柔性调整：将用户所有提醒整体前移或后移 N 分钟（正=推迟，负=提前）。",
-        parameters: {
-          type: "object",
-          properties: {
-            userId: { type: "string" },
-            deltaMinutes: { type: "number", description: "偏移分钟数" },
-          },
-          required: ["userId", "deltaMinutes"],
-        },
-        handler(args) {
-          if (!supervisionEngine) throw new Error("监管引擎未初始化");
-          const updated = supervisionEngine.rescheduleAll(
-            String(args.userId),
-            Number(args.deltaMinutes ?? 0),
-          );
-          return { ok: true, updatedCount: updated.length, entries: updated };
-        },
-      });
 
       channels = createChannelManager(agent, config);
       if (config.channels.telegram) {
@@ -1082,22 +666,6 @@ export function createMyClawAgent(config) {
         memoryStore = null;
       }
 
-      if (userDb) {
-        try {
-          userDb.close();
-        } catch {
-          /* ignore */
-        }
-        userDb = null;
-      }
-      if (supervisionEngine) {
-        supervisionEngine.stop();
-        supervisionEngine = null;
-      }
-      userManager = null;
-      groupRouter = null;
-      privacyController = null;
-
       searchEngine = null;
       profileManager = null;
       router = null;
@@ -1143,13 +711,6 @@ export function createMyClawAgent(config) {
           ? { running: true, jobs: scheduler.listJobs() }
           : { running: false, jobs: [] },
         channels: channels ? channels.getChannelStats() : { telegram: false, feishu: false, telegramChats: 0, feishuChats: 0 },
-        users: userManager
-          ? {
-              registeredUsers: userDb?.listUsers()?.length ?? 0,
-              groups: groupRouter?.listAll()?.length ?? 0,
-            }
-          : null,
-        supervision: supervisionEngine?.getStats() ?? null,
         yolo: yoloEngine ? yoloEngine.getStatus() : null,
         evolution: { lastNote: lastEvolutionNote },
         knownUsers: knownUserIds.size,
@@ -1159,18 +720,6 @@ export function createMyClawAgent(config) {
     /** @internal Expose yolo engine for advanced callers */
     getYoloEngine() {
       return yoloEngine;
-    },
-
-    getUserManager() {
-      return userManager;
-    },
-
-    getGroupRouter() {
-      return groupRouter;
-    },
-
-    getSupervisionEngine() {
-      return supervisionEngine;
     },
   };
 

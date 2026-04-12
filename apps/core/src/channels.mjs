@@ -10,16 +10,16 @@ import { createFeishuBot } from "@myclaw/feishu";
  */
 
 /**
- * @param {{ handleMessage: (channel: string, message: string | { text: string; userId?: string; botToken?: string }) => Promise<string> }} agent
+ * @param {{ handleMessage: (channel: string, message: string | { text: string; userId?: string }) => Promise<string> }} agent
  * @param {ResolvedConfig} config
  */
 export function createChannelManager(agent, config) {
-  /** @type {Map<string, import('telegraf').Telegraf>} */
-  const telegramBots = new Map();
+  /** @type {import('telegraf').Telegraf | null} */
+  let telegramBot = null;
   /** @type {Set<string>} */
   const telegramChatIds = new Set();
-  /** @type {Map<string, ReturnType<import('@myclaw/feishu').createFeishuBot>>} */
-  const feishuBots = new Map();
+  /** @type {ReturnType<import('@myclaw/feishu').createFeishuBot> | null} */
+  let feishuApp = null;
   /** @type {Set<string>} */
   const feishuChatIds = new Set();
 
@@ -40,11 +40,19 @@ export function createChannelManager(agent, config) {
 
   return {
     /**
-     * Launch a single Telegram bot instance.
-     * @param {string} token
-     * @param {string} label
+     * Start Telegram long-polling when token is configured and channels.telegram is enabled.
+     * @returns {Promise<{ stop: () => Promise<void> } | null>}
      */
-    async launchTelegramBot(token, label) {
+    async registerTelegram() {
+      if (!config.channels.telegram) {
+        return null;
+      }
+      const token = config.telegram.token?.trim();
+      if (!token) {
+        console.error("[@myclaw/core] Telegram skipped: missing telegram.token / TELEGRAM_BOT_TOKEN");
+        return null;
+      }
+
       const bot = createTelegrafBot(
         { token, allowFrom: config.telegram.allowFrom },
         {
@@ -52,7 +60,7 @@ export function createChannelManager(agent, config) {
             const chatId = String(ctx.chat?.id ?? "");
             const uid = String(ctx.from?.id ?? chatId);
             trackTelegramChat(chatId);
-            const replyText = await agent.handleMessage("telegram", { text, userId: uid, botToken: token });
+            const replyText = await agent.handleMessage("telegram", { text, userId: uid });
             await ctx.reply(replyText);
           },
           async onUserDocument(ctx, meta) {
@@ -65,77 +73,50 @@ export function createChannelManager(agent, config) {
               return;
             }
             const hint = `[用户上传文件] ${meta.fileName}（${meta.mimeType ?? "unknown"}）`;
-            const replyText = await agent.handleMessage("telegram", { text: hint, userId: uid, botToken: token });
+            const replyText = await agent.handleMessage("telegram", { text: hint, userId: uid });
             await ctx.reply(replyText);
           },
         },
       );
 
-      telegramBots.set(label, bot);
+      telegramBot = bot;
       await bot.launch();
-      console.error(`[@myclaw/core] Telegram bot "${label}" polling started`);
-    },
-
-    /**
-     * Start Telegram long-polling. Supports multi-bot (admin + girlfriend) or single legacy token.
-     * @returns {Promise<{ stop: () => Promise<void> } | null>}
-     */
-    async registerTelegram() {
-      if (!config.channels.telegram) {
-        return null;
-      }
-
-      const hasMulti = !!(config.telegram.adminToken || config.telegram.girlfriendToken);
-      const hasLegacy = !!config.telegram.token;
-
-      if (!hasMulti && !hasLegacy) {
-        console.error("[@myclaw/core] Telegram skipped: no tokens configured");
-        return null;
-      }
-
-      if (hasMulti) {
-        if (config.telegram.adminToken) {
-          await this.launchTelegramBot(config.telegram.adminToken, "admin");
-        }
-        if (config.telegram.girlfriendToken) {
-          await this.launchTelegramBot(config.telegram.girlfriendToken, "girlfriend");
-        }
-      } else {
-        await this.launchTelegramBot(config.telegram.token, "default");
-      }
-
+      console.error("[@myclaw/core] Telegram polling started");
       return {
         async stop() {
-          for (const [label, bot] of telegramBots) {
-            try {
-              await bot.stop();
-            } catch (e) {
-              console.error(`[@myclaw/core] Telegram bot "${label}" stop error:`, e);
-            }
+          if (telegramBot) {
+            await telegramBot.stop();
+            telegramBot = null;
           }
-          telegramBots.clear();
         },
       };
     },
 
     /**
-     * Launch a single Feishu bot instance (WebSocket or webhook).
-     * @param {{ appId: string; appSecret: string; verificationToken: string; encryptKey: string }} creds
-     * @param {string} label
-     * @param {{ webhookPort?: number }} [overrides]
+     * Start Feishu WebSocket or webhook server from config.
+     * @returns {Promise<{ stop: () => Promise<void> } | null>}
      */
-    async launchFeishuBot(creds, label, overrides) {
-      const { domain, allowFrom, webhookHost, webhookPort, webhookPath, transport } = config.feishu;
+    async registerFeishu() {
+      if (!config.channels.feishu) {
+        return null;
+      }
+      const { appId, appSecret, verificationToken, encryptKey, domain, allowFrom, webhookHost, webhookPort, webhookPath, transport } =
+        config.feishu;
+      if (!appId || !appSecret || !verificationToken) {
+        console.error("[@myclaw/core] Feishu skipped: missing appId / appSecret / verificationToken");
+        return null;
+      }
+
       const app = createFeishuBot(
         {
-          appId: creds.appId,
-          appSecret: creds.appSecret,
-          encryptKey: creds.encryptKey,
-          verificationToken: creds.verificationToken,
+          appId,
+          appSecret,
+          encryptKey,
+          verificationToken,
           domain: domain === "lark" ? "lark" : "feishu",
           allowFrom,
           webhookHost,
-          webhookPort: overrides?.webhookPort ?? webhookPort,
+          webhookPort,
           webhookPath,
         },
         {
@@ -155,114 +136,26 @@ export function createChannelManager(agent, config) {
         },
       );
 
-      feishuBots.set(label, app);
+      feishuApp = app;
 
       if (transport === "webhook") {
-        const port = overrides?.webhookPort ?? webhookPort;
-        await app.startWebhookServer({ host: webhookHost, port, path: webhookPath });
-        console.error(`[@myclaw/core] Feishu bot "${label}" webhook on http://${webhookHost}:${port}${webhookPath}`);
+        await app.startWebhookServer({ host: webhookHost, port: webhookPort, path: webhookPath });
+        console.error(
+          `[@myclaw/core] Feishu webhook listening on http://${webhookHost}:${webhookPort}${webhookPath}`,
+        );
       } else {
         await app.startWebSocket();
-        console.error(`[@myclaw/core] Feishu bot "${label}" WebSocket started`);
-      }
-    },
-
-    /**
-     * Start Feishu bots. Supports multi-bot (admin + girlfriend) or single config.
-     * @returns {Promise<{ stop: () => Promise<void> } | null>}
-     */
-    async registerFeishu() {
-      if (!config.channels.feishu) {
-        return null;
-      }
-      const fs = config.feishu;
-      const hasAdmin = !!(fs.adminAppId && fs.adminAppSecret);
-      const hasGf = !!(fs.girlfriendAppId && fs.girlfriendAppSecret);
-      const hasLegacy = !!(fs.appId && fs.appSecret && fs.verificationToken);
-
-      if (!hasAdmin && !hasGf && !hasLegacy) {
-        console.error("[@myclaw/core] Feishu skipped: no credentials configured");
-        return null;
-      }
-
-      if (hasAdmin || hasGf) {
-        if (hasAdmin) {
-          await this.launchFeishuBot({
-            appId: fs.adminAppId,
-            appSecret: fs.adminAppSecret,
-            verificationToken: fs.verificationToken,
-            encryptKey: fs.encryptKey,
-          }, "admin");
-        }
-        if (hasGf) {
-          await this.launchFeishuBot({
-            appId: fs.girlfriendAppId,
-            appSecret: fs.girlfriendAppSecret,
-            verificationToken: fs.girlfriendVerificationToken || fs.verificationToken,
-            encryptKey: fs.girlfriendEncryptKey || fs.encryptKey,
-          }, "girlfriend", { webhookPort: (fs.webhookPort || 3000) + 1 });
-        }
-      } else {
-        await this.launchFeishuBot({
-          appId: fs.appId,
-          appSecret: fs.appSecret,
-          verificationToken: fs.verificationToken,
-          encryptKey: fs.encryptKey,
-        }, "default");
+        console.error("[@myclaw/core] Feishu WebSocket client started");
       }
 
       return {
         async stop() {
-          for (const [label, app] of feishuBots) {
-            try {
-              app.stopWebSocket();
-              await app.stopWebhookServer();
-            } catch (e) {
-              console.error(`[@myclaw/core] Feishu bot "${label}" stop error:`, e);
-            }
-          }
-          feishuBots.clear();
+          if (!feishuApp) return;
+          feishuApp.stopWebSocket();
+          await feishuApp.stopWebhookServer();
+          feishuApp = null;
         },
       };
-    },
-
-    /**
-     * Send a message to a specific chat on a specific channel.
-     * @param {string} channel
-     * @param {string} chatId
-     * @param {string} text
-     */
-    async sendToChat(channel, chatId, text) {
-      if (channel === "telegram") {
-        for (const [, bot] of telegramBots) {
-          try {
-            await bot.telegram.sendMessage(chatId, text);
-            return;
-          } catch {
-            /* try next bot */
-          }
-        }
-        throw new Error(`No Telegram bot could send to chat ${chatId}`);
-      }
-      if (channel === "feishu") {
-        for (const [, app] of feishuBots) {
-          try {
-            await app.client.im.message.create({
-              params: { receive_id_type: "chat_id" },
-              data: {
-                receive_id: chatId,
-                msg_type: "text",
-                content: JSON.stringify({ text }),
-              },
-            });
-            return;
-          } catch {
-            /* try next bot */
-          }
-        }
-        throw new Error(`No Feishu bot could send to chat ${chatId}`);
-      }
-      throw new Error(`Cannot send to channel "${channel}" / chat "${chatId}"`);
     },
 
     /**
@@ -273,20 +166,20 @@ export function createChannelManager(agent, config) {
       const text = String(message ?? "");
       if (!text) return;
 
-      for (const [, bot] of telegramBots) {
+      if (telegramBot) {
         for (const chatId of telegramChatIds) {
           try {
-            await bot.telegram.sendMessage(chatId, text);
+            await telegramBot.telegram.sendMessage(chatId, text);
           } catch (e) {
             console.error(`[@myclaw/core] Telegram broadcast failed for ${chatId}:`, e);
           }
         }
       }
 
-      for (const [, app] of feishuBots) {
+      if (feishuApp?.client) {
         for (const chatId of feishuChatIds) {
           try {
-            await app.client.im.message.create({
+            await feishuApp.client.im.message.create({
               params: { receive_id_type: "chat_id" },
               data: {
                 receive_id: chatId,
@@ -301,13 +194,11 @@ export function createChannelManager(agent, config) {
       }
     },
 
-    /** @returns {{ telegram: boolean; telegramBotCount: number; feishu: boolean; feishuBotCount: number; telegramChats: number; feishuChats: number }} */
+    /** @returns {{ telegram: boolean; feishu: boolean; telegramChats: number; feishuChats: number }} */
     getChannelStats() {
       return {
-        telegram: telegramBots.size > 0,
-        telegramBotCount: telegramBots.size,
-        feishu: feishuBots.size > 0,
-        feishuBotCount: feishuBots.size,
+        telegram: telegramBot != null,
+        feishu: feishuApp != null,
         telegramChats: telegramChatIds.size,
         feishuChats: feishuChatIds.size,
       };
