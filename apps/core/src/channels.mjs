@@ -18,8 +18,8 @@ export function createChannelManager(agent, config) {
   const telegramBots = new Map();
   /** @type {Set<string>} */
   const telegramChatIds = new Set();
-  /** @type {ReturnType<import('@myclaw/feishu').createFeishuBot> | null} */
-  let feishuApp = null;
+  /** @type {Map<string, ReturnType<import('@myclaw/feishu').createFeishuBot>>} */
+  const feishuBots = new Map();
   /** @type {Set<string>} */
   const feishuChatIds = new Set();
 
@@ -119,30 +119,23 @@ export function createChannelManager(agent, config) {
     },
 
     /**
-     * Start Feishu WebSocket or webhook server from config.
-     * @returns {Promise<{ stop: () => Promise<void> } | null>}
+     * Launch a single Feishu bot instance (WebSocket or webhook).
+     * @param {{ appId: string; appSecret: string; verificationToken: string; encryptKey: string }} creds
+     * @param {string} label
+     * @param {{ webhookPort?: number }} [overrides]
      */
-    async registerFeishu() {
-      if (!config.channels.feishu) {
-        return null;
-      }
-      const { appId, appSecret, verificationToken, encryptKey, domain, allowFrom, webhookHost, webhookPort, webhookPath, transport } =
-        config.feishu;
-      if (!appId || !appSecret || !verificationToken) {
-        console.error("[@myclaw/core] Feishu skipped: missing appId / appSecret / verificationToken");
-        return null;
-      }
-
+    async launchFeishuBot(creds, label, overrides) {
+      const { domain, allowFrom, webhookHost, webhookPort, webhookPath, transport } = config.feishu;
       const app = createFeishuBot(
         {
-          appId,
-          appSecret,
-          encryptKey,
-          verificationToken,
+          appId: creds.appId,
+          appSecret: creds.appSecret,
+          encryptKey: creds.encryptKey,
+          verificationToken: creds.verificationToken,
           domain: domain === "lark" ? "lark" : "feishu",
           allowFrom,
           webhookHost,
-          webhookPort,
+          webhookPort: overrides?.webhookPort ?? webhookPort,
           webhookPath,
         },
         {
@@ -162,24 +155,73 @@ export function createChannelManager(agent, config) {
         },
       );
 
-      feishuApp = app;
+      feishuBots.set(label, app);
 
       if (transport === "webhook") {
-        await app.startWebhookServer({ host: webhookHost, port: webhookPort, path: webhookPath });
-        console.error(
-          `[@myclaw/core] Feishu webhook listening on http://${webhookHost}:${webhookPort}${webhookPath}`,
-        );
+        const port = overrides?.webhookPort ?? webhookPort;
+        await app.startWebhookServer({ host: webhookHost, port, path: webhookPath });
+        console.error(`[@myclaw/core] Feishu bot "${label}" webhook on http://${webhookHost}:${port}${webhookPath}`);
       } else {
         await app.startWebSocket();
-        console.error("[@myclaw/core] Feishu WebSocket client started");
+        console.error(`[@myclaw/core] Feishu bot "${label}" WebSocket started`);
+      }
+    },
+
+    /**
+     * Start Feishu bots. Supports multi-bot (admin + girlfriend) or single config.
+     * @returns {Promise<{ stop: () => Promise<void> } | null>}
+     */
+    async registerFeishu() {
+      if (!config.channels.feishu) {
+        return null;
+      }
+      const fs = config.feishu;
+      const hasAdmin = !!(fs.adminAppId && fs.adminAppSecret);
+      const hasGf = !!(fs.girlfriendAppId && fs.girlfriendAppSecret);
+      const hasLegacy = !!(fs.appId && fs.appSecret && fs.verificationToken);
+
+      if (!hasAdmin && !hasGf && !hasLegacy) {
+        console.error("[@myclaw/core] Feishu skipped: no credentials configured");
+        return null;
+      }
+
+      if (hasAdmin || hasGf) {
+        if (hasAdmin) {
+          await this.launchFeishuBot({
+            appId: fs.adminAppId,
+            appSecret: fs.adminAppSecret,
+            verificationToken: fs.verificationToken,
+            encryptKey: fs.encryptKey,
+          }, "admin");
+        }
+        if (hasGf) {
+          await this.launchFeishuBot({
+            appId: fs.girlfriendAppId,
+            appSecret: fs.girlfriendAppSecret,
+            verificationToken: fs.girlfriendVerificationToken || fs.verificationToken,
+            encryptKey: fs.girlfriendEncryptKey || fs.encryptKey,
+          }, "girlfriend", { webhookPort: (fs.webhookPort || 3000) + 1 });
+        }
+      } else {
+        await this.launchFeishuBot({
+          appId: fs.appId,
+          appSecret: fs.appSecret,
+          verificationToken: fs.verificationToken,
+          encryptKey: fs.encryptKey,
+        }, "default");
       }
 
       return {
         async stop() {
-          if (!feishuApp) return;
-          feishuApp.stopWebSocket();
-          await feishuApp.stopWebhookServer();
-          feishuApp = null;
+          for (const [label, app] of feishuBots) {
+            try {
+              app.stopWebSocket();
+              await app.stopWebhookServer();
+            } catch (e) {
+              console.error(`[@myclaw/core] Feishu bot "${label}" stop error:`, e);
+            }
+          }
+          feishuBots.clear();
         },
       };
     },
@@ -202,16 +244,23 @@ export function createChannelManager(agent, config) {
         }
         throw new Error(`No Telegram bot could send to chat ${chatId}`);
       }
-      if (channel === "feishu" && feishuApp?.client) {
-        await feishuApp.client.im.message.create({
-          params: { receive_id_type: "chat_id" },
-          data: {
-            receive_id: chatId,
-            msg_type: "text",
-            content: JSON.stringify({ text }),
-          },
-        });
-        return;
+      if (channel === "feishu") {
+        for (const [, app] of feishuBots) {
+          try {
+            await app.client.im.message.create({
+              params: { receive_id_type: "chat_id" },
+              data: {
+                receive_id: chatId,
+                msg_type: "text",
+                content: JSON.stringify({ text }),
+              },
+            });
+            return;
+          } catch {
+            /* try next bot */
+          }
+        }
+        throw new Error(`No Feishu bot could send to chat ${chatId}`);
       }
       throw new Error(`Cannot send to channel "${channel}" / chat "${chatId}"`);
     },
@@ -234,10 +283,10 @@ export function createChannelManager(agent, config) {
         }
       }
 
-      if (feishuApp?.client) {
+      for (const [, app] of feishuBots) {
         for (const chatId of feishuChatIds) {
           try {
-            await feishuApp.client.im.message.create({
+            await app.client.im.message.create({
               params: { receive_id_type: "chat_id" },
               data: {
                 receive_id: chatId,
@@ -252,12 +301,13 @@ export function createChannelManager(agent, config) {
       }
     },
 
-    /** @returns {{ telegram: boolean; telegramBotCount: number; feishu: boolean; telegramChats: number; feishuChats: number }} */
+    /** @returns {{ telegram: boolean; telegramBotCount: number; feishu: boolean; feishuBotCount: number; telegramChats: number; feishuChats: number }} */
     getChannelStats() {
       return {
         telegram: telegramBots.size > 0,
         telegramBotCount: telegramBots.size,
-        feishu: feishuApp != null,
+        feishu: feishuBots.size > 0,
+        feishuBotCount: feishuBots.size,
         telegramChats: telegramChatIds.size,
         feishuChats: feishuChatIds.size,
       };
