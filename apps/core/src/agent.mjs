@@ -14,7 +14,7 @@ import {
   formatMemoryContextBlock,
   getLobsterRuntimeBlock,
 } from "@myclaw/runtime";
-import { createScheduler, createCareEngine } from "@myclaw/proactive";
+import { createScheduler, createCareEngine, createSupervisionEngine } from "@myclaw/proactive";
 import { createYoloEngine } from "@myclaw/yolo";
 import { ResearchPipeline, coordinateTopic } from "@myclaw/research";
 import { checkForModelUpdates } from "@myclaw/evolution";
@@ -109,6 +109,8 @@ export function createMyClawAgent(config) {
   let groupRouter = null;
   /** @type {ReturnType<typeof createPrivacyController> | null} */
   let privacyController = null;
+  /** @type {ReturnType<typeof createSupervisionEngine> | null} */
+  let supervisionEngine = null;
 
   /**
    * @param {string} lang
@@ -861,6 +863,162 @@ export function createMyClawAgent(config) {
 
       scheduler.start();
 
+      supervisionEngine = createSupervisionEngine({
+        timeZone: "Asia/Shanghai",
+        async sendReminder(userId, message, entryId) {
+          if (!channels) return;
+          const lastChannel = memoryStore?.getProfile(userId, "lastChannel") ?? null;
+          if (lastChannel) {
+            try {
+              const bindings = userManager?.getFullProfile(userId)?.bindings ?? [];
+              const binding = bindings.find((b) => b.channel === lastChannel);
+              if (binding) {
+                await channels.sendToChat(lastChannel, String(binding.external_id), message);
+                return;
+              }
+            } catch { /* fallback to broadcast */ }
+          }
+          await channels.broadcast(message);
+        },
+      });
+      supervisionEngine.addDefaultReminders("admin");
+      supervisionEngine.addDefaultReminders("girlfriend");
+      supervisionEngine.start();
+
+      tools.register({
+        name: "schedule_add",
+        description: "添加一条定时提醒（上课/吃饭/睡觉/学习/考试/自定义）。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string", description: "目标用户 (admin/girlfriend)" },
+            type: { type: "string", description: "类型：class/meal/sleep/study/exam/custom" },
+            title: { type: "string", description: "提醒内容" },
+            cronLike: { type: "string", description: "时间格式 HH:MM 或 MO:HH:MM" },
+            alarmMode: { type: "boolean", description: "是否闹铃模式（重复提醒直到确认）" },
+            note: { type: "string", description: "备注" },
+          },
+          required: ["userId", "title", "cronLike"],
+        },
+        handler(args) {
+          if (!supervisionEngine) throw new Error("监管引擎未初始化");
+          const entry = supervisionEngine.addEntry(String(args.userId ?? "admin"), {
+            type: String(args.type ?? "custom"),
+            title: String(args.title),
+            cronLike: String(args.cronLike),
+            alarmMode: args.alarmMode === true,
+            note: args.note != null ? String(args.note) : undefined,
+          });
+          return { ok: true, entry };
+        },
+      });
+
+      tools.register({
+        name: "schedule_list",
+        description: "查看用户的所有提醒计划。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+          },
+          required: ["userId"],
+        },
+        handler(args) {
+          if (!supervisionEngine) throw new Error("监管引擎未初始化");
+          return { schedule: supervisionEngine.getSchedule(String(args.userId ?? "admin")) };
+        },
+      });
+
+      tools.register({
+        name: "schedule_import",
+        description: "批量导入课表/提醒（从 VLM 解析结果或手动输入）。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+            entries: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  title: { type: "string" },
+                  cronLike: { type: "string" },
+                  type: { type: "string" },
+                  durationMin: { type: "number" },
+                  note: { type: "string" },
+                },
+                required: ["title", "cronLike"],
+              },
+            },
+          },
+          required: ["userId", "entries"],
+        },
+        handler(args) {
+          if (!supervisionEngine) throw new Error("监管引擎未初始化");
+          const results = supervisionEngine.importSchedule(
+            String(args.userId ?? "admin"),
+            Array.isArray(args.entries) ? args.entries : [],
+          );
+          return { results };
+        },
+      });
+
+      tools.register({
+        name: "schedule_remove",
+        description: "删除一条提醒。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+            entryId: { type: "string" },
+          },
+          required: ["userId", "entryId"],
+        },
+        handler(args) {
+          if (!supervisionEngine) throw new Error("监管引擎未初始化");
+          const ok = supervisionEngine.removeEntry(String(args.userId), String(args.entryId));
+          return { ok };
+        },
+      });
+
+      tools.register({
+        name: "schedule_acknowledge",
+        description: "确认收到提醒（停止闹铃模式的重复提醒）。",
+        parameters: {
+          type: "object",
+          properties: {
+            entryId: { type: "string" },
+          },
+          required: ["entryId"],
+        },
+        handler(args) {
+          if (!supervisionEngine) throw new Error("监管引擎未初始化");
+          supervisionEngine.acknowledgeReminder(String(args.entryId));
+          return { ok: true };
+        },
+      });
+
+      tools.register({
+        name: "schedule_reschedule",
+        description: "柔性调整：将用户所有提醒整体前移或后移 N 分钟（正=推迟，负=提前）。",
+        parameters: {
+          type: "object",
+          properties: {
+            userId: { type: "string" },
+            deltaMinutes: { type: "number", description: "偏移分钟数" },
+          },
+          required: ["userId", "deltaMinutes"],
+        },
+        handler(args) {
+          if (!supervisionEngine) throw new Error("监管引擎未初始化");
+          const updated = supervisionEngine.rescheduleAll(
+            String(args.userId),
+            Number(args.deltaMinutes ?? 0),
+          );
+          return { ok: true, updatedCount: updated.length, entries: updated };
+        },
+      });
+
       channels = createChannelManager(agent, config);
       if (config.channels.telegram) {
         const t = await channels.registerTelegram();
@@ -914,6 +1072,10 @@ export function createMyClawAgent(config) {
           /* ignore */
         }
         userDb = null;
+      }
+      if (supervisionEngine) {
+        supervisionEngine.stop();
+        supervisionEngine = null;
       }
       userManager = null;
       groupRouter = null;
@@ -970,6 +1132,7 @@ export function createMyClawAgent(config) {
               groups: groupRouter?.listAll()?.length ?? 0,
             }
           : null,
+        supervision: supervisionEngine?.getStats() ?? null,
         yolo: yoloEngine ? yoloEngine.getStatus() : null,
         evolution: { lastNote: lastEvolutionNote },
         knownUsers: knownUserIds.size,
@@ -987,6 +1150,10 @@ export function createMyClawAgent(config) {
 
     getGroupRouter() {
       return groupRouter;
+    },
+
+    getSupervisionEngine() {
+      return supervisionEngine;
     },
   };
 
