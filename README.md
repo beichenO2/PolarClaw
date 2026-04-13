@@ -1,129 +1,59 @@
-# MyClaw
+# MyClaw — AI Agent 融合平台
 
-**MyClaw** is a multi-module AI assistant runtime that fuses ideas from **OpenClaw** (local control plane and gateway alignment), **DeerFlow** (coordinator–planner–reporter research pipeline), and **Claude Code**–style skills (declarative `SKILL.md` plus optional CLI delegation). It routes LLM calls through an OpenAI-compatible API (e.g. Alibaba Cloud DashScope), assembles prompts from project soul files and skills, and exposes tools for memory, research, channels, and more.
+端口-适配器（六边形）架构，TypeScript + Node.js。
 
----
+## 架构
 
-## Architecture overview
-
-The repository is an **npm workspaces** monorepo. Application packages live under `apps/` as **`@myclaw/*`** modules. The root entrypoint **`start.mjs`** loads environment configuration, validates LLM credentials, and boots **`@myclaw/core`**, which wires routing, runtime, memory, skills, and optional integrations.
-
-```text
-MyClaw/
-├── start.mjs              # Root entry — .env, validation, core agent
-├── apps/                  # 14 workspace packages (@myclaw/*)
-├── skills/                # OpenClaw-compatible skills (e.g. claude-code)
-├── scripts/               # Repo-wide helpers (e.g. test-all.sh)
-└── .env.example           # Environment template
+```
+用户 ← 飞书/Telegram/Web →
+  Channel Adapter (ports/channel.ts)
+    → Privacy Gateway (ports/privacy.ts)  ← PolarPrivate
+      → Agent Core (core/agent.ts)
+        → LLM Router (ports/llm.ts)      ← 阿里云百炼
+        → Tool Executor (ports/tools.ts)
+        → Memory Store (ports/memory.ts)  ← SQLite + FTS5
+        → Conversation History            ← 多轮对话
+        → Skill Loader (ports/skills.ts)  ← Clock 等外部集成
 ```
 
----
+## 目录结构
 
-## Quick start
+```
+src/
+├── ports/          ← 接口定义（不依赖任何实现）
+│   ├── channel.ts
+│   ├── privacy.ts
+│   ├── memory.ts
+│   ├── llm.ts
+│   ├── tools.ts
+│   └── skills.ts
+├── adapters/       ← 接口实现（可替换）
+│   ├── channel/    ← 飞书、Telegram 适配器
+│   ├── memory/     ← SQLite 存储 + 对话历史
+│   ├── llm/        ← OpenAI-compatible 路由器
+│   ├── privacy/    ← PII 检测 + PolarPrivate 集成
+│   └── tools/      ← 工具执行器
+├── core/           ← Agent 核心（只依赖 ports）
+│   └── agent.ts
+├── config.ts
+└── main.ts
+skills/
+└── clock-integration/  ← PolarClock 集成技能
+```
 
-### Prerequisites
-
-- **Node.js** (version compatible with the repo’s `package.json` / engines if specified)
-- An **LLM API key** for an OpenAI-compatible endpoint (DashScope / 百炼 or compatible)
-
-### Setup
-
-1. **Clone** the repository and install dependencies from the repo root:
-
-   ```bash
-   npm install
-   ```
-
-2. **Configure environment** — copy the example file and edit values:
-
-   ```bash
-   cp .env.example .env
-   ```
-
-3. **Set your API key** in `.env` (at minimum). The runtime accepts any of:
-
-   - `MYCLAW_LLM_API_KEY`
-   - `DASHSCOPE_API_KEY`
-   - `OPENAI_API_KEY`
-
-   Adjust `MYCLAW_LLM_BASE_URL` and `MYCLAW_LLM_DEFAULT_MODEL` if your provider or plan differs from the defaults in `.env.example`.
-
-4. **Run** the agent from the repository root:
-
-   ```bash
-   npm start
-   ```
-
-   This executes `node start.mjs`. Optional: pass `--config` / `-c` with a config file path if your deployment uses a custom config (see core documentation).
-
----
-
-## Modules (`apps/*`)
-
-| Package | Role |
-|--------|------|
-| **`@myclaw/core`** | Orchestrator — connects gateway, LLM router, runtime, memory, skills, channels, and auxiliary modules into one agent runtime. |
-| **`@myclaw/gateway`** | Control plane — wraps / aligns with OpenClaw Gateway (WebSocket URL, status); gateway process is started separately when needed. |
-| **`@myclaw/llm`** | Intent-based model routing against an OpenAI-compatible Chat Completions API (e.g. DashScope). |
-| **`@myclaw/runtime`** | Prompt assembly, OpenAI-compatible client, and tool execution loop. |
-| **`@myclaw/skills`** | Discovers and parses OpenClaw-style `SKILL.md` files for injection into system context. |
-| **`@myclaw/memory`** | SQLite + FTS5 memory store and user-profile fields for long-term recall and search. |
-| **`@myclaw/research`** | Deep research engine — **Coordinator → Planner → Reporter** (DeerFlow-style), with configurable evidence sources. |
-| **`@myclaw/telegram`** | Telegram bot integration (long polling, file bridge, task notifications). |
-| **`@myclaw/feishu`** | Feishu / Lark bot — messages, files, cards, task-style notifications. |
-| **`@myclaw/web`** | React + Vite dashboard (GitHub-inspired UI) for operating and inspecting the stack. |
-| **`@myclaw/proactive`** | Scheduler and care-engine style proactive behaviors. |
-| **`@myclaw/yolo`** | Autonomous execution layer with retry / recovery semantics (configurable). |
-| **`@myclaw/evolution`** | Evolution jobs — skill synthesis signals, news/model catalog drift checks (e.g. when enabled via env). |
-| **`@myclaw/content`** | Content pipeline — outlines/notes toward interactive single-page learning experiences. |
-
----
-
-## Skills and Claude Code bridge
-
-- **`skills/claude-code/`** — Contains `SKILL.md` (metadata, triggers, usage) and **`executor.mjs`**, which can delegate non-trivial coding work to the **Claude Code** CLI in non-interactive mode when installed on the host.
-
-Skills are scanned according to core configuration (e.g. `skills.scanDirs`); placing compatible `SKILL.md` trees under `skills/` or the project root keeps behavior aligned with OpenClaw conventions.
-
----
-
-## Development guide
-
-### Common scripts (repository root)
-
-| Script | Description |
-|--------|-------------|
-| `npm start` | Run `start.mjs` — full agent bootstrap. |
-| `npm test` | Run `scripts/test-all.sh` — iterates `apps/*` and runs `npm test` where a test script exists. |
-| `npm run dev:web` | Start the Vite dev server for `@myclaw/web`. |
-| `npm run build:web` | Production build for the web dashboard. |
-| `npm run lint` | Placeholder until a shared lint task is added. |
-
-### Working on a single package
-
-From the repo root, use workspace-aware installs and scripts, for example:
+## 快速开始
 
 ```bash
-npm install -w @myclaw/runtime
-npm run test -w @myclaw/memory
+cp .env.example .env
+# 编辑 .env 填入 API Key
+npm install
+npm run dev
 ```
 
-Or `cd apps/<module>` and use local `npm` commands when iterating.
+## 核心特性
 
-### Environment flags
-
-See **`.env.example`** for optional toggles (Telegram, Feishu, memory path, evolution interval, web port, etc.). Enabling channels usually requires both config/env **and** valid third-party credentials.
-
-### Project voice and agent rules
-
-Runtime system prompts can incorporate repository-level files such as **`SOUL.md`** and **`AGENTS.md`** (see core’s `assemblePrompt` behavior). Keep them in sync with how you want the assistant to behave in production.
-
----
-
-## License and contributions
-
-Add your preferred **LICENSE** and contribution guidelines if this repository is published publicly; this README assumes the codebase is the source of truth for behavior and configuration.
-
----
-
-*MyClaw — OpenClaw-aligned control plane, DeerFlow-style research, and Claude Code–friendly skills in one workspace.*
+- **多轮对话**：对话历史持久化，支持上下文窗口管理
+- **隐私保护**：PolarPrivate 集成，自动 PII 脱敏 + Secret 拦截
+- **意图路由**：根据消息内容自动选择最合适的模型
+- **可替换架构**：端口-适配器模式，任何模块可独立替换
+- **Clock 集成**：番茄钟状态感知，根据用户工作状态调整行为

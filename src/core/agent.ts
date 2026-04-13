@@ -1,0 +1,231 @@
+/**
+ * MyClaw Agent Core — 核心 Agent 循环
+ *
+ * 端口-适配器架构的核心层：
+ * - 只依赖 ports/ 中的接口
+ * - 通过依赖注入接收所有适配器
+ * - 实现多轮对话（修复旧版单轮无状态的关键差距）
+ *
+ * 消息流：
+ * Channel → PrivacyGateway.sanitize → AgentLoop → PrivacyGateway.desanitize → Channel
+ */
+
+import type { IPrivacyGateway } from '../ports/privacy.js';
+import type { IMemoryStore, IConversationHistory, IChatMessage } from '../ports/memory.js';
+import type { ILLMRouter, ILLMResponse } from '../ports/llm.js';
+import type { IToolExecutor } from '../ports/tools.js';
+
+export interface IAgentConfig {
+  /** 每轮最多工具调用次数 */
+  maxToolRounds: number;
+  /** system prompt */
+  systemPrompt: string;
+  /** 温度 */
+  temperature?: number;
+  /** 最大输出 token */
+  maxTokens?: number;
+  /** 工具输出截断长度 */
+  maxToolOutputLength?: number;
+}
+
+export interface IAgentDeps {
+  llm: ILLMRouter;
+  memory: IMemoryStore;
+  conversations: IConversationHistory;
+  tools: IToolExecutor;
+  privacy: IPrivacyGateway;
+}
+
+export interface IAgentResponse {
+  /** Agent 回复（已还原隐私） */
+  text: string;
+  /** 是否被隐私网关拦截 */
+  blocked: boolean;
+  /** 拦截警告 */
+  warning?: string;
+  /** token 使用统计 */
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+}
+
+export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
+  const { llm, memory, conversations, tools, privacy } = deps;
+  const maxToolOutputLen = config.maxToolOutputLength ?? 12000;
+
+  /**
+   * 处理用户消息（完整流程）
+   *
+   * @param channel 通道名称
+   * @param userId 用户 ID
+   * @param text 用户消息原文
+   * @param conversationId 对话 ID（同一对话共享上下文）
+   */
+  async function handleMessage(
+    channel: string,
+    userId: string,
+    text: string,
+    conversationId?: string,
+  ): Promise<IAgentResponse> {
+    const convId = conversationId ?? `${channel}:${userId}`;
+
+    // 1. 隐私网关入站脱敏
+    const sanitizeResult = await privacy.sanitize(userId, text);
+    if (sanitizeResult.blocked) {
+      return {
+        text: sanitizeResult.warning ?? '⚠️ 消息被隐私网关拦截',
+        blocked: true,
+        warning: sanitizeResult.warning,
+      };
+    }
+
+    const sanitizedText = sanitizeResult.sanitized;
+
+    // 2. 记录用户活跃状态
+    memory.saveProfile(userId, 'lastActiveAt', new Date().toISOString());
+    memory.saveProfile(userId, 'lastChannel', channel);
+
+    // 3. 构建记忆上下文
+    const memoryContext = buildMemoryContext(userId, sanitizedText);
+
+    // 4. 追加用户消息到对话历史
+    const userContent = memoryContext
+      ? `${memoryContext}\n\n${sanitizedText}`
+      : sanitizedText;
+
+    conversations.append(convId, { role: 'user', content: userContent });
+
+    // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
+    const result = await runLoop(convId);
+
+    // 6. 隐私网关出站还原
+    const restoredText = privacy.desanitize(userId, result.text);
+
+    return {
+      text: restoredText,
+      blocked: false,
+      usage: result.usage,
+    };
+  }
+
+  /** 构建注入的记忆上下文（用户画像 + FTS 相关记忆） */
+  function buildMemoryContext(userId: string, queryText: string): string {
+    if (userId === 'anonymous') return '';
+
+    const lines: string[] = [];
+
+    // 用户画像
+    const profiles = memory.getAllProfiles(userId);
+    const prefs = profiles.filter(p => !p.key.startsWith('last'));
+    if (prefs.length > 0) {
+      lines.push('**用户画像**');
+      for (const p of prefs.slice(0, 15)) {
+        lines.push(`- ${p.key}: ${(p.value ?? '').slice(0, 200)}`);
+      }
+    }
+
+    // FTS 搜索相关记忆
+    const query = queryText.trim().slice(0, 120);
+    if (query.length >= 2) {
+      const result = memory.search(query, { limit: 5 });
+      if (result.entries.length > 0) {
+        lines.push('**相关记忆**');
+        for (const entry of result.entries) {
+          lines.push(`- [${entry.type}] ${entry.content.slice(0, 300)}`);
+        }
+      }
+    }
+
+    if (lines.length === 0) return '';
+    return `## 长期记忆（自动注入）\n${lines.join('\n')}`;
+  }
+
+  /** Agent 主循环：system + 历史消息 → LLM → 工具调用 → 观察 → 重复 */
+  async function runLoop(convId: string): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
+    let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
+
+    for (let round = 0; round < config.maxToolRounds; round++) {
+      const history = conversations.getHistory(convId);
+      const messages: IChatMessage[] = [
+        { role: 'system', content: config.systemPrompt },
+        ...history,
+      ];
+
+      const response = await llm.chat(messages, {
+        tools: tools.list(),
+        toolChoice: 'auto',
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
+      });
+
+      // 累计 token
+      if (response.usage) {
+        if (!totalUsage) {
+          totalUsage = { ...response.usage };
+        } else {
+          totalUsage.promptTokens += response.usage.promptTokens;
+          totalUsage.completionTokens += response.usage.completionTokens;
+          totalUsage.totalTokens += response.usage.totalTokens;
+        }
+      }
+
+      // 追加 assistant 消息
+      conversations.append(convId, {
+        role: 'assistant',
+        content: response.content ?? '',
+        toolCalls: response.toolCalls.length > 0 ? response.toolCalls : undefined,
+      });
+
+      // 无工具调用 → 返回文本
+      if (response.toolCalls.length === 0) {
+        const text = response.content?.trim();
+        return { text: text || '（暂无文本回复）', usage: totalUsage };
+      }
+
+      // 执行工具并记录结果
+      for (const tc of response.toolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(tc.function.arguments);
+        } catch { /* empty */ }
+
+        let result: unknown;
+        try {
+          result = await tools.execute(tc.function.name, args);
+        } catch (err) {
+          result = { error: err instanceof Error ? err.message : String(err) };
+        }
+
+        let payload: string;
+        try {
+          payload = JSON.stringify(result);
+        } catch {
+          payload = String(result);
+        }
+        if (payload.length > maxToolOutputLen) {
+          payload = `${payload.slice(0, maxToolOutputLen)}…(已截断)`;
+        }
+
+        conversations.append(convId, {
+          role: 'tool',
+          content: payload,
+          toolCallId: tc.id,
+        });
+      }
+    }
+
+    return { text: '已达到工具调用轮数上限，请简化任务或分步提问。', usage: totalUsage };
+  }
+
+  return {
+    handleMessage,
+    /** 获取 Agent 状态 */
+    getStatus() {
+      return {
+        toolCount: tools.list().length,
+      };
+    },
+  };
+}
