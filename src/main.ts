@@ -13,6 +13,9 @@ import { createConversationHistory } from './adapters/memory/conversation-histor
 import { createOpenAICompatibleRouter } from './adapters/llm/openai-compatible.js';
 import { createToolExecutor } from './adapters/tools/tool-executor.js';
 import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
+import { createFeishuAdapter } from './adapters/channel/feishu.js';
+import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
+import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
   const config = loadConfig();
@@ -104,16 +107,66 @@ async function main() {
 
   console.error('[MyClaw] Agent 已启动');
   console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
-  console.error('[MyClaw] 等待通道连接...');
+
+  // 启动通道
+  const channels: IChannelAdapter[] = [];
+
+  if (config.channels.feishu) {
+    try {
+      const adminConfig = loadFeishuConfig('FEISHU_ADMIN');
+      const feishuAdmin = createFeishuAdapter({
+        config: adminConfig,
+        transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
+        channelName: 'feishu:admin',
+      });
+      feishuAdmin.onMessage(async (msg) => {
+        const result = await agent.handleMessage(msg.channel, msg.userId, msg.text);
+        return result.text;
+      });
+      await feishuAdmin.start();
+      channels.push(feishuAdmin);
+      console.error('[MyClaw] 飞书管理员 Bot 已连接');
+    } catch (err) {
+      console.error('[MyClaw] 飞书管理员 Bot 启动失败:', err);
+    }
+
+    // 女友 Bot（可选）
+    if (process.env.FEISHU_GIRLFRIEND_APP_ID) {
+      try {
+        const gfConfig = loadFeishuConfig('FEISHU_GIRLFRIEND');
+        const feishuGf = createFeishuAdapter({
+          config: gfConfig,
+          transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
+          channelName: 'feishu:girlfriend',
+        });
+        feishuGf.onMessage(async (msg) => {
+          const result = await agent.handleMessage(msg.channel, msg.userId, msg.text);
+          return result.text;
+        });
+        await feishuGf.start();
+        channels.push(feishuGf);
+        console.error('[MyClaw] 飞书女友 Bot 已连接');
+      } catch (err) {
+        console.error('[MyClaw] 飞书女友 Bot 启动失败:', err);
+      }
+    }
+  }
+
+  if (channels.length === 0) {
+    console.error('[MyClaw] 未启用任何通道，等待通道连接...');
+  }
 
   // 优雅退出
-  const shutdown = () => {
+  const shutdown = async () => {
     console.error('[MyClaw] 正在关闭...');
+    for (const ch of channels) {
+      try { await ch.stop(); } catch { /* ignore */ }
+    }
     memory.close();
     process.exit(0);
   };
-  process.once('SIGINT', shutdown);
-  process.once('SIGTERM', shutdown);
+  process.once('SIGINT', () => void shutdown());
+  process.once('SIGTERM', () => void shutdown());
 
   // 保持进程运行
   await new Promise(() => {});

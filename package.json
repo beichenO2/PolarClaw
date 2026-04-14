@@ -17,6 +17,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0",
     "better-sqlite3": "^12.9.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.2",
