@@ -18,11 +18,14 @@ requires:
 
 ## 工具列表
 
-- `clock_get_user_context`: 一次性获取用户完整上下文（推荐首次交互时调用）
-- `clock_get_tasks`: 获取任务列表（支持筛选）
+### 只读工具（走 /api/sync/*，只需用户名 + 可选 CLOCK_SYNC_KEY）
+- `clock_get_user_context`: 通过 sync snapshot 一次性获取完整上下文（状态、日程、今日工作）
 - `clock_get_timer_status`: 获取番茄钟当前状态
-- `clock_get_schedule`: 获取今日日程
-- `clock_create_task`: 创建新任务
+- `clock_get_schedule`: 获取今日日程（课程 Block + 三餐时间）
+
+### 读写工具（需要用户 session token，即 X-Token）
+- `clock_get_tasks`: 获取任务列表（可含已归档）
+- `clock_create_task`: 创建新任务（字段: name, deadline, pomodor_total, tags）
 - `clock_complete_task`: 标记任务完成
 
 ## 调用时机
