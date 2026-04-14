@@ -8,3 +8,8 @@ dist/
 *.log
 .DS_Store
 coverage/
+*.db-shm
+*.db-wal
+deer-flow/
+hermes-agent/
+openclaw/
