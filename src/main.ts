@@ -35,7 +35,6 @@ async function main() {
   const privacy = createPrivacyGateway({
     polarPrivate: {
       baseUrl: config.privacy.polarPrivateUrl,
-      getUnlockToken: () => process.env.POLARPRIVATE_UNLOCK_TOKEN ?? null,
     },
     enableSecretInterception: config.privacy.enableSecretInterception,
   });

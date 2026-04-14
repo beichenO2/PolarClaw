@@ -92,7 +92,7 @@ export function loadConfig(): IMyclawConfig {
       dbPath: env('MYCLAW_DB_PATH', join(ROOT, '.data', 'myclaw.db')),
     },
     privacy: {
-      polarPrivateUrl: env('POLARPRIVATE_URL', 'http://127.0.0.1:8790'),
+      polarPrivateUrl: env('POLARPRIVATE_URL', 'http://127.0.0.1:8787'),
       enableSecretInterception: env('MYCLAW_SECRET_INTERCEPTION', 'true') === 'true',
     },
     channels: {
