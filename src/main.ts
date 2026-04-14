@@ -15,6 +15,7 @@ import { createToolExecutor } from './adapters/tools/tool-executor.js';
 import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
 import { createFeishuAdapter } from './adapters/channel/feishu.js';
 import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
+import { createCLIAdapter } from './adapters/channel/cli.js';
 import { createContextCompressor } from './adapters/compression/summarizer.js';
 import { createSkillLoader } from './adapters/skills/skill-loader.js';
 import type { IChannelAdapter } from './ports/channel.js';
@@ -178,6 +179,17 @@ async function main() {
         console.error('[MyClaw] 飞书女友 Bot 启动失败:', err);
       }
     }
+  }
+
+  if (config.channels.cli) {
+    const cli = createCLIAdapter({ userId: 'admin' });
+    cli.onMessage(async (msg) => {
+      const result = await agent.handleMessage(msg.channel, msg.userId, msg.text);
+      return result.text;
+    });
+    await cli.start();
+    channels.push(cli);
+    console.error('[MyClaw] CLI 通道已启动');
   }
 
   if (channels.length === 0) {

@@ -51,6 +51,7 @@ export interface IMyclawConfig {
   channels: {
     feishu: boolean;
     telegram: boolean;
+    cli: boolean;
   };
   skills: {
     scanDirs: string[];
@@ -134,6 +135,7 @@ export function loadConfig(): IMyclawConfig {
     channels: {
       feishu: env('MYCLAW_FEISHU', '0') === '1',
       telegram: env('MYCLAW_TELEGRAM', '0') === '1',
+      cli: env('MYCLAW_CLI', '0') === '1',
     },
     skills: {
       scanDirs: [join(ROOT, 'skills')],
