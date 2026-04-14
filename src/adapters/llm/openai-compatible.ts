@@ -98,12 +98,16 @@ async function callProvider(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (provider.apiKey && provider.apiKey !== 'proxy-managed') {
+      headers['Authorization'] = `Bearer ${provider.apiKey}`;
+    }
+
     const res = await fetch(`${provider.baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${provider.apiKey}`,
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });
