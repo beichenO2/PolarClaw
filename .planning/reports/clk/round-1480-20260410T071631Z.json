@@ -1,0 +1,504 @@
+{
+  "round": 1480,
+  "generated_at": "2026-04-10T07:16:31.387741+00:00",
+  "project": "myclaw",
+  "global_snapshot": [
+    {
+      "key": "myclaw",
+      "steps": {
+        "hub_register": {
+          "ok": true,
+          "agent_id": "clk",
+          "session_id": "2f82f348-7db3-492c-9307-60f0349cbb57",
+          "assigned_role": {
+            "role": "clk",
+            "status": "active"
+          }
+        },
+        "hub_heartbeat_role": {
+          "ok": true
+        },
+        "hub_get_roles": {
+          "ok": true,
+          "roles": [
+            {
+              "agentId": "e2e-worker",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-08T17:31:01.362Z",
+              "lastHeartbeat": "2026-04-08T17:31:01.362Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "ctrl",
+              "role": "controller",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T05:04:47.456Z",
+              "lastHeartbeat": "2026-04-10T07:16:29.265Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "super",
+              "role": "supervisor",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:53:25.402Z",
+              "lastHeartbeat": "2026-04-10T07:16:29.048Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-01",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:06.256Z",
+              "lastHeartbeat": "2026-04-10T04:05:42.984Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-02",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:06.357Z",
+              "lastHeartbeat": "2026-04-10T04:05:00.082Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-03",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:06.446Z",
+              "lastHeartbeat": "2026-04-10T04:05:43.176Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-04",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:06.537Z",
+              "lastHeartbeat": "2026-04-10T04:05:01.862Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-05",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:06.634Z",
+              "lastHeartbeat": "2026-04-09T19:59:36.803Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "clk",
+              "role": "clk",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:53:39.565Z",
+              "lastHeartbeat": "2026-04-10T07:16:30.042Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "w001",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:53:25.654Z",
+              "lastHeartbeat": "2026-04-10T04:58:15.471Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "w002",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:53:25.801Z",
+              "lastHeartbeat": "2026-04-10T05:13:00.256Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "w003",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:53:25.998Z",
+              "lastHeartbeat": "2026-04-10T05:02:39.547Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            }
+          ],
+          "reserve_count": 0
+        },
+        "hub_get_progress": {
+          "ok": true,
+          "by_phase": [
+            {
+              "phase": "discuss",
+              "completed": 1,
+              "total": 1,
+              "active_agents": 0
+            },
+            {
+              "phase": "research",
+              "completed": 2,
+              "total": 2,
+              "active_agents": 0
+            },
+            {
+              "phase": "plan",
+              "completed": 5,
+              "total": 5,
+              "active_agents": 0
+            },
+            {
+              "phase": "execute",
+              "completed": 129,
+              "total": 129,
+              "active_agents": 0
+            },
+            {
+              "phase": "verify",
+              "completed": 146,
+              "total": 146,
+              "active_agents": 0
+            }
+          ]
+        }
+      },
+      "successions": []
+    },
+    {
+      "key": "digest",
+      "steps": {
+        "hub_register": {
+          "ok": false,
+          "error": "hub_call_failed",
+          "detail": "",
+          "project": "digest"
+        }
+      }
+    },
+    {
+      "key": "knowlever",
+      "steps": {
+        "hub_register": {
+          "ok": true,
+          "agent_id": "clk",
+          "session_id": "d4fc8eff-0930-46df-b0f7-57b82d630709",
+          "assigned_role": {
+            "role": "clk",
+            "status": "active"
+          }
+        },
+        "hub_heartbeat_role": {
+          "ok": true
+        },
+        "hub_get_roles": {
+          "ok": true,
+          "roles": [
+            {
+              "agentId": "worker-01",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:07.473Z",
+              "lastHeartbeat": "2026-04-10T04:05:41.374Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-02",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:07.573Z",
+              "lastHeartbeat": "2026-04-10T04:05:40.441Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-03",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:07.658Z",
+              "lastHeartbeat": "2026-04-10T04:05:41.814Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "clk",
+              "role": "clk",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:54:43.689Z",
+              "lastHeartbeat": "2026-04-10T07:16:30.509Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            }
+          ],
+          "reserve_count": 0
+        },
+        "hub_get_progress": {
+          "ok": true,
+          "by_phase": [
+            {
+              "phase": "discuss",
+              "completed": 45,
+              "total": 45,
+              "active_agents": 0
+            },
+            {
+              "phase": "research",
+              "completed": 6,
+              "total": 6,
+              "active_agents": 0
+            },
+            {
+              "phase": "plan",
+              "completed": 8,
+              "total": 8,
+              "active_agents": 0
+            },
+            {
+              "phase": "execute",
+              "completed": 23,
+              "total": 28,
+              "active_agents": 0
+            },
+            {
+              "phase": "verify",
+              "completed": 11,
+              "total": 11,
+              "active_agents": 0
+            }
+          ]
+        }
+      },
+      "successions": []
+    },
+    {
+      "key": "llmwiki",
+      "steps": {
+        "hub_register": {
+          "ok": true,
+          "agent_id": "clk",
+          "session_id": "3aa51233-e32d-47e5-b1a9-cb5e908e85a8",
+          "assigned_role": {
+            "role": "clk",
+            "status": "active"
+          }
+        },
+        "hub_heartbeat_role": {
+          "ok": true
+        },
+        "hub_get_roles": {
+          "ok": true,
+          "roles": [
+            {
+              "agentId": "worker-01",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:07.923Z",
+              "lastHeartbeat": "2026-04-09T19:58:51.533Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-02",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:08.015Z",
+              "lastHeartbeat": "2026-04-09T19:58:42.265Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-03",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:08.106Z",
+              "lastHeartbeat": "2026-04-09T19:57:30.204Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "clk",
+              "role": "clk",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:54:45.630Z",
+              "lastHeartbeat": "2026-04-10T07:16:30.812Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            }
+          ],
+          "reserve_count": 0
+        },
+        "hub_get_progress": {
+          "ok": true,
+          "by_phase": [
+            {
+              "phase": "discuss",
+              "completed": 0,
+              "total": 0,
+              "active_agents": 0
+            },
+            {
+              "phase": "research",
+              "completed": 0,
+              "total": 0,
+              "active_agents": 0
+            },
+            {
+              "phase": "plan",
+              "completed": 0,
+              "total": 0,
+              "active_agents": 0
+            },
+            {
+              "phase": "execute",
+              "completed": 65,
+              "total": 67,
+              "active_agents": 0
+            },
+            {
+              "phase": "verify",
+              "completed": 0,
+              "total": 1,
+              "active_agents": 0
+            }
+          ]
+        }
+      },
+      "successions": []
+    },
+    {
+      "key": "autooffice",
+      "steps": {
+        "hub_register": {
+          "ok": true,
+          "agent_id": "clk",
+          "session_id": "8ced6fe6-3dc5-4781-83ec-5e354acd9043",
+          "assigned_role": {
+            "role": "clk",
+            "status": "active"
+          }
+        },
+        "hub_heartbeat_role": {
+          "ok": true
+        },
+        "hub_get_roles": {
+          "ok": true,
+          "roles": [
+            {
+              "agentId": "super",
+              "role": "supervisor",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T05:05:15.645Z",
+              "lastHeartbeat": "2026-04-10T07:16:27.351Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-01",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:08.388Z",
+              "lastHeartbeat": "2026-04-09T19:57:23.034Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-02",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:08.479Z",
+              "lastHeartbeat": "2026-04-09T19:57:51.669Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "worker-03",
+              "role": "worker",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-09T17:17:08.566Z",
+              "lastHeartbeat": "2026-04-10T04:05:43.064Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            },
+            {
+              "agentId": "clk",
+              "role": "clk",
+              "status": "active",
+              "tmuxSession": null,
+              "assignedAt": "2026-04-10T04:54:46.455Z",
+              "lastHeartbeat": "2026-04-10T07:16:31.162Z",
+              "stateSnapshot": null,
+              "predecessorId": null
+            }
+          ],
+          "reserve_count": 0
+        },
+        "hub_get_progress": {
+          "ok": true,
+          "by_phase": [
+            {
+              "phase": "discuss",
+              "completed": 0,
+              "total": 0,
+              "active_agents": 0
+            },
+            {
+              "phase": "research",
+              "completed": 0,
+              "total": 0,
+              "active_agents": 0
+            },
+            {
+              "phase": "plan",
+              "completed": 0,
+              "total": 0,
+              "active_agents": 0
+            },
+            {
+              "phase": "execute",
+              "completed": 57,
+              "total": 62,
+              "active_agents": 1
+            },
+            {
+              "phase": "verify",
+              "completed": 4,
+              "total": 4,
+              "active_agents": 0
+            }
+          ]
+        }
+      },
+      "successions": []
+    }
+  ]
+}

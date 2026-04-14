@@ -1,16 +1,30 @@
 {
   "name": "myclaw",
   "private": true,
-  "version": "0.0.1",
-  "description": "MyClaw — AI agent fusion platform (OpenClaw + DeerFlow + Hermes)",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MyClaw — AI Agent 融合平台（端口-适配器架构）",
   "scripts": {
-    "start": "node start.mjs",
-    "test": "bash scripts/test-all.sh",
-    "dev:web": "cd apps/web && npm run dev",
-    "build:web": "cd apps/web && npm run build",
-    "lint": "echo 'TODO: add linting'"
+    "build": "tsc -b",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
   },
-  "workspaces": [
-    "apps/*"
-  ]
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.60.0",
+    "better-sqlite3": "^12.9.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.6.0"
+  }
 }

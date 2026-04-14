@@ -1,0 +1,62 @@
+{
+  "round": 1160,
+  "generated_at": "2026-04-10T04:27:01.270063+00:00",
+  "project": "myclaw",
+  "global_snapshot": [
+    {
+      "key": "myclaw",
+      "steps": {
+        "hub_register": {
+          "ok": false,
+          "error": "hub_call_failed",
+          "detail": "",
+          "project": "myclaw"
+        }
+      }
+    },
+    {
+      "key": "digest",
+      "steps": {
+        "hub_register": {
+          "ok": false,
+          "error": "hub_call_failed",
+          "detail": "",
+          "project": "digest"
+        }
+      }
+    },
+    {
+      "key": "knowlever",
+      "steps": {
+        "hub_register": {
+          "ok": false,
+          "error": "hub_call_failed",
+          "detail": "",
+          "project": "knowlever"
+        }
+      }
+    },
+    {
+      "key": "llmwiki",
+      "steps": {
+        "hub_register": {
+          "ok": false,
+          "error": "hub_call_failed",
+          "detail": "",
+          "project": "llmwiki"
+        }
+      }
+    },
+    {
+      "key": "autooffice",
+      "steps": {
+        "hub_register": {
+          "ok": false,
+          "error": "hub_call_failed",
+          "detail": "",
+          "project": "autooffice"
+        }
+      }
+    }
+  ]
+}
