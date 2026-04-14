@@ -21,11 +21,11 @@ export interface ISkillLoader {
   /** 从目录扫描并加载技能 */
   scan(dirs: string[]): ISkillMeta[];
 
-  /** 将技能注册为 Agent 工具 */
+  /** 将技能注册为 Agent 工具（动态导入 tools.ts，需 async） */
   registerTools(skills: ISkillMeta[], register: (tool: {
     name: string;
     description: string;
     parameters: Record<string, unknown>;
     handler: (args: Record<string, unknown>) => Promise<unknown>;
-  }) => void): void;
+  }) => void): Promise<void>;
 }

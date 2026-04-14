@@ -9,12 +9,14 @@ import { dirname, join } from 'node:path';
 import { loadConfig } from './config.js';
 import { createAgent } from './core/agent.js';
 import { createSqliteMemoryStore } from './adapters/memory/sqlite-store.js';
-import { createConversationHistory } from './adapters/memory/conversation-history.js';
+import { createPersistentConversation } from './adapters/memory/persistent-conversation.js';
 import { createOpenAICompatibleRouter } from './adapters/llm/openai-compatible.js';
 import { createToolExecutor } from './adapters/tools/tool-executor.js';
 import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
 import { createFeishuAdapter } from './adapters/channel/feishu.js';
 import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
+import { createContextCompressor } from './adapters/compression/summarizer.js';
+import { createSkillLoader } from './adapters/skills/skill-loader.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -26,13 +28,19 @@ async function main() {
 
   // 组装适配器
   const memory = createSqliteMemoryStore(config.memory.dbPath);
-  const conversations = createConversationHistory({ maxMessages: 100, maxTokens: 60000 });
+  const conversations = createPersistentConversation({
+    dbPath: config.memory.dbPath,
+    maxMessages: 100,
+    maxTokens: 60000,
+  });
   const llm = createOpenAICompatibleRouter({
     baseUrl: config.llm.baseUrl,
     apiKey: config.llm.apiKey,
     models: config.llm.models,
     defaultTemperature: config.llm.temperature,
     defaultMaxTokens: config.llm.maxTokens,
+    fallbackProviders: config.llm.fallbackProviders,
+    requestTimeoutMs: config.llm.requestTimeoutMs,
   });
   const tools = createToolExecutor();
   const privacy = createPrivacyGateway({
@@ -48,6 +56,11 @@ async function main() {
   if (existsSync(soulPath)) {
     soulPrompt = readFileSync(soulPath, 'utf8');
   }
+
+  // 自动加载 Skills 目录中的工具
+  const skillLoader = createSkillLoader();
+  const discoveredSkills = skillLoader.scan(config.skills.scanDirs);
+  await skillLoader.registerTools(discoveredSkills, (tool) => tools.register(tool));
 
   // 注册内置工具
   tools.register({
@@ -94,6 +107,21 @@ async function main() {
     },
   });
 
+  // 上下文压缩器（Phase 3 摘要使用 general 模型）
+  const compressor = createContextCompressor({
+    triggerRatio: 0.7,
+    toolOutputMaxLen: 2000,
+    headKeep: 4,
+    tailKeep: 8,
+    summarize: async (text) => {
+      const res = await llm.chat([
+        { role: 'system', content: '你是一个对话摘要助手。请将以下多轮对话内容压缩为简洁的结构化摘要，保留关键事实、决策和工具调用结果。使用中文，不超过 500 字。' },
+        { role: 'user', content: text },
+      ], { temperature: 0.3, maxTokens: 800 });
+      return res.content ?? '';
+    },
+  });
+
   // 创建 Agent
   const agent = createAgent(
     {
@@ -102,7 +130,7 @@ async function main() {
       temperature: config.llm.temperature,
       maxTokens: config.llm.maxTokens,
     },
-    { llm, memory, conversations, tools, privacy },
+    { llm, memory, conversations, tools, privacy, compressor },
   );
 
   console.error('[MyClaw] Agent 已启动');

@@ -14,6 +14,7 @@ import type { IPrivacyGateway } from '../ports/privacy.js';
 import type { IMemoryStore, IConversationHistory, IChatMessage } from '../ports/memory.js';
 import type { ILLMRouter, ILLMResponse } from '../ports/llm.js';
 import type { IToolExecutor } from '../ports/tools.js';
+import type { IContextCompressor } from '../ports/compression.js';
 
 export interface IAgentConfig {
   /** 每轮最多工具调用次数 */
@@ -34,6 +35,8 @@ export interface IAgentDeps {
   conversations: IConversationHistory;
   tools: IToolExecutor;
   privacy: IPrivacyGateway;
+  /** 上下文压缩器（可选，不提供则不启用压缩） */
+  compressor?: IContextCompressor;
 }
 
 export interface IAgentResponse {
@@ -52,7 +55,7 @@ export interface IAgentResponse {
 }
 
 export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
-  const { llm, memory, conversations, tools, privacy } = deps;
+  const { llm, memory, conversations, tools, privacy, compressor } = deps;
   const maxToolOutputLen = config.maxToolOutputLength ?? 12000;
 
   /**
@@ -146,11 +149,28 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   async function runLoop(convId: string): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
 
+    // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
+    const compressionBudget = (config.maxTokens ?? 4096) * 12;
+
     for (let round = 0; round < config.maxToolRounds; round++) {
       const history = conversations.getHistory(convId);
+      let contextMessages = history;
+
+      // 上下文压缩：对话历史接近预算时渐进式压缩
+      if (compressor && compressor.shouldCompress(contextMessages, compressionBudget)) {
+        const result = await compressor.compress(contextMessages, compressionBudget);
+        contextMessages = result.messages;
+        if (result.phasesUsed.length > 0) {
+          console.error(
+            `[Compression] ${result.originalTokens} → ${result.compressedTokens} tokens` +
+            ` (phases: ${result.phasesUsed.join(',')})`
+          );
+        }
+      }
+
       const messages: IChatMessage[] = [
         { role: 'system', content: config.systemPrompt },
-        ...history,
+        ...contextMessages,
       ];
 
       const response = await llm.chat(messages, {
@@ -184,8 +204,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         return { text: text || '（暂无文本回复）', usage: totalUsage };
       }
 
-      // 执行工具并记录结果
-      for (const tc of response.toolCalls) {
+      // 并发执行所有工具调用（Promise.allSettled 保证全部完成，不因单个失败终止）
+      const toolTasks = response.toolCalls.map(async (tc) => {
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(tc.function.arguments);
@@ -208,10 +228,23 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           payload = `${payload.slice(0, maxToolOutputLen)}…(已截断)`;
         }
 
+        return { id: tc.id, payload };
+      });
+
+      const toolResults = await Promise.allSettled(toolTasks);
+
+      // 按原始 toolCalls 顺序追加结果，保证 LLM 消息交替正确
+      for (let i = 0; i < response.toolCalls.length; i++) {
+        const settled = toolResults[i];
+        const toolCallId = response.toolCalls[i].id;
+        const payload = settled.status === 'fulfilled'
+          ? settled.value.payload
+          : JSON.stringify({ error: String(settled.reason) });
+
         conversations.append(convId, {
           role: 'tool',
           content: payload,
-          toolCallId: tc.id,
+          toolCallId,
         });
       }
     }

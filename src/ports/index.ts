@@ -47,3 +47,8 @@ export type {
   ISkillLoader,
   ISkillMeta,
 } from './skills.js';
+
+export type {
+  IContextCompressor,
+  ICompressionResult,
+} from './compression.js';

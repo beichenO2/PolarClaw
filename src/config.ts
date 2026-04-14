@@ -11,6 +11,17 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
+export interface IProviderEntry {
+  baseUrl: string;
+  apiKey: string;
+  models: {
+    coding: string;
+    research: string;
+    vision: string;
+    general: string;
+  };
+}
+
 export interface IMyclawConfig {
   projectRoot: string;
   llm: {
@@ -25,6 +36,10 @@ export interface IMyclawConfig {
     temperature: number;
     maxTokens: number;
     maxToolRounds: number;
+    /** 备用 Provider 列表 */
+    fallbackProviders: IProviderEntry[];
+    /** 单次 LLM 请求超时 ms */
+    requestTimeoutMs: number;
   };
   memory: {
     dbPath: string;
@@ -73,6 +88,25 @@ export function loadConfig(): IMyclawConfig {
     throw new Error('缺少 LLM API key：请设置 MYCLAW_LLM_API_KEY 环境变量');
   }
 
+  // 解析备用 Provider（环境变量格式：MYCLAW_FALLBACK_1_URL, MYCLAW_FALLBACK_1_KEY, ...）
+  const fallbackProviders: IProviderEntry[] = [];
+  for (let i = 1; i <= 5; i++) {
+    const fbUrl = env(`MYCLAW_FALLBACK_${i}_URL`);
+    const fbKey = env(`MYCLAW_FALLBACK_${i}_KEY`);
+    if (fbUrl && fbKey) {
+      fallbackProviders.push({
+        baseUrl: fbUrl,
+        apiKey: fbKey,
+        models: {
+          coding: env(`MYCLAW_FALLBACK_${i}_MODEL_CODING`, env('MYCLAW_MODEL_CODING', 'qwen3-coder-plus')),
+          research: env(`MYCLAW_FALLBACK_${i}_MODEL_RESEARCH`, env('MYCLAW_MODEL_RESEARCH', 'qwen3.6-plus')),
+          vision: env(`MYCLAW_FALLBACK_${i}_MODEL_VISION`, env('MYCLAW_MODEL_VISION', 'qwen3.6-plus')),
+          general: env(`MYCLAW_FALLBACK_${i}_MODEL_GENERAL`, env('MYCLAW_MODEL_GENERAL', 'qwen3.6-plus')),
+        },
+      });
+    }
+  }
+
   return {
     projectRoot: ROOT,
     llm: {
@@ -87,6 +121,8 @@ export function loadConfig(): IMyclawConfig {
       temperature: Number(env('MYCLAW_TEMPERATURE', '0.7')),
       maxTokens: Number(env('MYCLAW_MAX_TOKENS', '4096')),
       maxToolRounds: Number(env('MYCLAW_MAX_TOOL_ROUNDS', '10')),
+      fallbackProviders,
+      requestTimeoutMs: Number(env('MYCLAW_LLM_TIMEOUT_MS', '60000')),
     },
     memory: {
       dbPath: env('MYCLAW_DB_PATH', join(ROOT, '.data', 'myclaw.db')),
