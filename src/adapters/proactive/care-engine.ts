@@ -66,10 +66,10 @@ export function createCarePolicy(
         }
 
         case 'timer-complete': {
-          if (!deps.tools.has('timer_status')) return null;
+          if (!deps.tools.has('clock_get_timer_status')) return null;
           let status: unknown;
           try {
-            status = await deps.tools.execute('timer_status', { user_id: trigger.userId });
+            status = await deps.tools.execute('clock_get_timer_status', { username: trigger.userId });
           } catch { return null; }
 
           return {
