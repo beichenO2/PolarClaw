@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-PROJECT_ROOT = Path("/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Tools/MyClaw")
+PROJECT_ROOT = Path("/Users/mac/Polarisor/MyClaw")
 HUB = PROJECT_ROOT / "gsd-2/scripts/hub-call.sh"
 DB_PATH = PROJECT_ROOT / ".planning/hub/hub.sqlite"
 REPORT_DIR = PROJECT_ROOT / ".planning/reports/supervisor"
