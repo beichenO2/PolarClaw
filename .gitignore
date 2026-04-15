@@ -14,3 +14,4 @@ deer-flow/
 hermes-agent/
 openclaw/
 .planning/sync-log.jsonl
+tsconfig.tsbuildinfo
