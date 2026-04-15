@@ -1,0 +1,208 @@
+/**
+ * 主动关怀引擎适配器
+ *
+ * 实现 IProactiveEngine + ICarePolicy。
+ * 调度器定时检查规则 → 策略评估是否关怀 → 生成消息 → 通过回调注入 Agent。
+ *
+ * 关怀策略基于：
+ * - 用户最后活跃时间（长时间未活跃 → 关怀提醒）
+ * - Clock 状态（番茄钟结束 → 休息提醒）
+ * - 自定义规则（用户配置的定时关怀）
+ */
+
+import type {
+  IProactiveEngine,
+  IProactiveTrigger,
+  IProactiveMessage,
+  ICarePolicy,
+  IScheduleRule,
+} from '../../ports/proactive.js';
+import type { IMemoryStore } from '../../ports/memory.js';
+import type { IToolExecutor } from '../../ports/tools.js';
+
+export interface ICareEngineConfig {
+  /** 调度轮询间隔 ms（默认 60000 = 1 分钟） */
+  pollIntervalMs?: number;
+  /** 同一用户两次关怀最小间隔 ms（默认 2 小时） */
+  minCareIntervalMs?: number;
+  /** 用户不活跃多久后触发关怀 ms（默认 4 小时） */
+  inactivityThresholdMs?: number;
+}
+
+export interface ICareEngineDeps {
+  memory: IMemoryStore;
+  tools: IToolExecutor;
+  /** 关怀消息发出时的回调（由 main.ts 注入，桥接到 Agent） */
+  onCareMessage: (message: IProactiveMessage) => Promise<void>;
+}
+
+export function createCarePolicy(
+  deps: { memory: IMemoryStore; tools: IToolExecutor },
+  config: { inactivityThresholdMs: number },
+): ICarePolicy {
+  return {
+    async evaluate(trigger) {
+      switch (trigger.reason) {
+        case 'inactivity': {
+          const lastActive = deps.memory.getProfile(trigger.userId, 'lastActiveAt');
+          if (!lastActive) return null;
+
+          const elapsed = Date.now() - new Date(lastActive).getTime();
+          if (elapsed < config.inactivityThresholdMs) return null;
+
+          const hour = new Date().getHours();
+          if (hour < 8 || hour > 22) return null;
+
+          const profiles = deps.memory.getAllProfiles(trigger.userId);
+          const nameEntry = profiles.find(p => p.key === 'name' || p.key === 'displayName');
+          const userName = nameEntry?.value ?? '你';
+
+          return {
+            userId: trigger.userId,
+            prompt: buildInactivityPrompt(userName, elapsed),
+            priority: 'low',
+            tag: 'inactivity-care',
+          };
+        }
+
+        case 'timer-complete': {
+          if (!deps.tools.has('timer_status')) return null;
+          let status: unknown;
+          try {
+            status = await deps.tools.execute('timer_status', { user_id: trigger.userId });
+          } catch { return null; }
+
+          return {
+            userId: trigger.userId,
+            prompt: `[系统提示：用户的番茄钟刚刚结束。请根据用户的工作状态，自然地建议休息或继续。当前状态：${JSON.stringify(status)}]`,
+            priority: 'normal',
+            tag: 'timer-care',
+          };
+        }
+
+        case 'scheduled': {
+          return {
+            userId: trigger.userId,
+            prompt: trigger.context?.prompt as string
+              ?? '[系统提示：这是一条定时关怀。请自然地和用户打个招呼，问问近况。]',
+            priority: 'normal',
+            tag: 'scheduled-care',
+          };
+        }
+
+        default:
+          return null;
+      }
+    },
+  };
+}
+
+function buildInactivityPrompt(name: string, elapsedMs: number): string {
+  const hours = Math.floor(elapsedMs / 3600000);
+  if (hours < 6) {
+    return `[系统提示：${name}已经 ${hours} 小时没有消息了。请以自然的方式关心一下，不要显得机械。不要提及你是被系统触发的。]`;
+  }
+  return `[系统提示：${name}已经很久（${hours} 小时）没有活动了。如果合适的话，发送一条简短的关怀消息。注意时间和语境，不要打扰。]`;
+}
+
+function parseSchedule(schedule: string): number | null {
+  const minuteMatch = schedule.match(/^(\d+)m$/);
+  if (minuteMatch) return parseInt(minuteMatch[1], 10) * 60000;
+
+  const hourMatch = schedule.match(/^(\d+)h$/);
+  if (hourMatch) return parseInt(hourMatch[1], 10) * 3600000;
+
+  return null;
+}
+
+export function createCareEngine(
+  config: ICareEngineConfig,
+  deps: ICareEngineDeps,
+): IProactiveEngine {
+  const pollInterval = config.pollIntervalMs ?? 60000;
+  const minCareInterval = config.minCareIntervalMs ?? 2 * 3600000;
+  const inactivityThreshold = config.inactivityThresholdMs ?? 4 * 3600000;
+
+  const rules: Map<string, IScheduleRule> = new Map();
+  const lastCareTime: Map<string, number> = new Map();
+  let timer: ReturnType<typeof setInterval> | null = null;
+
+  const policy = createCarePolicy(
+    { memory: deps.memory, tools: deps.tools },
+    { inactivityThresholdMs: inactivityThreshold },
+  );
+
+  async function checkRules() {
+    const now = Date.now();
+
+    for (const rule of rules.values()) {
+      if (!rule.enabled) continue;
+
+      const intervalMs = parseSchedule(rule.schedule);
+      if (!intervalMs) continue;
+
+      const lastTriggered = rule.lastTriggeredAt?.getTime() ?? 0;
+      if (now - lastTriggered < intervalMs) continue;
+
+      const lastCare = lastCareTime.get(rule.userId) ?? 0;
+      if (now - lastCare < minCareInterval) continue;
+
+      const trigger: IProactiveTrigger = {
+        type: 'cron',
+        userId: rule.userId,
+        reason: rule.reason,
+      };
+
+      const message = await policy.evaluate(trigger);
+      if (message) {
+        rule.lastTriggeredAt = new Date(now);
+        lastCareTime.set(rule.userId, now);
+        try {
+          await deps.onCareMessage(message);
+        } catch (err) {
+          console.error(`[CareEngine] 发送关怀消息失败 (${rule.userId}):`, err);
+        }
+      }
+    }
+  }
+
+  return {
+    start() {
+      if (timer) return;
+      timer = setInterval(() => void checkRules(), pollInterval);
+      console.error(`[CareEngine] 已启动，轮询间隔 ${pollInterval / 1000}s`);
+    },
+
+    stop() {
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+        console.error('[CareEngine] 已停止');
+      }
+    },
+
+    async trigger(trigger) {
+      const lastCare = lastCareTime.get(trigger.userId) ?? 0;
+      if (Date.now() - lastCare < minCareInterval) return null;
+
+      const message = await policy.evaluate(trigger);
+      if (message) {
+        lastCareTime.set(trigger.userId, Date.now());
+        await deps.onCareMessage(message);
+      }
+      return message;
+    },
+
+    addRule(rule) {
+      rules.set(rule.id, rule);
+    },
+
+    removeRule(ruleId) {
+      return rules.delete(ruleId);
+    },
+
+    listRules() {
+      return [...rules.values()];
+    },
+  };
+}

@@ -63,3 +63,20 @@ export type {
   IToolPattern,
   ILearningContext,
 } from './learning.js';
+
+export type {
+  IProactiveEngine,
+  IProactiveTrigger,
+  IProactiveMessage,
+  ICarePolicy,
+  IScheduleRule,
+} from './proactive.js';
+
+export type {
+  IYoloEngine,
+  IYoloSessionConfig,
+  IYoloSessionState,
+  IStepResult,
+  IRecoveryStrategy,
+  RecoveryAction,
+} from './autonomous.js';

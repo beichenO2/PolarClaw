@@ -25,6 +25,9 @@ import { createPatternDetector } from './adapters/learning/pattern-detector.js';
 import { createSkillGenerator } from './adapters/learning/skill-generator.js';
 import { createSkillComposer } from './adapters/learning/skill-composer.js';
 import { createLearningTools } from './adapters/learning/learning-tools.js';
+import { createCareEngine } from './adapters/proactive/care-engine.js';
+import { createYoloEngine } from './adapters/yolo/engine.js';
+import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -174,10 +177,6 @@ async function main() {
     { llm, memory, conversations, tools, privacy, compressor },
   );
 
-  console.error('[MyClaw] Agent 已启动');
-  console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
-  console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
-
   // 消息队列：同一用户的消息串行处理，避免对话历史竞争
   const userLocks = new Map<string, Promise<unknown>>();
 
@@ -201,6 +200,97 @@ async function main() {
     const result = await current;
     return result.text;
   }
+
+  // 主动关怀引擎
+  const careEngine = createCareEngine(
+    {
+      pollIntervalMs: 60000,
+      minCareIntervalMs: 2 * 3600000,
+      inactivityThresholdMs: 4 * 3600000,
+    },
+    {
+      memory,
+      tools,
+      onCareMessage: async (msg) => {
+        const reply = await handleChannelMessage({
+          channel: 'proactive',
+          userId: msg.userId,
+          text: msg.prompt,
+        });
+        console.error(`[CareEngine] → ${msg.userId}: ${reply.slice(0, 80)}...`);
+      },
+    },
+  );
+
+  // YOLO 自主执行引擎
+  const yoloEngine = createYoloEngine({
+    agent,
+    recovery: createRecoveryStrategy(),
+    onStepComplete: (step, session) => {
+      console.error(`[YOLO] 步骤 ${step.step}/${session.stepsCompleted} 完成 (${step.tokensUsed} tokens)`);
+    },
+    onEscalate: (_sessionId, message) => {
+      console.error(`[YOLO] 需要用户介入: ${message}`);
+    },
+  });
+
+  // 注册引擎工具（让 Agent 可通过对话控制）
+  tools.register({
+    name: 'yolo_start',
+    description: '启动 YOLO 自主执行模式，Agent 将自主完成指定目标，无需逐步确认。',
+    parameters: {
+      type: 'object',
+      properties: {
+        goal: { type: 'string', description: '要完成的目标描述' },
+        max_steps: { type: 'number', description: '最大自主步数（默认 10）' },
+      },
+      required: ['goal'],
+    },
+    async handler(args) {
+      const goal = String(args.goal ?? '');
+      const maxSteps = Number(args.max_steps) || 10;
+      const result = await yoloEngine.run(
+        { goal, maxSteps, maxTotalTokens: 200000, maxWallTimeMs: 600000, maxRetries: 2 },
+        { channel: 'yolo', userId: 'admin' },
+      );
+      return {
+        status: result.status,
+        steps: result.stepsCompleted,
+        tokens: result.totalTokensUsed,
+        elapsed: `${Math.round(result.elapsedMs / 1000)}s`,
+        stopReason: result.stopReason,
+      };
+    },
+  });
+
+  tools.register({
+    name: 'care_add_rule',
+    description: '添加一条主动关怀定时规则。',
+    parameters: {
+      type: 'object',
+      properties: {
+        user_id: { type: 'string', description: '目标用户 ID' },
+        schedule: { type: 'string', description: '调度间隔（如 "30m", "2h"）' },
+        reason: { type: 'string', description: '触发原因（如 "inactivity", "scheduled"）' },
+      },
+      required: ['user_id', 'schedule', 'reason'],
+    },
+    handler(args) {
+      const id = `rule-${Date.now()}`;
+      careEngine.addRule({
+        id,
+        userId: String(args.user_id),
+        schedule: String(args.schedule),
+        reason: String(args.reason),
+        enabled: true,
+      });
+      return { id, ok: true };
+    },
+  });
+
+  console.error('[MyClaw] Agent 已启动');
+  console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
+  console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
   // 启动通道
   const channels: IChannelAdapter[] = [];
@@ -253,9 +343,16 @@ async function main() {
     console.error('[MyClaw] 未启用任何通道，等待通道连接...');
   }
 
+  // 启动主动关怀引擎
+  if (process.env.MYCLAW_PROACTIVE === '1') {
+    careEngine.start();
+    console.error('[MyClaw] 主动关怀引擎已启动');
+  }
+
   // 优雅退出
   const shutdown = async () => {
     console.error('[MyClaw] 正在关闭...');
+    careEngine.stop();
     skillRegistry.unwatch();
     for (const ch of channels) {
       try { await ch.stop(); } catch { /* ignore */ }
