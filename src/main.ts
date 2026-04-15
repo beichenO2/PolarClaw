@@ -239,12 +239,14 @@ async function main() {
     }
   }
 
-  if (config.channels.cli) {
+  if (config.channels.cli && process.stdin.isTTY) {
     const cli = createCLIAdapter({ userId: 'admin' });
     cli.onMessage(async (msg) => handleChannelMessage(msg));
     await cli.start();
     channels.push(cli);
     console.error('[MyClaw] CLI 通道已启动');
+  } else if (config.channels.cli) {
+    console.error('[MyClaw] CLI 已配置但非 TTY 环境，跳过');
   }
 
   if (channels.length === 0) {
