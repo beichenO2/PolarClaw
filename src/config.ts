@@ -77,6 +77,14 @@ function loadEnvFile(filePath: string): void {
   }
 }
 
+/**
+ * 在 secrets loader 之前预加载 .env，确保 POLARPRIVATE_URL 等基础配置可用。
+ * 幂等：loadConfig 内部再次调用 loadEnvFile 不会覆盖已有值。
+ */
+export function loadEnvFileEarly(): void {
+  loadEnvFile(join(ROOT, '.env'));
+}
+
 function env(key: string, fallback = ''): string {
   return process.env[key]?.trim() ?? fallback;
 }

@@ -6,13 +6,14 @@
 
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { loadConfig } from './config.js';
+import { loadConfig, loadEnvFileEarly } from './config.js';
 import { createAgent } from './core/agent.js';
 import { createSqliteMemoryStore } from './adapters/memory/sqlite-store.js';
 import { createPersistentConversation } from './adapters/memory/persistent-conversation.js';
 import { createOpenAICompatibleRouter } from './adapters/llm/openai-compatible.js';
 import { createToolExecutor } from './adapters/tools/tool-executor.js';
 import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
+import { loadSecretsToEnv } from './adapters/privacy/secrets-loader.js';
 import { createFeishuAdapter } from './adapters/channel/feishu.js';
 import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
 import { createCLIAdapter } from './adapters/channel/cli.js';
@@ -27,6 +28,15 @@ import { createLearningTools } from './adapters/learning/learning-tools.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
+  // 先加载 .env（确保 POLARPRIVATE_URL 等基础配置可用）
+  loadEnvFileEarly();
+
+  // 从 PolarPrivate Vault 补充 .env 中缺失的 secrets
+  await loadSecretsToEnv({
+    baseUrl: process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:8790',
+    projectName: 'MyClaw',
+  });
+
   const config = loadConfig();
 
   // 确保数据目录存在
