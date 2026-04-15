@@ -45,7 +45,9 @@ src/
 ├── config.ts
 └── main.ts
 skills/
-└── clock-integration/  ← PolarClock 集成技能
+├── clock-integration/       ← PolarClock 集成技能
+├── autooffice-integration/  ← AutoOffice 报告引擎集成
+└── knowlever-integration/   ← KnowLever 知识检索集成
 ```
 
 ## 快速开始
