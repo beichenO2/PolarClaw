@@ -19,6 +19,9 @@ export interface IToolExecutor {
   /** 注册工具 */
   register(tool: IToolHandler): void;
 
+  /** 取消注册工具（热卸载用） */
+  unregister(name: string): boolean;
+
   /** 执行工具 */
   execute(name: string, args: Record<string, unknown>): Promise<unknown>;
 

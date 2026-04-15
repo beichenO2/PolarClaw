@@ -2,7 +2,7 @@
  * Skills Port — 技能系统抽象
  *
  * 支持 SKILL.md 格式的技能发现、加载、注册。
- * Clock Integration 等外部集成都通过这个接口注入。
+ * 支持运行时热加载、反馈学习、技能生成和技能组合。
  */
 
 /** 技能元数据 */
@@ -14,6 +14,12 @@ export interface ISkillMeta {
   requires?: Record<string, string>;
   /** SKILL.md 文件路径 */
   path: string;
+  /** 技能来源：static = 预置, generated = Agent 生成, composed = 组合 */
+  origin?: 'static' | 'generated' | 'composed';
+  /** 生成时间 */
+  createdAt?: string;
+  /** 此技能包含的工具名称列表（加载后填充） */
+  toolNames?: string[];
 }
 
 /** 技能加载器接口 */
@@ -28,4 +34,43 @@ export interface ISkillLoader {
     parameters: Record<string, unknown>;
     handler: (args: Record<string, unknown>) => Promise<unknown>;
   }) => void): Promise<void>;
+}
+
+/** 技能生命周期事件 */
+export type SkillEvent =
+  | { type: 'loaded'; skill: ISkillMeta }
+  | { type: 'unloaded'; skillName: string }
+  | { type: 'reloaded'; skill: ISkillMeta }
+  | { type: 'error'; skillName: string; error: string };
+
+export type SkillEventHandler = (event: SkillEvent) => void;
+
+/** 技能注册表 — 运行时管理所有技能的生命周期 */
+export interface ISkillRegistry {
+  /** 首次启动：扫描 + 注册所有技能 */
+  init(scanDirs: string[]): Promise<void>;
+
+  /** 开启文件监听，变更时自动热加载 */
+  watch(): void;
+
+  /** 停止文件监听 */
+  unwatch(): void;
+
+  /** 运行时加载单个技能目录 */
+  loadSkill(skillDir: string): Promise<ISkillMeta | null>;
+
+  /** 运行时卸载技能（取消注册所有工具） */
+  unloadSkill(skillName: string): boolean;
+
+  /** 获取所有已加载技能 */
+  listSkills(): ISkillMeta[];
+
+  /** 按名称查找技能 */
+  getSkill(name: string): ISkillMeta | undefined;
+
+  /** 监听技能事件 */
+  on(handler: SkillEventHandler): void;
+
+  /** 取消监听 */
+  off(handler: SkillEventHandler): void;
 }

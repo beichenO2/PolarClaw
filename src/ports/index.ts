@@ -46,9 +46,20 @@ export type {
 export type {
   ISkillLoader,
   ISkillMeta,
+  ISkillRegistry,
+  SkillEvent,
+  SkillEventHandler,
 } from './skills.js';
 
 export type {
   IContextCompressor,
   ICompressionResult,
 } from './compression.js';
+
+export type {
+  ILearningStore,
+  IToolUsageRecord,
+  IFeedbackRecord,
+  IToolPattern,
+  ILearningContext,
+} from './learning.js';

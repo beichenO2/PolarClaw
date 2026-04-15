@@ -17,7 +17,13 @@ import { createFeishuAdapter } from './adapters/channel/feishu.js';
 import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
 import { createCLIAdapter } from './adapters/channel/cli.js';
 import { createContextCompressor } from './adapters/compression/summarizer.js';
-import { createSkillLoader } from './adapters/skills/skill-loader.js';
+import { createSkillRegistry } from './adapters/skills/skill-registry.js';
+import { createLearningStore } from './adapters/learning/feedback-store.js';
+import { createTrackedToolExecutor } from './adapters/learning/usage-tracker.js';
+import { createPatternDetector } from './adapters/learning/pattern-detector.js';
+import { createSkillGenerator } from './adapters/learning/skill-generator.js';
+import { createSkillComposer } from './adapters/learning/skill-composer.js';
+import { createLearningTools } from './adapters/learning/learning-tools.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -43,7 +49,12 @@ async function main() {
     fallbackProviders: config.llm.fallbackProviders,
     requestTimeoutMs: config.llm.requestTimeoutMs,
   });
-  const tools = createToolExecutor();
+  const rawTools = createToolExecutor();
+
+  // 学习系统：包装工具执行器以追踪使用记录
+  const learningStore = createLearningStore(config.memory.dbPath);
+  const tools = createTrackedToolExecutor(rawTools, learningStore);
+
   const privacy = createPrivacyGateway({
     polarPrivate: {
       baseUrl: config.privacy.polarPrivateUrl,
@@ -58,10 +69,29 @@ async function main() {
     soulPrompt = readFileSync(soulPath, 'utf8');
   }
 
-  // 自动加载 Skills 目录中的工具
-  const skillLoader = createSkillLoader();
-  const discoveredSkills = skillLoader.scan(config.skills.scanDirs);
-  await skillLoader.registerTools(discoveredSkills, (tool) => tools.register(tool));
+  // 技能注册表（替代旧的 skillLoader.scan + registerTools）
+  const skillRegistry = createSkillRegistry(tools);
+  await skillRegistry.init(config.skills.scanDirs);
+  skillRegistry.watch();
+
+  // 学习子系统
+  const patternDetector = createPatternDetector(learningStore);
+  const skillGenerator = createSkillGenerator({
+    outputDir: join(config.projectRoot, 'skills'),
+  }, llm);
+  const skillComposer = createSkillComposer(tools);
+
+  // 注册学习系统工具（让 Agent 能调用反馈/生成/组合能力）
+  const learningTools = createLearningTools({
+    learningStore,
+    skillRegistry,
+    patternDetector,
+    skillGenerator,
+    skillComposer,
+  });
+  for (const lt of learningTools) {
+    tools.register(lt);
+  }
 
   // 注册内置工具
   tools.register({
@@ -136,6 +166,15 @@ async function main() {
 
   console.error('[MyClaw] Agent 已启动');
   console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
+  console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
+
+  // 通用消息处理：设置学习上下文后交给 Agent
+  async function handleChannelMessage(msg: { channel: string; userId: string; text: string }) {
+    const convId = `${msg.channel}:${msg.userId}`;
+    tools.setContext(msg.userId, convId);
+    const result = await agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
+    return result.text;
+  }
 
   // 启动通道
   const channels: IChannelAdapter[] = [];
@@ -148,10 +187,7 @@ async function main() {
         transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
         channelName: 'feishu:admin',
       });
-      feishuAdmin.onMessage(async (msg) => {
-        const result = await agent.handleMessage(msg.channel, msg.userId, msg.text);
-        return result.text;
-      });
+      feishuAdmin.onMessage(async (msg) => handleChannelMessage(msg));
       await feishuAdmin.start();
       channels.push(feishuAdmin);
       console.error('[MyClaw] 飞书管理员 Bot 已连接');
@@ -159,7 +195,6 @@ async function main() {
       console.error('[MyClaw] 飞书管理员 Bot 启动失败:', err);
     }
 
-    // 女友 Bot（可选）
     if (process.env.FEISHU_GIRLFRIEND_APP_ID) {
       try {
         const gfConfig = loadFeishuConfig('FEISHU_GIRLFRIEND');
@@ -168,10 +203,7 @@ async function main() {
           transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
           channelName: 'feishu:girlfriend',
         });
-        feishuGf.onMessage(async (msg) => {
-          const result = await agent.handleMessage(msg.channel, msg.userId, msg.text);
-          return result.text;
-        });
+        feishuGf.onMessage(async (msg) => handleChannelMessage(msg));
         await feishuGf.start();
         channels.push(feishuGf);
         console.error('[MyClaw] 飞书女友 Bot 已连接');
@@ -183,10 +215,7 @@ async function main() {
 
   if (config.channels.cli) {
     const cli = createCLIAdapter({ userId: 'admin' });
-    cli.onMessage(async (msg) => {
-      const result = await agent.handleMessage(msg.channel, msg.userId, msg.text);
-      return result.text;
-    });
+    cli.onMessage(async (msg) => handleChannelMessage(msg));
     await cli.start();
     channels.push(cli);
     console.error('[MyClaw] CLI 通道已启动');
@@ -199,6 +228,7 @@ async function main() {
   // 优雅退出
   const shutdown = async () => {
     console.error('[MyClaw] 正在关闭...');
+    skillRegistry.unwatch();
     for (const ch of channels) {
       try { await ch.stop(); } catch { /* ignore */ }
     }

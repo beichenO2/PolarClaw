@@ -26,6 +26,10 @@ export function createToolExecutor(config: IToolExecutorConfig = {}): IToolExecu
       tools.set(tool.name, tool);
     },
 
+    unregister(name) {
+      return tools.delete(name);
+    },
+
     async execute(name, args) {
       const tool = tools.get(name);
       if (!tool) throw new Error(`未注册的工具: ${name}`);
