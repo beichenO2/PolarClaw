@@ -1,7 +1,7 @@
 /**
  * PolarPrivate API 客户端
  *
- * 与 PolarPrivate（默认端口 8787）通信：
+ * 与 PolarPrivate（默认端口 8790）通信：
  * - 拉取用户已登记的 Identity 实体
  * - 检查消息中是否包含已知 Secret
  *

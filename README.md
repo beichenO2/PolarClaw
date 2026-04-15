@@ -5,35 +5,42 @@
 ## 架构
 
 ```
-用户 ← 飞书/Telegram/Web →
+用户 ← 飞书/Telegram(计划中)/Web(计划中) →
   Channel Adapter (ports/channel.ts)
     → Privacy Gateway (ports/privacy.ts)  ← PolarPrivate
       → Agent Core (core/agent.ts)
-        → LLM Router (ports/llm.ts)      ← 阿里云百炼
+        → LLM Router (ports/llm.ts)         ← 阿里云百炼
         → Tool Executor (ports/tools.ts)
-        → Memory Store (ports/memory.ts)  ← SQLite + FTS5
-        → Conversation History            ← 多轮对话
-        → Skill Loader (ports/skills.ts)  ← Clock 等外部集成
+        → Memory Store (ports/memory.ts)     ← SQLite + FTS5
+        → Conversation History               ← 多轮对话
+        → Skill Loader (ports/skills.ts)     ← Clock 等外部集成
+        → Context Compressor (ports/compression.ts)
 ```
 
 ## 目录结构
 
 ```
 src/
-├── ports/          ← 接口定义（不依赖任何实现）
+├── ports/              ← 接口定义（不依赖任何实现）
 │   ├── channel.ts
-│   ├── privacy.ts
-│   ├── memory.ts
+│   ├── compression.ts
+│   ├── learning.ts     ← 自学习系统接口
 │   ├── llm.ts
+│   ├── memory.ts
+│   ├── privacy.ts
+│   ├── skills.ts
 │   ├── tools.ts
-│   └── skills.ts
-├── adapters/       ← 接口实现（可替换）
-│   ├── channel/    ← 飞书、Telegram 适配器
-│   ├── memory/     ← SQLite 存储 + 对话历史
-│   ├── llm/        ← OpenAI-compatible 路由器
-│   ├── privacy/    ← PII 检测 + PolarPrivate 集成
-│   └── tools/      ← 工具执行器
-├── core/           ← Agent 核心（只依赖 ports）
+│   └── index.ts        ← 统一导出
+├── adapters/           ← 接口实现（可替换）
+│   ├── channel/        ← CLI、飞书适配器
+│   ├── compression/    ← 三阶段上下文压缩
+│   ├── learning/       ← 自学习系统（追踪/反馈/模式检测/技能生成/组合）
+│   ├── llm/            ← OpenAI-compatible 路由器
+│   ├── memory/         ← SQLite 存储 + 对话历史
+│   ├── privacy/        ← PII 检测 + PolarPrivate 集成
+│   ├── skills/         ← Skill 加载器 + SkillRegistry 热加载
+│   └── tools/          ← 工具执行器
+├── core/               ← Agent 核心（只依赖 ports）
 │   └── agent.ts
 ├── config.ts
 └── main.ts
@@ -56,4 +63,5 @@ npm run dev
 - **隐私保护**：PolarPrivate 集成，自动 PII 脱敏 + Secret 拦截
 - **意图路由**：根据消息内容自动选择最合适的模型
 - **可替换架构**：端口-适配器模式，任何模块可独立替换
+- **自学习技能**：工具使用追踪 → 模式检测 → 自动技能生成 → 工作流组合
 - **Clock 集成**：番茄钟状态感知，根据用户工作状态调整行为

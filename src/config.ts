@@ -84,9 +84,13 @@ function env(key: string, fallback = ''): string {
 export function loadConfig(): IMyclawConfig {
   loadEnvFile(join(ROOT, '.env'));
 
-  const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || env('OPENAI_API_KEY');
-  if (!apiKey) {
-    throw new Error('缺少 LLM API key：请设置 MYCLAW_LLM_API_KEY 环境变量');
+  const polarPrivatePort = env('POLARPRIVATE_PORT', '8790');
+  const defaultProxyUrl = `http://127.0.0.1:${polarPrivatePort}/proxy/llm.aliyun.codingplan/v1`;
+  const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || env('OPENAI_API_KEY') || 'proxy-managed';
+  if (apiKey === 'proxy-managed' && env('MYCLAW_LLM_BASE_URL')) {
+    // Custom base URL with proxy-managed key — valid proxy override
+  } else if (apiKey === 'proxy-managed') {
+    console.log('[Config] No API key found, defaulting to PolarPrivate Proxy mode');
   }
 
   // 解析备用 Provider（环境变量格式：MYCLAW_FALLBACK_1_URL, MYCLAW_FALLBACK_1_KEY, ...）
@@ -111,7 +115,7 @@ export function loadConfig(): IMyclawConfig {
   return {
     projectRoot: ROOT,
     llm: {
-      baseUrl: env('MYCLAW_LLM_BASE_URL', 'https://coding.dashscope.aliyuncs.com/v1'),
+      baseUrl: env('MYCLAW_LLM_BASE_URL', defaultProxyUrl),
       apiKey,
       models: {
         coding: env('MYCLAW_MODEL_CODING', 'qwen3-coder-plus'),
@@ -129,7 +133,7 @@ export function loadConfig(): IMyclawConfig {
       dbPath: env('MYCLAW_DB_PATH', join(ROOT, '.data', 'myclaw.db')),
     },
     privacy: {
-      polarPrivateUrl: env('POLARPRIVATE_URL', 'http://127.0.0.1:8787'),
+      polarPrivateUrl: env('POLARPRIVATE_URL', 'http://127.0.0.1:8790'),
       enableSecretInterception: env('MYCLAW_SECRET_INTERCEPTION', 'true') === 'true',
     },
     channels: {
