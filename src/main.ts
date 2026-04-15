@@ -178,11 +178,27 @@ async function main() {
   console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
   console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
-  // 通用消息处理：设置学习上下文后交给 Agent
+  // 消息队列：同一用户的消息串行处理，避免对话历史竞争
+  const userLocks = new Map<string, Promise<unknown>>();
+
   async function handleChannelMessage(msg: { channel: string; userId: string; text: string }) {
     const convId = `${msg.channel}:${msg.userId}`;
-    tools.setContext(msg.userId, convId);
-    const result = await agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
+
+    const prev = userLocks.get(convId) ?? Promise.resolve();
+    const current = prev.then(async () => {
+      tools.setContext(msg.userId, convId);
+      return agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
+    }).catch((err) => {
+      console.error(`[MyClaw] handleChannelMessage error for ${convId}:`, err);
+      return { text: '抱歉，处理消息时出错了，请稍后再试。' };
+    });
+
+    userLocks.set(convId, current);
+    current.finally(() => {
+      if (userLocks.get(convId) === current) userLocks.delete(convId);
+    });
+
+    const result = await current;
     return result.text;
   }
 

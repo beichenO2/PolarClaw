@@ -101,7 +101,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     conversations.append(convId, { role: 'user', content: userContent });
 
     // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
-    const result = await runLoop(convId);
+    const existingHistory = conversations.getHistory(convId);
+    const isOngoing = existingHistory.length > 2;
+    const result = await runLoop(convId, isOngoing);
 
     // 6. 隐私网关出站还原
     const restoredText = privacy.desanitize(userId, result.text);
@@ -146,7 +148,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   }
 
   /** Agent 主循环：system + 历史消息 → LLM → 工具调用 → 观察 → 重复 */
-  async function runLoop(convId: string): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
+  async function runLoop(convId: string, isOngoing = false): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
 
     // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
@@ -168,8 +170,12 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         }
       }
 
+      const systemContent = isOngoing
+        ? config.systemPrompt + '\n\n[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]'
+        : config.systemPrompt;
+
       const messages: IChatMessage[] = [
-        { role: 'system', content: config.systemPrompt },
+        { role: 'system', content: systemContent },
         ...contextMessages,
       ];
 

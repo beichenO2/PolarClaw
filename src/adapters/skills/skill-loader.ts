@@ -14,8 +14,22 @@
 
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { ISkillLoader, ISkillMeta } from '../../ports/skills.js';
 import type { IToolHandler } from '../../ports/tools.js';
+
+let tsxRegistered = false;
+
+async function ensureTsxLoader(): Promise<void> {
+  if (tsxRegistered) return;
+  try {
+    const { register } = await import('node:module') as { register: (specifier: string, parentUrl: string | URL) => void };
+    register('tsx/esm', pathToFileURL(join(process.cwd(), 'node_modules', 'tsx', '/')));
+    tsxRegistered = true;
+  } catch {
+    // tsx not available — .ts skill imports will fail gracefully
+  }
+}
 
 /** 解析 SKILL.md 的 YAML frontmatter（简单解析，不依赖外部库） */
 function parseFrontmatter(content: string): Record<string, string | Record<string, string>> {
@@ -91,16 +105,22 @@ export function createSkillLoader(): ISkillLoader {
     async registerTools(skills, register) {
       for (const skill of skills) {
         const skillDir = join(skill.path, '..');
-        const toolsPath = join(skillDir, 'tools.ts');
+
+        // 优先 .js（预编译），回退 .ts（需 tsx loader）
+        const jsPath = join(skillDir, 'tools.js');
+        const tsPath = join(skillDir, 'tools.ts');
+        const toolsPath = existsSync(jsPath) ? jsPath : tsPath;
 
         if (!existsSync(toolsPath)) {
-          console.error(`[SkillLoader] ${skill.name}: 未找到 tools.ts，跳过`);
+          console.error(`[SkillLoader] ${skill.name}: 未找到 tools.ts/js，跳过`);
           continue;
         }
 
         try {
-          // 动态导入 tools.ts（tsx 运行时支持直接 import .ts）
-          const mod = await import(toolsPath);
+          if (toolsPath.endsWith('.ts')) {
+            await ensureTsxLoader();
+          }
+          const mod = await import(pathToFileURL(toolsPath).href);
 
           // 寻找 IToolHandler[] 导出：
           // 1. 默认导出（default）
