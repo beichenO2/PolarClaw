@@ -176,8 +176,172 @@ export const knowleverIngest: IToolHandler = {
   },
 };
 
+async function runNodeScript(
+  scriptPath: string,
+  args: string[],
+  timeoutMs = 30000,
+): Promise<{ stdout: string; stderr: string }> {
+  const klDir = getKnowLeverDir();
+  return execFileAsync(process.execPath, [resolve(klDir, scriptPath), ...args], {
+    timeout: timeoutMs,
+    cwd: klDir,
+  });
+}
+
+export const knowleverIngestCodebase: IToolHandler = {
+  name: 'knowlever_ingest_codebase',
+  description:
+    '将代码库（开源项目）摄入 KnowLever。支持本地目录路径或 Git URL。' +
+    '会自动识别项目结构、语言、框架，生成规范化的知识文档。',
+  parameters: {
+    type: 'object',
+    properties: {
+      input: {
+        type: 'string',
+        description: '代码库路径（本地目录）或 Git URL（如 https://github.com/user/repo.git）',
+      },
+      topic: {
+        type: 'string',
+        description: 'Topic 名称（知识主题，如 react-source、my-lib）',
+      },
+      user: {
+        type: 'string',
+        description: '用户名（默认 admin）',
+      },
+    },
+    required: ['input', 'topic'],
+  },
+  async handler(args) {
+    const input = String(args.input ?? '').trim();
+    const topic = String(args.topic ?? '').trim();
+    const user = String(args.user ?? 'admin').trim();
+    if (!input) throw new Error('input 不能为空');
+    if (!topic) throw new Error('topic 不能为空');
+
+    try {
+      const nodeArgs = [input, '--topic', topic, '--user', user, '--from-codebase'];
+      const { stdout, stderr } = await runNodeScript(
+        'wiki-engine/ingest.js',
+        nodeArgs,
+        120000,
+      );
+      const success = !stderr || !stderr.includes('[error]');
+      return { success, output: stdout.trim(), topic, input };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        topic,
+        input,
+      };
+    }
+  },
+};
+
+export const knowleverCompile: IToolHandler = {
+  name: 'knowlever_compile',
+  description:
+    '对已摄入的 Topic 运行 LLM 知识编译，将原始内容转化为结构化、互链的 wiki 页面。' +
+    '代码库类型会自动使用架构分析专用提示词。需要 PolarPrivate LLM 服务运行。',
+  parameters: {
+    type: 'object',
+    properties: {
+      topic: {
+        type: 'string',
+        description: 'Topic 名称',
+      },
+      user: {
+        type: 'string',
+        description: '用户名（默认 admin）',
+      },
+      source: {
+        type: 'string',
+        description: '编译特定 source ID（不指定则编译所有未编译的 source）',
+      },
+      force: {
+        type: 'boolean',
+        description: '是否强制重新编译已编译的 source（默认 false）',
+      },
+      dry_run: {
+        type: 'boolean',
+        description: '仅分析不写入文件（默认 false）',
+      },
+      limit: {
+        type: 'number',
+        description: '最大编译 source 数量',
+      },
+    },
+    required: ['topic'],
+  },
+  async handler(args) {
+    const topic = String(args.topic ?? '').trim();
+    const user = String(args.user ?? 'admin').trim();
+    if (!topic) throw new Error('topic 不能为空');
+
+    const nodeArgs = ['--topic', topic, '--user', user];
+    if (args.source) nodeArgs.push('--source', String(args.source));
+    if (args.force) nodeArgs.push('--force');
+    if (args.dry_run) nodeArgs.push('--dry-run');
+    if (args.limit) nodeArgs.push('--limit', String(args.limit));
+
+    try {
+      const { stdout, stderr } = await runNodeScript(
+        'wiki-engine/compile.js',
+        nodeArgs,
+        300000,
+      );
+      const success = !stderr || !stderr.includes('[fatal]');
+      return { success, output: stdout.trim(), topic };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        topic,
+      };
+    }
+  },
+};
+
+export const knowleverBuild: IToolHandler = {
+  name: 'knowlever_build',
+  description:
+    '构建 Topic 的静态 HTML 站点。将 wiki/ 下的 Markdown 编译为可浏览的网页。',
+  parameters: {
+    type: 'object',
+    properties: {
+      topic: { type: 'string', description: 'Topic 名称' },
+      user: { type: 'string', description: '用户名（默认 admin）' },
+    },
+    required: ['topic'],
+  },
+  async handler(args) {
+    const topic = String(args.topic ?? '').trim();
+    const user = String(args.user ?? 'admin').trim();
+    if (!topic) throw new Error('topic 不能为空');
+
+    try {
+      const { stdout, stderr } = await runNodeScript(
+        'wiki-engine/build.js',
+        ['--topic', topic, '--user', user],
+        60000,
+      );
+      const success = !stderr || !stderr.includes('[error]');
+      return { success, output: stdout.trim(), topic };
+    } catch (err) {
+      return {
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        topic,
+      };
+    }
+  },
+};
+
 export const knowleverTools: IToolHandler[] = [
   knowleverQuery,
   knowleverListTopics,
   knowleverIngest,
+  knowleverIngestCodebase,
+  knowleverCompile,
+  knowleverBuild,
 ];
