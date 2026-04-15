@@ -5,7 +5,7 @@
 ## 架构
 
 ```
-用户 ← 飞书/Telegram(计划中)/Web(计划中) →
+用户 ← 飞书/CLI →
   Channel Adapter (ports/channel.ts)
     → Privacy Gateway (ports/privacy.ts)  ← PolarPrivate
       → Agent Core (core/agent.ts)

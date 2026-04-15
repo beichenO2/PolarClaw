@@ -11,7 +11,6 @@
 # 功能：
 #   - 确保 MyClaw 项目存在
 #   - 创建飞书管理员 Bot 和女友 Bot 的 Secret 占位符
-#   - 创建 Telegram Bot Secret 占位符
 #   - 创建 DashScope API Key Secret 占位符
 #   - 所有 Secret 初始值为 PLACEHOLDER，需要在 PolarPrivate UI 中替换为真实值
 
@@ -52,7 +51,7 @@ if [ -z "$PROJECT_ID" ]; then
   log "创建 MyClaw 项目..."
   PROJECT_ID=$(curl -sf -X POST "$PP/api/projects" \
     -H "Content-Type: application/json" \
-    -d '{"name": "MyClaw", "description": "AI Agent 融合平台 — 飞书/Telegram 通道凭证"}' | \
+    -d '{"name": "MyClaw", "description": "AI Agent 融合平台 — 飞书通道凭证"}' | \
     python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
   log "✅ 项目已创建: $PROJECT_ID"
 else
@@ -139,12 +138,6 @@ create_secret "feishu.girlfriend.app_secret"           "feishu"
 create_secret "feishu.girlfriend.verification_token"   "feishu"
 create_secret "feishu.girlfriend.encrypt_key"          "feishu"
 
-# ── Telegram Bot ────────────────────────────────────
-log ""
-log "━━━ Telegram Bot ━━━"
-create_secret "telegram.admin.bot_token"       "telegram"
-create_secret "telegram.girlfriend.bot_token"  "telegram"
-
 # ── LLM API ────────────────────────────────────────
 log ""
 log "━━━ LLM API ━━━"
@@ -170,6 +163,5 @@ log ""
 log "   需要填写的凭证："
 log "   1. 飞书开放平台 → 管理员 Bot 的 App ID / Secret / Token / Encrypt Key"
 log "   2. 飞书开放平台 → 女友 Bot 的 App ID / Secret / Token / Encrypt Key"
-log "   3. Telegram @BotFather → 两个 Bot Token"
-log "   4. 阿里云百炼 → DashScope API Key"
+log "   3. 阿里云百炼 → DashScope API Key"
 log "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

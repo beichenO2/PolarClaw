@@ -1,7 +1,7 @@
 /**
  * Channel Port — 消息通道抽象
  *
- * 所有消息来源（飞书、Telegram、Web、CLI）都实现此接口。
+ * 所有消息来源（飞书、Web、CLI）都实现此接口。
  * Channel 是最靠近用户的一层，也是隐私网关的安装点。
  */
 
@@ -17,7 +17,7 @@ export interface IInboundMessage {
   attachments?: IAttachment[];
   /** 消息时间戳 */
   timestamp: Date;
-  /** 通道原始元数据（飞书 message_id、Telegram chat_id 等） */
+  /** 通道原始元数据（飞书 message_id 等） */
   metadata?: Record<string, unknown>;
 }
 
