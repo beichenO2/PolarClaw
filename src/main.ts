@@ -270,17 +270,22 @@ async function main() {
     parameters: {
       type: 'object',
       properties: {
-        user_id: { type: 'string', description: '目标用户 ID' },
+        username: { type: 'string', description: 'Clock 用户名（与 clock_* 工具一致）' },
+        user_id: { type: 'string', description: '兼容旧参数，等同于 username' },
         schedule: { type: 'string', description: '调度间隔（如 "30m", "2h"）' },
         reason: { type: 'string', description: '触发原因（如 "inactivity", "scheduled"）' },
       },
-      required: ['user_id', 'schedule', 'reason'],
+      required: ['schedule', 'reason'],
     },
     handler(args) {
+      const userKey = String((args as Record<string, unknown>).username ?? args.user_id ?? '');
+      if (!userKey) {
+        throw new Error('username 必填（可与 Clock 工具共用同一用户名）');
+      }
       const id = `rule-${Date.now()}`;
       careEngine.addRule({
         id,
-        userId: String(args.user_id),
+        userId: userKey,
         schedule: String(args.schedule),
         reason: String(args.reason),
         enabled: true,
