@@ -12,18 +12,22 @@ import traceback
 from datetime import datetime, timezone
 from pathlib import Path
 
+# MyClaw repo root: this file is at <repo>/.planning/reports/supervisor/supervisor_loop.py
+_DEFAULT_MYCLAW_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = Path(os.environ.get("MYCLAW_ROOT", _DEFAULT_MYCLAW_ROOT))
 
-PROJECT_ROOT = Path("/Users/mac/Polarisor/MyClaw")
-HUB = PROJECT_ROOT / "gsd-2/scripts/hub-call.sh"
-DB_PATH = PROJECT_ROOT / ".planning/hub/hub.sqlite"
+_POLARISOR_ROOT = Path(os.environ.get("POLARISOR_ROOT", str(PROJECT_ROOT.parent)))
+_HUB_REL = Path("gsd-2") / "scripts" / "hub-call.sh"
+HUB = Path(os.environ.get("MYCLAW_HUB_CALL_SCRIPT", str(_POLARISOR_ROOT / _HUB_REL)))
+
+DB_PATH = Path(os.environ.get("MYCLAW_HUB_DB", str(PROJECT_ROOT / ".planning" / "hub" / "hub.sqlite")))
 REPORT_DIR = PROJECT_ROOT / ".planning/reports/supervisor"
-STATE_PATH = Path("/tmp/gsd2-bae4-supervisor-state.json")
-AGENT_ID = "super"
-POLL_SECONDS = 15
-MAX_REVIEWS_PER_LOOP = 12
-
-os.environ["GSD_HUB_PORT"] = "57844"
-os.environ["GSD_PROJECT_HASH"] = "bae4"
+STATE_PATH = Path(
+    os.environ.get("MYCLAW_SUPERVISOR_STATE", "/tmp/gsd2-bae4-supervisor-state.json"),
+)
+AGENT_ID = os.environ.get("MYCLAW_SUPERVISOR_AGENT_ID", "super")
+POLL_SECONDS = int(os.environ.get("MYCLAW_SUPERVISOR_POLL_SECONDS", "15"))
+MAX_REVIEWS_PER_LOOP = int(os.environ.get("MYCLAW_SUPERVISOR_MAX_REVIEWS", "12"))
 
 SECRET_PATTERNS = [
     ("private key", re.compile(r"-----BEGIN (?:RSA |EC |DSA )?PRIVATE KEY-----")),
@@ -65,11 +69,19 @@ def save_state(state: dict) -> None:
     tmp_path.replace(STATE_PATH)
 
 
+def hub_env() -> dict[str, str]:
+    """Env for hub-call subprocess; does not overwrite vars already set in the shell."""
+    env = {k: str(v) for k, v in os.environ.items()}
+    env.setdefault("GSD_HUB_PORT", env.get("MYCLAW_GSD_HUB_PORT", "57844"))
+    env.setdefault("GSD_PROJECT_HASH", env.get("MYCLAW_GSD_PROJECT_HASH", "bae4"))
+    return env
+
+
 def hub(tool_name: str, args: dict, timeout: int = 120) -> dict:
     result = subprocess.run(
         [str(HUB), AGENT_ID, tool_name, json.dumps(args, ensure_ascii=False)],
         cwd=str(PROJECT_ROOT),
-        env=os.environ.copy(),
+        env=hub_env(),
         capture_output=True,
         text=True,
         timeout=timeout,
