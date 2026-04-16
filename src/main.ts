@@ -37,7 +37,7 @@ async function main() {
 
   // 从 PolarPrivate Vault 补充 .env 中缺失的 secrets
   await loadSecretsToEnv({
-    baseUrl: process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:8790',
+    baseUrl: process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:12790',
     projectName: 'MyClaw',
   });
 

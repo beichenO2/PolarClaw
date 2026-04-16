@@ -59,4 +59,4 @@ AutoOffice 的 `/api/enrich` 内部也调用 KnowLever RAG。如果只需要"增
 KnowLever 项目需存在于 `~/Polarisor/KnowLever/`（或设置 `KNOWLEVER_DIR` 环境变量）。
 - RAG 管道通过 Python 子进程调用，需要 python3 且能导入 `rag.pipeline`
 - 代码库摄入/编译/构建通过 Node.js 调用 KnowLever wiki-engine
-- LLM 编译需要 PolarPrivate 服务运行（127.0.0.1:8790）
+- LLM 编译需要 PolarPrivate 服务运行（127.0.0.1:12790）
