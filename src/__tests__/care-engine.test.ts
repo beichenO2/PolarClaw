@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createCareEngine, createCarePolicy } from '../adapters/proactive/care-engine.js';
 import type { IProactiveTrigger } from '../ports/proactive.js';
 
@@ -28,6 +28,14 @@ function makeTools(has = false) {
 }
 
 describe('createCarePolicy', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ now: new Date('2026-04-15T14:00:00Z') });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('generates inactivity message when user inactive long enough', async () => {
     const fiveHoursAgo = new Date(Date.now() - 5 * 3600000).toISOString();
     const memory = makeMemory({ 'u1:lastActiveAt': fiveHoursAgo });
@@ -115,6 +123,15 @@ describe('createCarePolicy', () => {
 });
 
 describe('createCareEngine', () => {
+  beforeEach(() => {
+    // Pin time to 14:00 so inactivity policy's hour-of-day guard (8-22) always passes
+    vi.useFakeTimers({ now: new Date('2026-04-15T14:00:00Z') });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('adds and lists rules', () => {
     const onCareMessage = vi.fn();
     const engine = createCareEngine(

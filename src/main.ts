@@ -26,6 +26,7 @@ import { createSkillGenerator } from './adapters/learning/skill-generator.js';
 import { createSkillComposer } from './adapters/learning/skill-composer.js';
 import { createLearningTools } from './adapters/learning/learning-tools.js';
 import { createCareEngine } from './adapters/proactive/care-engine.js';
+import { createClockSseBridge } from './adapters/proactive/clock-sse-bridge.js';
 import { createYoloEngine } from './adapters/yolo/engine.js';
 import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import type { IChannelAdapter } from './ports/channel.js';
@@ -344,14 +345,32 @@ async function main() {
   }
 
   // 启动主动关怀引擎
+  let clockSseBridge: ReturnType<typeof createClockSseBridge> | null = null;
+
   if (process.env.MYCLAW_PROACTIVE === '1') {
     careEngine.start();
     console.error('[MyClaw] 主动关怀引擎已启动');
+
+    const clockUrl = process.env.CLOCK_API_URL?.trim();
+    const clockUser = process.env.CLOCK_DEFAULT_USERNAME?.trim();
+    if (clockUrl && clockUser) {
+      clockSseBridge = createClockSseBridge(
+        {
+          clockBaseUrl: clockUrl,
+          syncKey: process.env.CLOCK_SYNC_KEY?.trim() || undefined,
+          usernames: clockUser.split(',').map(u => u.trim()).filter(Boolean),
+        },
+        careEngine,
+      );
+      clockSseBridge.start();
+      console.error('[MyClaw] Clock SSE 桥接已启动');
+    }
   }
 
   // 优雅退出
   const shutdown = async () => {
     console.error('[MyClaw] 正在关闭...');
+    clockSseBridge?.stop();
     careEngine.stop();
     skillRegistry.unwatch();
     for (const ch of channels) {

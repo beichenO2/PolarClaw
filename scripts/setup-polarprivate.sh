@@ -2,8 +2,8 @@
 # MyClaw — PolarPrivate 飞书凭证初始化脚本
 #
 # 前提：
-#   1. PolarPrivate 后端已运行（端口 8787）
-#   2. Vault 已解锁（在浏览器 http://localhost:5173 输入 Master Password）
+#   1. PolarPrivate 后端已运行（端口 8790）
+#   2. Vault 已解锁（在浏览器 http://localhost:5170 输入 Master Password）
 #
 # 用法：
 #   bash scripts/setup-polarprivate.sh
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-PP="${POLARPRIVATE_URL:-http://127.0.0.1:8787}"
+PP="${POLARPRIVATE_URL:-http://127.0.0.1:8790}"
 
 log() { echo "[setup-pp] $*"; }
 err() { echo "[setup-pp] ❌ $*" >&2; }
@@ -30,7 +30,7 @@ health=$(curl -sf "$PP/health" 2>/dev/null) || {
 vault_unlocked=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('vault_unlocked', False))" 2>/dev/null)
 if [ "$vault_unlocked" != "True" ]; then
   err "Vault 未解锁。请在浏览器打开 PolarPrivate UI 并输入 Master Password"
-  err "  → http://localhost:5173"
+  err "  → http://localhost:5170"
   exit 1
 fi
 
@@ -158,7 +158,7 @@ log "✅ PolarPrivate 飞书凭证初始化完成！"
 log ""
 log "⚠️  所有 Secret 当前值为 PLACEHOLDER"
 log "   请在 PolarPrivate UI 中替换为真实值："
-log "   → http://localhost:5173"
+log "   → http://localhost:5170"
 log ""
 log "   需要填写的凭证："
 log "   1. 飞书开放平台 → 管理员 Bot 的 App ID / Secret / Token / Encrypt Key"

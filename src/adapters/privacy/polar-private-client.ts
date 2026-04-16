@@ -19,7 +19,7 @@
 import type { IPrivacyEntity } from '../../ports/privacy.js';
 
 export interface IPolarPrivateConfig {
-  /** PolarPrivate 后端地址（默认 http://127.0.0.1:8787） */
+  /** PolarPrivate 后端地址（默认 http://127.0.0.1:8790） */
   baseUrl: string;
   /** 请求超时 ms */
   timeoutMs?: number;
