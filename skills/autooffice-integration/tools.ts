@@ -7,7 +7,20 @@
 
 import type { IToolHandler } from '../../src/ports/tools.js';
 
-const AUTOOFFICE_BASE = process.env.AUTOOFFICE_API_URL ?? 'http://127.0.0.1:3900';
+let AUTOOFFICE_BASE = process.env.AUTOOFFICE_API_URL ?? 'http://127.0.0.1:3900';
+
+(async () => {
+  if (process.env.AUTOOFFICE_API_URL) return;
+  try {
+    const { createRequire } = await import('node:module');
+    const { resolve, dirname } = await import('node:path');
+    const _req = createRequire(import.meta.url);
+    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+    const { getPort } = _req(sdkPath);
+    const port = await getPort('autooffice');
+    if (port) AUTOOFFICE_BASE = `http://127.0.0.1:${port}`;
+  } catch { /* fallback to default */ }
+})();
 
 async function aoFetch<T>(
   path: string,

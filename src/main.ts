@@ -35,6 +35,19 @@ async function main() {
   // 先加载 .env（确保 POLARPRIVATE_URL 等基础配置可用）
   loadEnvFileEarly();
 
+  // 动态发现 PolarPrivate 端口
+  if (!process.env.POLARPRIVATE_URL) {
+    try {
+      const { createRequire } = await import('node:module');
+      const { resolve, dirname } = await import('node:path');
+      const _req = createRequire(import.meta.url);
+      const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+      const { getPort } = _req(sdkPath);
+      const ppPort = await getPort('polarprivate');
+      if (ppPort) process.env.POLARPRIVATE_URL = `http://127.0.0.1:${ppPort}`;
+    } catch { /* port-sdk not available, use env fallback */ }
+  }
+
   // 从 PolarPrivate Vault 补充 .env 中缺失的 secrets
   await loadSecretsToEnv({
     baseUrl: process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:12790',
