@@ -261,8 +261,11 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     const { resolve: resolvePath, dirname } = await import('node:path');
     const _req = createRequire(import.meta.url);
     const sdkPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
-    const { claimPort } = _req(sdkPath);
+    const { claimPort, registerCapabilities } = _req(sdkPath);
     const port = await claimPort({ service: `myclaw-feishu-${channelName}`, project: 'MyClaw', preferred: config.webhookPort });
+
+    const capPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'MyClaw', 'capabilities.json');
+    registerCapabilities(capPath).catch((e: unknown) => console.warn('[MyClaw] capability registration failed (non-fatal):', e));
 
     await new Promise<void>((resolve, reject) => {
       server.listen(port, config.webhookHost, () => resolve());
