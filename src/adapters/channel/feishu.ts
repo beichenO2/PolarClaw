@@ -257,11 +257,18 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     });
 
     httpServer = server;
+    const { createRequire } = await import('node:module');
+    const { resolve: resolvePath, dirname } = await import('node:path');
+    const _req = createRequire(import.meta.url);
+    const sdkPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+    const { claimPort } = _req(sdkPath);
+    const port = await claimPort({ service: `myclaw-feishu-${channelName}`, project: 'MyClaw', preferred: config.webhookPort });
+
     await new Promise<void>((resolve, reject) => {
-      server.listen(config.webhookPort, config.webhookHost, () => resolve());
+      server.listen(port, config.webhookHost, () => resolve());
       server.once('error', reject);
     });
-    console.error(`[${channelName}] webhook server listening on ${config.webhookHost}:${config.webhookPort}${config.webhookPath}`);
+    console.error(`[${channelName}] webhook server listening on ${config.webhookHost}:${port}${config.webhookPath}`);
   }
 
   /** WebSocket 长连接 */
