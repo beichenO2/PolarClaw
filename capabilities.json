@@ -1,0 +1,17 @@
+{
+  "project": "MyClaw",
+  "version": "0.1.0",
+  "capabilities": [
+    {
+      "id": "myclaw.feishu.webhook",
+      "service_name": "myclaw-feishu-default",
+      "description": "飞书消息 Webhook 接收器，桥接消息到 Agent 核心",
+      "transport": "http",
+      "endpoint": "/feishu/events",
+      "method": "POST",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 10000
+    }
+  ]
+}
