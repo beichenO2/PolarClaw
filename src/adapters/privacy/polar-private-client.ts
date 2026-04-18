@@ -140,5 +140,43 @@ export function createPolarPrivateClient(config: IPolarPrivateConfig) {
 
       return { found: matched.length > 0, matchedSecrets: matched };
     },
+
+    /**
+     * Resolve a feishu open_id to a polarisor_user_id via identity_bindings.
+     * Returns null if not bound or PolarPrivate unavailable.
+     */
+    async resolveFeishuUser(openId: string): Promise<{ user_id: string; username: string } | null> {
+      const params = new URLSearchParams({ service: 'feishu', external_username: openId });
+      const result = await fetchJson<{ user_id: string; username: string }>(
+        `/api/identity-bindings/resolve?${params}`
+      );
+      return result;
+    },
+
+    /**
+     * Create an identity binding for a feishu user.
+     */
+    async bindFeishuUser(polarisorUserId: string, openId: string, displayName?: string): Promise<boolean> {
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        const body: Record<string, string> = {
+          user_id: polarisorUserId,
+          service: 'feishu',
+          external_username: openId,
+        };
+        if (displayName) body.display_name = displayName;
+        const res = await fetch(`${baseUrl}/api/identity-bindings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        return res.ok || res.status === 409;
+      } catch {
+        return false;
+      }
+    },
   };
 }

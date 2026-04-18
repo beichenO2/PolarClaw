@@ -1,6 +1,6 @@
 {
   "project": "MyClaw",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "capabilities": [
     {
       "id": "myclaw.feishu.webhook",
@@ -12,6 +12,66 @@
       "idempotent": false,
       "side_effects": true,
       "timeout_ms": 10000
+    },
+    {
+      "id": "myclaw.ecosystem.status",
+      "service_name": "myclaw-agent",
+      "description": "生态系统健康检查 — 检查 digist + KnowLever + 端口注册状态",
+      "transport": "skill",
+      "tool_name": "ecosystem_status",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 15000
+    },
+    {
+      "id": "myclaw.ecosystem.sync_digest",
+      "service_name": "myclaw-agent",
+      "description": "触发 digist → KnowLever 内容同步管道",
+      "transport": "skill",
+      "tool_name": "ecosystem_sync_digest",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 60000
+    },
+    {
+      "id": "myclaw.ecosystem.discover_and_learn",
+      "service_name": "myclaw-agent",
+      "description": "完整流水线：爬取新信息 → 同步知识库 → 编译结构化知识",
+      "transport": "skill",
+      "tool_name": "ecosystem_discover_and_learn",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 300000
+    },
+    {
+      "id": "myclaw.ecosystem.unified_search",
+      "service_name": "myclaw-agent",
+      "description": "统一搜索 — 同时查询 digist 原始数据 + KnowLever 结构化知识",
+      "transport": "skill",
+      "tool_name": "ecosystem_unified_search",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 20000
+    },
+    {
+      "id": "myclaw.skill.knowlever",
+      "service_name": "myclaw-agent",
+      "description": "KnowLever 知识检索与编译技能（RAG 查询、Topic 管理、代码摄入）",
+      "transport": "skill",
+      "tool_name": "knowlever_query",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 15000
+    },
+    {
+      "id": "myclaw.skill.digist",
+      "service_name": "myclaw-agent",
+      "description": "digist 信息采集技能（爬取触发、数据搜索、推荐）",
+      "transport": "skill",
+      "tool_name": "digist_crawl",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 60000
     }
   ]
 }
