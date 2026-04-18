@@ -1,20 +1,17 @@
 /**
  * Ecosystem Orchestration — digist + KnowLever + MyClaw 跨项目工作流
  *
- * 通过 HTTP 调用 digist API + Python 子进程调用 KnowLever RAG，
- * 将信息采集、知识编译、Agent 交互三大系统串联。
+ * 通过 SOTAgent 网关/port-sdk 动态发现服务端口。
+ * 遵循 port-sdk-mandatory 规则，无硬编码端口。
  */
 
 import { execFile, spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { IToolHandler } from '../../src/ports/tools.js';
+import { getServiceUrl, getServicePort, SERVICES } from '../_shared/port-discovery.js';
 
 const execFileAsync = promisify(execFile);
-
-const PORT_SDK_URL = 'http://127.0.0.1:4800/api/ports';
-const DIGIST_FALLBACK_PORT = 3800;
-const KNOWLEVER_RAG_FALLBACK_PORT = 18002;
 
 async function httpGet(url: string, timeoutMs = 8000): Promise<{ status: number; body: string }> {
   const controller = new AbortController();
@@ -49,17 +46,12 @@ async function httpPost(
   }
 }
 
-async function discoverPort(serviceName: string, fallback: number): Promise<number> {
-  try {
-    const { body } = await httpGet(PORT_SDK_URL, 3000);
-    const ports = JSON.parse(body);
-    for (const p of ports) {
-      if (p.service_name === serviceName || (p.project || '').toLowerCase().includes(serviceName)) {
-        return p.port;
-      }
-    }
-  } catch { /* port-sdk unavailable */ }
-  return fallback;
+async function getDigistBase(): Promise<string> {
+  return getServiceUrl(SERVICES.DIGIST.name, SERVICES.DIGIST.gateway);
+}
+
+async function getKnowLeverRagBase(): Promise<string> {
+  return getServiceUrl(SERVICES.KNOWLEVER_RAG.name, SERVICES.KNOWLEVER_RAG.gateway);
 }
 
 function getKnowLeverDir(): string {
@@ -106,32 +98,31 @@ export const ecosystemStatus: IToolHandler = {
   async handler() {
     const results: Record<string, unknown> = {};
 
-    const digistPort = await discoverPort('digist-api', DIGIST_FALLBACK_PORT);
     try {
-      const { body } = await httpGet(`http://127.0.0.1:${digistPort}/health`, 5000);
+      const digistBase = await getDigistBase();
+      const { body } = await httpGet(`${digistBase}/health`, 5000);
       const health = JSON.parse(body);
-      const countRes = await httpGet(`http://127.0.0.1:${digistPort}/api/items/count`, 3000);
+      const countRes = await httpGet(`${digistBase}/api/items/count`, 3000);
       const count = JSON.parse(countRes.body);
       results.digist = {
         status: 'online',
-        port: digistPort,
+        url: digistBase,
         health,
         items_count: count.count ?? count,
       };
     } catch (err) {
       results.digist = {
         status: 'offline',
-        port: digistPort,
         error: err instanceof Error ? err.message : String(err),
       };
     }
 
     try {
-      const ragPort = await discoverPort('knowlever-rag', KNOWLEVER_RAG_FALLBACK_PORT);
-      const { status } = await httpGet(`http://127.0.0.1:${ragPort}/api/health`, 3000);
+      const ragBase = await getKnowLeverRagBase();
+      const { status } = await httpGet(`${ragBase}/api/health`, 3000);
       results.knowlever_rag = {
         status: status === 200 ? 'online' : 'degraded',
-        port: ragPort,
+        url: ragBase,
       };
     } catch {
       results.knowlever_rag = { status: 'offline (HTTP)', note: 'Python subprocess fallback available' };
@@ -155,8 +146,9 @@ print(json.dumps({"ok": True, "index_size": getattr(p, '_index_size', 'unknown')
       };
     }
 
+    const sotagentBase = process.env.SOTAGENT_URL ?? 'http://127.0.0.1:4800';
     try {
-      const { body } = await httpGet(PORT_SDK_URL, 3000);
+      const { body } = await httpGet(`${sotagentBase}/api/ports`, 3000);
       const ports = JSON.parse(body);
       results.port_sdk = {
         status: 'online',
@@ -204,14 +196,14 @@ export const ecosystemSyncDigest: IToolHandler = {
     },
   },
   async handler(args) {
-    const digistPort = await discoverPort('digist-api', DIGIST_FALLBACK_PORT);
+    const digistBase = await getDigistBase();
     const payload: Record<string, unknown> = {};
     if (args.interest) payload.interest = String(args.interest);
     if (args.days) payload.days = Number(args.days);
 
     try {
       const { status, body } = await httpPost(
-        `http://127.0.0.1:${digistPort}/api/sync-to-knowlever`,
+        `${digistBase}/api/sync-to-knowlever`,
         payload,
         60000,
       );
@@ -259,7 +251,7 @@ export const ecosystemDiscoverAndLearn: IToolHandler = {
     required: ['platform'],
   },
   async handler(args) {
-    const digistPort = await discoverPort('digist-api', DIGIST_FALLBACK_PORT);
+    const digistBase = await getDigistBase();
     const steps: Array<{ step: string; status: string; detail?: unknown }> = [];
 
     const crawlPayload: Record<string, unknown> = { platform: String(args.platform) };
@@ -267,7 +259,7 @@ export const ecosystemDiscoverAndLearn: IToolHandler = {
 
     try {
       const { status, body } = await httpPost(
-        `http://127.0.0.1:${digistPort}/api/crawl/trigger`,
+        `${digistBase}/api/crawl/trigger`,
         crawlPayload,
         60000,
       );
@@ -290,7 +282,7 @@ export const ecosystemDiscoverAndLearn: IToolHandler = {
       const syncPayload: Record<string, unknown> = {};
       if (args.topic) syncPayload.interest = String(args.topic);
       const { status, body } = await httpPost(
-        `http://127.0.0.1:${digistPort}/api/sync-to-knowlever`,
+        `${digistBase}/api/sync-to-knowlever`,
         syncPayload,
         60000,
       );
@@ -362,10 +354,10 @@ export const ecosystemUnifiedSearch: IToolHandler = {
 
     const results: Record<string, unknown> = {};
 
-    const digistPort = await discoverPort('digist-api', DIGIST_FALLBACK_PORT);
+    const digistBase = await getDigistBase();
     try {
       const { body } = await httpGet(
-        `http://127.0.0.1:${digistPort}/api/items/recent?limit=${topK * 3}&q=${encodeURIComponent(query)}`,
+        `${digistBase}/api/items/recent?limit=${topK * 3}&q=${encodeURIComponent(query)}`,
         8000,
       );
       const items = JSON.parse(body);

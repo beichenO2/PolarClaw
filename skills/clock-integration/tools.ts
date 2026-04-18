@@ -17,20 +17,17 @@
  */
 
 import type { IToolHandler } from '../../src/ports/tools.js';
+import { getServiceUrl, SERVICES } from '../_shared/port-discovery.js';
+
+async function getClockBase(): Promise<string> {
+  if (process.env.CLOCK_API_URL) return process.env.CLOCK_API_URL;
+  return getServiceUrl(SERVICES.CLOCK.name, SERVICES.CLOCK.gateway);
+}
 
 let CLOCK_BASE = process.env.CLOCK_API_URL ?? 'http://127.0.0.1:15550';
 
 (async () => {
-  if (process.env.CLOCK_API_URL) return;
-  try {
-    const { createRequire } = await import('node:module');
-    const { resolve, dirname } = await import('node:path');
-    const _req = createRequire(import.meta.url);
-    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
-    const { getPort } = _req(sdkPath);
-    const port = await getPort('polarclock');
-    if (port) CLOCK_BASE = `http://127.0.0.1:${port}`;
-  } catch { /* fallback to default */ }
+  try { CLOCK_BASE = await getClockBase(); } catch { /* keep fallback */ }
 })();
 const CLOCK_SYNC_KEY = process.env.CLOCK_SYNC_KEY ?? '';
 

@@ -1,45 +1,23 @@
 /**
  * DiGist Integration — MyClaw 技能工具
  *
- * 通过 HTTP 调用 digist API，提供爬取触发、数据搜索、推荐等能力。
- * 端口发现优先使用 port-sdk，回退到默认 3800。
+ * 通过 SOTAgent 网关或 port-sdk 动态发现端口，调用 digist API。
+ * 遵循 port-sdk-mandatory 规则，无硬编码端口。
  */
 
 import type { IToolHandler } from '../../src/ports/tools.js';
+import { getServiceUrl, SERVICES } from '../_shared/port-discovery.js';
 
-const PORT_SDK_URL = 'http://127.0.0.1:4800/api/ports';
-const DIGIST_FALLBACK_PORT = 3800;
-
-let _cachedPort: number | null = null;
-let _portCacheTime = 0;
-
-async function getDigistPort(): Promise<number> {
-  if (_cachedPort && Date.now() - _portCacheTime < 60_000) return _cachedPort;
-
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3000);
-    const res = await fetch(PORT_SDK_URL, { signal: controller.signal });
-    clearTimeout(timer);
-    const ports = (await res.json()) as Array<{ service_name?: string; project?: string; port: number }>;
-    for (const p of ports) {
-      if (p.service_name === 'digist-api' || (p.project || '').toLowerCase().includes('digist')) {
-        _cachedPort = p.port;
-        _portCacheTime = Date.now();
-        return p.port;
-      }
-    }
-  } catch { /* port-sdk unavailable */ }
-
-  return DIGIST_FALLBACK_PORT;
+async function getDigistBase(): Promise<string> {
+  return getServiceUrl(SERVICES.DIGIST.name, SERVICES.DIGIST.gateway);
 }
 
 async function digistGet(path: string, timeoutMs = 8000): Promise<unknown> {
-  const port = await getDigistPort();
+  const base = await getDigistBase();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`http://127.0.0.1:${port}${path}`, { signal: controller.signal });
+    const res = await fetch(`${base}${path}`, { signal: controller.signal });
     const text = await res.text();
     try { return JSON.parse(text); } catch { return text; }
   } finally {
@@ -52,11 +30,11 @@ async function digistPost(
   body: Record<string, unknown>,
   timeoutMs = 30000,
 ): Promise<{ status: number; data: unknown }> {
-  const port = await getDigistPort();
+  const base = await getDigistBase();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
