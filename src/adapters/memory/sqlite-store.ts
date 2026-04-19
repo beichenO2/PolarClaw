@@ -109,8 +109,16 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
 
     search(query, options = {}) {
       const limit = options.limit ?? 10;
-      const safeQuery = query.replace(/['"]/g, '');
+      let safeQuery = query.replace(/['"]/g, '');
       if (!safeQuery.trim()) return { entries: [], total: 0 };
+
+      const isAscii = /^[\x00-\x7F]+$/.test(safeQuery);
+      if (isAscii) {
+        const tokens = safeQuery.trim().split(/\s+/).filter(Boolean);
+        if (tokens.length > 1) {
+          safeQuery = tokens.join(' AND ');
+        }
+      }
 
       try {
         const rows = searchFts.all({ query: safeQuery, limit }) as Array<{

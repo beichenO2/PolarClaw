@@ -72,12 +72,13 @@ export function createContextCompressor(config: ICompressorConfig = {}): IContex
         return m;
       });
 
-      if (totalTokens(compressed) <= budgetTokens * 0.85) {
+      let currentTokens = totalTokens(compressed);
+      if (currentTokens <= budgetTokens * 0.85) {
         phasesUsed.push(1);
         return {
           messages: compressed,
           originalTokens: originalTokenCount,
-          compressedTokens: totalTokens(compressed),
+          compressedTokens: currentTokens,
           phasesUsed,
         };
       }
@@ -89,7 +90,6 @@ export function createContextCompressor(config: ICompressorConfig = {}): IContex
         const tail = compressed.slice(-tailKeep);
         const middle = compressed.slice(headKeep, -tailKeep);
 
-        // 统计中间段信息
         const middleRoles = middle.reduce((acc, m) => {
           acc[m.role] = (acc[m.role] || 0) + 1;
           return acc;
@@ -98,7 +98,6 @@ export function createContextCompressor(config: ICompressorConfig = {}): IContex
           .map(([role, count]) => `${role}:${count}`)
           .join(', ');
 
-        // 提取中间段的关键信息（工具调用名称、用户问题摘要）
         const keyFacts: string[] = [];
         for (const m of middle) {
           if (m.role === 'user') {
@@ -120,12 +119,13 @@ export function createContextCompressor(config: ICompressorConfig = {}): IContex
           ...tail,
         ];
 
-        if (totalTokens(compressed) <= budgetTokens * 0.85) {
+        currentTokens = totalTokens(compressed);
+        if (currentTokens <= budgetTokens * 0.85) {
           phasesUsed.push(2);
           return {
             messages: compressed,
             originalTokens: originalTokenCount,
-            compressedTokens: totalTokens(compressed),
+            compressedTokens: currentTokens,
             phasesUsed,
           };
         }
@@ -158,7 +158,7 @@ export function createContextCompressor(config: ICompressorConfig = {}): IContex
       return {
         messages: compressed,
         originalTokens: originalTokenCount,
-        compressedTokens: totalTokens(compressed),
+        compressedTokens: phasesUsed.includes(3) ? totalTokens(compressed) : currentTokens,
         phasesUsed,
       };
     },

@@ -207,14 +207,12 @@ export function createOpenAICompatibleRouter(config: ILLMConfig): ILLMRouter {
   return {
     resolveModel(messages) {
       const intent = detectIntent(messages);
-      // 使用第一个可用 Provider 的 models
       for (let i = 0; i < providers.length; i++) {
         if (isAvailable(i)) {
           const models = providers[i].models;
           return { model: models[intent] ?? models.general, intent };
         }
       }
-      // 全部熔断时用主 Provider（会触发错误，但不应静默失败）
       const models = providers[0].models;
       return { model: models[intent] ?? models.general, intent };
     },

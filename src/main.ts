@@ -64,8 +64,8 @@ async function main() {
   const memory = createSqliteMemoryStore(config.memory.dbPath);
   const conversations = createPersistentConversation({
     dbPath: config.memory.dbPath,
-    maxMessages: 100,
-    maxTokens: 60000,
+    maxMessages: config.memory.maxMessages,
+    maxTokens: config.memory.maxTokens,
   });
   const llm = createOpenAICompatibleRouter({
     baseUrl: config.llm.baseUrl,

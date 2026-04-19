@@ -38,11 +38,28 @@ const GOAL_REACHED_SIGNALS = [
   'task completed',
   '已全部完成',
   '所有步骤完成',
+  '已完成目标',
+  'all done',
+  'mission accomplished',
+  '顺利完成',
+  '执行完毕',
+  'successfully completed',
 ];
 
+/** Short responses with completion signals are high-confidence; long text with incidental mentions are not. */
 function detectGoalReached(text: string): boolean {
   const lower = text.toLowerCase();
-  return GOAL_REACHED_SIGNALS.some(s => lower.includes(s.toLowerCase()));
+  const matched = GOAL_REACHED_SIGNALS.filter(s => lower.includes(s.toLowerCase()));
+  if (matched.length === 0) return false;
+
+  const SHORT_THRESHOLD = 300;
+  if (text.length <= SHORT_THRESHOLD) return true;
+
+  const lastSignalIdx = Math.max(
+    ...matched.map(s => lower.lastIndexOf(s.toLowerCase())),
+  );
+  const tail = text.length - lastSignalIdx;
+  return tail < SHORT_THRESHOLD;
 }
 
 function generateSessionId(): string {

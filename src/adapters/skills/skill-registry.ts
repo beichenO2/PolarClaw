@@ -118,6 +118,24 @@ export function createSkillRegistry(
 
   const debouncedReload = createDebouncedReload();
 
+  function watchPerSubdir(dir: string): void {
+    if (!existsSync(dir)) return;
+    const subdirs = readdirSync(dir);
+    for (const entry of subdirs) {
+      const skillDir = join(dir, entry);
+      if (!statSync(skillDir).isDirectory()) continue;
+      try {
+        const watcher = watch(skillDir, () => {
+          debouncedReload(skillDir);
+        });
+        watchers.push(watcher);
+      } catch (err) {
+        console.error(`[SkillRegistry] 逐目录监听失败 ${skillDir}:`, err);
+      }
+    }
+    console.error(`[SkillRegistry] 逐目录监听: ${dir} (${subdirs.length} subdirs)`);
+  }
+
   return {
     async init(scanDirs) {
       watchDirs = scanDirs;
@@ -150,23 +168,37 @@ export function createSkillRegistry(
     watch() {
       if (!autoReload) return;
 
+      const useRecursive = process.platform === 'darwin';
+      if (!useRecursive) {
+        console.error(`[SkillRegistry] 平台 ${process.platform} 可能不支持 recursive watch，将逐目录监听`);
+      }
+
       for (const dir of watchDirs) {
         if (!existsSync(dir)) continue;
 
-        try {
-          const watcher = watch(dir, { recursive: true }, (_eventType, filename) => {
-            if (!filename) return;
-            const parts = filename.split('/');
-            const skillName = parts[0];
-            const skillDir = join(dir, skillName);
-            if (existsSync(skillDir) && statSync(skillDir).isDirectory()) {
-              debouncedReload(skillDir);
+        if (useRecursive) {
+          try {
+            const watcher = watch(dir, { recursive: true }, (_eventType, filename) => {
+              if (!filename) return;
+              const skillName = filename.split('/')[0] ?? filename;
+              const skillDir = join(dir, skillName);
+              if (existsSync(skillDir) && statSync(skillDir).isDirectory()) {
+                debouncedReload(skillDir);
+              }
+            });
+            watchers.push(watcher);
+            console.error(`[SkillRegistry] 监听: ${dir}`);
+          } catch (err: unknown) {
+            const code = (err as NodeJS.ErrnoException).code;
+            if (code === 'ERR_FEATURE_UNAVAILABLE_ON_PLATFORM') {
+              console.error(`[SkillRegistry] recursive watch 不可用，回退逐目录模式: ${dir}`);
+              watchPerSubdir(dir);
+            } else {
+              console.error(`[SkillRegistry] 监听失败 ${dir}:`, err);
             }
-          });
-          watchers.push(watcher);
-          console.error(`[SkillRegistry] 监听: ${dir}`);
-        } catch (err) {
-          console.error(`[SkillRegistry] 监听失败 ${dir}:`, err);
+          }
+        } else {
+          watchPerSubdir(dir);
         }
       }
     },

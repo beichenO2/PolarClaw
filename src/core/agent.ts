@@ -58,6 +58,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   const { llm, memory, conversations, tools, privacy, compressor } = deps;
   const maxToolOutputLen = config.maxToolOutputLength ?? 12000;
 
+  const memoryContextCache = new Map<string, { context: string; ts: number }>();
+  const MEMORY_CACHE_TTL_MS = 1000;
+
   /**
    * 处理用户消息（完整流程）
    *
@@ -115,9 +118,15 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     };
   }
 
-  /** 构建注入的记忆上下文（用户画像 + FTS 相关记忆） */
+  /** 构建注入的记忆上下文（用户画像 + FTS 相关记忆），带短窗口缓存避免高频消息重复查询 */
   function buildMemoryContext(userId: string, queryText: string): string {
     if (userId === 'anonymous') return '';
+
+    const cacheKey = `${userId}:${queryText.slice(0, 60)}`;
+    const cached = memoryContextCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < MEMORY_CACHE_TTL_MS) {
+      return cached.context;
+    }
 
     const lines: string[] = [];
 
@@ -143,8 +152,13 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       }
     }
 
-    if (lines.length === 0) return '';
-    return `## 长期记忆（自动注入）\n${lines.join('\n')}`;
+    if (lines.length === 0) {
+      memoryContextCache.set(cacheKey, { context: '', ts: Date.now() });
+      return '';
+    }
+    const context = `## 长期记忆（自动注入）\n${lines.join('\n')}`;
+    memoryContextCache.set(cacheKey, { context, ts: Date.now() });
+    return context;
   }
 
   /** Agent 主循环：system + 历史消息 → LLM → 工具调用 → 观察 → 重复 */

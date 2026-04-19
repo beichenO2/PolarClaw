@@ -26,8 +26,9 @@ export function createPrivacyGateway(config: IPrivacyGatewayConfig = {}): IPriva
 
   /** 每个用户的 PII vault */
   const userVaults = new Map<string, PiiVault>();
-  /** 每个用户已缓存的 PolarPrivate 实体（5 分钟缓存） */
+  /** 每个用户已缓存的 PolarPrivate 实体，key = userId 用于隔离不同用户的实体列表 */
   const entityCache = new Map<string, { entities: IPrivacyEntity[]; cachedAt: number }>();
+  // 缓存策略：每用户独立 5 分钟 TTL，过期后下次 sanitize 时懒加载刷新
   const CACHE_TTL_MS = 5 * 60 * 1000;
 
   function getVault(userId: string): PiiVault {
@@ -97,8 +98,10 @@ export function createPrivacyGateway(config: IPrivacyGatewayConfig = {}): IPriva
         return cached.entities;
       }
 
-      // 从 PolarPrivate 拉取
-      const entities = await ppClient.loadIdentities();
+      // Forward-compatible: pass userId if loadIdentities supports it, otherwise call without
+      const entities = ppClient.loadIdentities.length > 0
+        ? await (ppClient.loadIdentities as (uid?: string) => Promise<IPrivacyEntity[]>)(userId)
+        : await ppClient.loadIdentities();
       entityCache.set(userId, { entities, cachedAt: Date.now() });
       return entities;
     },

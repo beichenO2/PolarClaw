@@ -106,13 +106,12 @@ function buildInactivityPrompt(name: string, elapsedMs: number): string {
 }
 
 function parseSchedule(schedule: string): number | null {
-  const minuteMatch = schedule.match(/^(\d+)m$/);
-  if (minuteMatch) return parseInt(minuteMatch[1], 10) * 60000;
-
-  const hourMatch = schedule.match(/^(\d+)h$/);
-  if (hourMatch) return parseInt(hourMatch[1], 10) * 3600000;
-
-  return null;
+  const match = schedule.match(/^(\d+)([smhd])$/);
+  if (!match) return null;
+  const value = parseInt(match[1]!, 10);
+  const unit = match[2]!;
+  const multipliers: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 };
+  return value * (multipliers[unit] ?? 0);
 }
 
 export function createCareEngine(
