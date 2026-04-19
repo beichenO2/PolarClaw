@@ -48,7 +48,7 @@ export function createPatternDetector(
       if (!record.success) continue;
 
       if (current.length > 0) {
-        const lastTime = new Date(current[current.length - 1].createdAt!).getTime();
+        const lastTime = new Date(current[current.length - 1]!.createdAt!).getTime();
         const thisTime = new Date(record.createdAt!).getTime();
         if (thisTime - lastTime > maxGapMs) {
           if (current.length >= minSequenceLen) sessions.push(current);

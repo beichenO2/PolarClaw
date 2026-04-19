@@ -142,7 +142,7 @@ describe('createCareEngine', () => {
       id: 'r1', userId: 'u1', schedule: '2h', reason: 'inactivity', enabled: true,
     });
     expect(engine.listRules()).toHaveLength(1);
-    expect(engine.listRules()[0].id).toBe('r1');
+    expect(engine.listRules()[0]!.id).toBe('r1');
   });
 
   it('removes rules', () => {

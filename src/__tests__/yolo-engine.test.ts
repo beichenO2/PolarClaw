@@ -6,7 +6,7 @@ function makeAgent(responses: Array<{ text: string; tokens?: number }>) {
   let idx = 0;
   return {
     handleMessage: vi.fn().mockImplementation(async () => {
-      const r = responses[Math.min(idx++, responses.length - 1)];
+      const r = responses[Math.min(idx++, responses.length - 1)]!;
       return {
         text: r.text,
         blocked: false,

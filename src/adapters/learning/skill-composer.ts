@@ -75,7 +75,7 @@ export function createSkillComposer(toolExecutor: IToolExecutor) {
     const parts = condition.split(/\s*(==|!=|>|<)\s*/);
     if (parts.length !== 3) return true;
 
-    const [left, op, right] = parts;
+    const [left, op, right] = parts as [string, string, string];
     const leftVal = left.startsWith('$steps.')
       ? getNestedValue(
           stepResults.get(left.slice(7, left.indexOf('.', 7))) as Record<string, unknown> ?? {},

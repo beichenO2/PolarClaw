@@ -11,26 +11,26 @@ describe('sanitizePii', () => {
     const result = sanitizePii('联系我 13812345678 谢谢');
     expect(result.sanitized).not.toContain('13812345678');
     expect(result.entities).toHaveLength(1);
-    expect(result.entities[0].type).toBe('PHONE');
+    expect(result.entities[0]!.type).toBe('PHONE');
     expect(result.vault.size).toBe(1);
   });
 
   it('detects email addresses', () => {
     const result = sanitizePii('发到 test@example.com 就行');
     expect(result.sanitized).not.toContain('test@example.com');
-    expect(result.entities[0].type).toBe('EMAIL');
+    expect(result.entities[0]!.type).toBe('EMAIL');
   });
 
   it('detects ID card numbers', () => {
     const result = sanitizePii('身份证 110101199901011234');
     expect(result.sanitized).not.toContain('110101199901011234');
-    expect(result.entities[0].type).toBe('ID_CARD');
+    expect(result.entities[0]!.type).toBe('ID_CARD');
   });
 
   it('detects IP addresses', () => {
     const result = sanitizePii('服务器在 192.168.1.100');
     expect(result.sanitized).not.toContain('192.168.1.100');
-    expect(result.entities[0].type).toBe('IP_ADDR');
+    expect(result.entities[0]!.type).toBe('IP_ADDR');
   });
 
   it('handles multiple PII in one message', () => {

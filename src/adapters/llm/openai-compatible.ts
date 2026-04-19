@@ -209,11 +209,11 @@ export function createOpenAICompatibleRouter(config: ILLMConfig): ILLMRouter {
       const intent = detectIntent(messages);
       for (let i = 0; i < providers.length; i++) {
         if (isAvailable(i)) {
-          const models = providers[i].models;
+          const models = providers[i]!.models;
           return { model: models[intent] ?? models.general, intent };
         }
       }
-      const models = providers[0].models;
+      const models = providers[0]!.models;
       return { model: models[intent] ?? models.general, intent };
     },
 
@@ -224,7 +224,7 @@ export function createOpenAICompatibleRouter(config: ILLMConfig): ILLMRouter {
       for (let i = 0; i < providers.length; i++) {
         if (!isAvailable(i)) continue;
 
-        const provider = providers[i];
+        const provider = providers[i]!;
         const model = options.model ?? (provider.models[intent] ?? provider.models.general);
 
         try {
@@ -234,7 +234,6 @@ export function createOpenAICompatibleRouter(config: ILLMConfig): ILLMRouter {
           );
           recordSuccess(i);
 
-          // Fallback 时附加日志，方便排查
           if (i > 0) {
             console.error(`[LLM Fallback] 使用备用 Provider #${i} (${provider.baseUrl}) 成功`);
           }

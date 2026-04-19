@@ -26,7 +26,7 @@ describe('createSqliteMemoryStore', () => {
       store.save({ type: 'note', content: '明天要做 Python 项目' });
       const result = store.search('TypeScript');
       expect(result.entries).toHaveLength(1);
-      expect(result.entries[0].content).toContain('TypeScript');
+      expect(result.entries[0]!.content).toContain('TypeScript');
     });
 
     it('returns entry with correct fields', () => {

@@ -24,8 +24,8 @@ describe('createPersistentConversation', () => {
     conv.append('c1', { role: 'assistant', content: 'hi there' });
     const history = conv.getHistory('c1');
     expect(history).toHaveLength(2);
-    expect(history[0].role).toBe('user');
-    expect(history[1].role).toBe('assistant');
+    expect(history[0]!.role).toBe('user');
+    expect(history[1]!.role).toBe('assistant');
   });
 
   it('isolates conversations by ID', () => {
@@ -33,7 +33,7 @@ describe('createPersistentConversation', () => {
     conv.append('c2', { role: 'user', content: 'conv2' });
     expect(conv.getHistory('c1')).toHaveLength(1);
     expect(conv.getHistory('c2')).toHaveLength(1);
-    expect(conv.getHistory('c1')[0].content).toBe('conv1');
+    expect(conv.getHistory('c1')[0]!.content).toBe('conv1');
   });
 
   it('preserves toolCalls and toolCallId', () => {
@@ -44,8 +44,8 @@ describe('createPersistentConversation', () => {
     });
     conv.append('c1', { role: 'tool', content: '{"result":42}', toolCallId: 'tc1' });
     const history = conv.getHistory('c1');
-    expect(history[0].toolCalls![0].function.name).toBe('search');
-    expect(history[1].toolCallId).toBe('tc1');
+    expect(history[0]!.toolCalls![0]!.function.name).toBe('search');
+    expect(history[1]!.toolCallId).toBe('tc1');
   });
 
   it('trims old messages when exceeding maxMessages', () => {
@@ -54,7 +54,7 @@ describe('createPersistentConversation', () => {
     }
     const history = conv.getHistory('c1');
     expect(history.length).toBeLessThanOrEqual(10);
-    expect(history[history.length - 1].content).toBe('msg 14');
+    expect(history[history.length - 1]!.content).toBe('msg 14');
   });
 
   it('clears conversation', () => {
@@ -75,11 +75,11 @@ describe('createPersistentConversation', () => {
     }
     const latest3 = conv.getHistory('c1', { limit: 3, fromLatest: true });
     expect(latest3).toHaveLength(3);
-    expect(latest3[2].content).toBe('msg 7');
+    expect(latest3[2]!.content).toBe('msg 7');
 
     const first3 = conv.getHistory('c1', { limit: 3 });
     expect(first3).toHaveLength(3);
-    expect(first3[0].content).toBe('msg 0');
+    expect(first3[0]!.content).toBe('msg 0');
   });
 
   it('persists across instances', () => {
@@ -87,6 +87,6 @@ describe('createPersistentConversation', () => {
     const conv2 = createPersistentConversation({ dbPath, maxMessages: 10 });
     const history = conv2.getHistory('c1');
     expect(history).toHaveLength(1);
-    expect(history[0].content).toBe('persistent');
+    expect(history[0]!.content).toBe('persistent');
   });
 });

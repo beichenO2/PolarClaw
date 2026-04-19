@@ -40,12 +40,12 @@ function parseFrontmatter(content: string): Record<string, string | Record<strin
   let currentKey = '';
   let nestedObj: Record<string, string> | null = null;
 
-  for (const line of match[1].split('\n')) {
+  for (const line of match[1]!.split('\n')) {
     // 嵌套键值对（2 空格缩进）
     const nestedMatch = line.match(/^  (\S+):\s*(.+)/);
     if (nestedMatch && currentKey) {
       if (!nestedObj) nestedObj = {};
-      nestedObj[nestedMatch[1]] = nestedMatch[2].replace(/^["']|["']$/g, '');
+      nestedObj[nestedMatch[1]!] = nestedMatch[2]!.replace(/^["']|["']$/g, '');
       result[currentKey] = nestedObj;
       continue;
     }
@@ -57,9 +57,9 @@ function parseFrontmatter(content: string): Record<string, string | Record<strin
       if (currentKey && nestedObj) {
         result[currentKey] = nestedObj;
       }
-      currentKey = kvMatch[1];
+      currentKey = kvMatch[1]!;
       nestedObj = null;
-      const val = kvMatch[2].replace(/^["']|["']$/g, '').trim();
+      const val = kvMatch[2]!.replace(/^["']|["']$/g, '').trim();
       if (val) result[currentKey] = val;
     }
   }

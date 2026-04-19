@@ -24,8 +24,8 @@ describe('createToolExecutor', () => {
     executor.register(makeTool('b', () => 2));
     const list = executor.list();
     expect(list).toHaveLength(2);
-    expect(list[0].type).toBe('function');
-    expect(list[0].function.name).toBe('a');
+    expect(list[0]!.type).toBe('function');
+    expect(list[0]!.function.name).toBe('a');
   });
 
   it('throws on unknown tool', async () => {

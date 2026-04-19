@@ -255,11 +255,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       // 按原始 toolCalls 顺序追加结果，保证 LLM 消息交替正确
       for (let i = 0; i < response.toolCalls.length; i++) {
-        const settled = toolResults[i];
-        const toolCallId = response.toolCalls[i].id;
+        const settled = toolResults[i]!;
+        const toolCallId = response.toolCalls[i]!.id;
         const payload = settled.status === 'fulfilled'
           ? settled.value.payload
-          : JSON.stringify({ error: String(settled.reason) });
+          : JSON.stringify({ error: String((settled as PromiseRejectedResult).reason) });
 
         conversations.append(convId, {
           role: 'tool',
