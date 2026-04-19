@@ -243,15 +243,27 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
         session.totalTokensUsed += alignTokens;
 
         if (!verifyAlignment(alignResponse.text)) {
-          session.status = 'escalated';
-          session.stopReason = '对齐验证未通过：Agent 可能未正确理解目标';
-          session.elapsedMs = Date.now() - startTime;
-          session.steps.push({
-            step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-            goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
-          });
-          deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
-          return session;
+          // Degradation strategy: retry with simplified prompt before escalating
+          const retryPrompt = `[简化对齐] 目标: ${config.goal}\n\n请用编号列表列出你打算执行的步骤。以"对齐确认："开头。`;
+          const retryResp = await deps.agent.handleMessage(
+            context.channel, context.userId, retryPrompt, convId,
+          );
+          session.totalTokensUsed += retryResp.usage?.totalTokens ?? 0;
+
+          if (verifyAlignment(retryResp.text)) {
+            // Retry succeeded — use retried plan
+            Object.assign(alignResponse, retryResp);
+          } else {
+            session.status = 'escalated';
+            session.stopReason = '对齐验证未通过（含降级重试）：Agent 可能未正确理解目标';
+            session.elapsedMs = Date.now() - startTime;
+            session.steps.push({
+              step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+              goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
+            });
+            deps.onEscalate?.(sessionId, `对齐验证未通过（含降级重试），Agent 回复: ${retryResp.text.slice(0, 200)}`);
+            return session;
+          }
         }
 
         // Alignment scoring: heuristic + LLM-as-judge
@@ -271,15 +283,26 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
         const finalScore = heuristicResult.heuristicScore * 0.4 + (judgeVerdict.aligned ? 1 : 0) * judgeVerdict.confidence * 0.6;
 
         if (!judgeVerdict.aligned && judgeVerdict.confidence > 0.6) {
-          session.status = 'escalated';
-          session.stopReason = `对齐评分不足 (score=${finalScore.toFixed(2)}, heuristic=${heuristicResult.heuristicScore.toFixed(2)}): ${judgeVerdict.reason}`;
-          session.elapsedMs = Date.now() - startTime;
-          session.steps.push({
-            step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-            goalReached: false, error: judgeVerdict.reason, durationMs: Date.now() - startTime,
-          });
-          deps.onEscalate?.(sessionId, `LLM-as-judge: ${judgeVerdict.reason}`);
-          return session;
+          // Degradation: if heuristic score is decent, allow with warning
+          if (heuristicResult.heuristicScore > 0.5) {
+            deps.onStepComplete?.({
+              step: 0,
+              text: `⚠️ 降级放行: LLM judge 不通过但启发式评分尚可 (${heuristicResult.heuristicScore.toFixed(2)})`,
+              tokensUsed: alignTokens,
+              goalReached: false,
+              durationMs: Date.now() - startTime,
+            }, session);
+          } else {
+            session.status = 'escalated';
+            session.stopReason = `对齐评分不足 (score=${finalScore.toFixed(2)}, heuristic=${heuristicResult.heuristicScore.toFixed(2)}): ${judgeVerdict.reason}`;
+            session.elapsedMs = Date.now() - startTime;
+            session.steps.push({
+              step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+              goalReached: false, error: judgeVerdict.reason, durationMs: Date.now() - startTime,
+            });
+            deps.onEscalate?.(sessionId, `对齐评分 ${finalScore.toFixed(2)}: ${judgeVerdict.reason}`);
+            return session;
+          }
         }
 
         // LLM auto-decides: complete plan → auto-proceed; idea → require user confirmation
