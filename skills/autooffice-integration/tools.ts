@@ -78,8 +78,8 @@ export const autoofficeGenerateReport: IToolHandler = {
     properties: {
       format: {
         type: 'string',
-        enum: ['pptx', 'pdf', 'docx', 'latex', 'html'],
-        description: '输出格式',
+        enum: ['pptx', 'pdf', 'docx', 'latex', 'latex-pdf', 'html'],
+        description: '输出格式。latex-pdf = LaTeX 编译为 PDF（适合学术论文如 CVPR）',
       },
       data: {
         type: 'object',
@@ -204,9 +204,91 @@ export const autoofficeListTemplates: IToolHandler = {
   },
 };
 
+export const autoofficeBatchGenerate: IToolHandler = {
+  name: 'autooffice_batch_generate',
+  description:
+    '批量生成多种格式的报告（PPT + PDF + Word + LaTeX 等），一次调用同时产出多个文件。',
+  parameters: {
+    type: 'object',
+    properties: {
+      formats: {
+        type: 'array',
+        items: { type: 'string', enum: ['pptx', 'pdf', 'docx', 'latex', 'latex-pdf', 'html'] },
+        description: '要生成的格式列表',
+      },
+      data: {
+        type: 'object',
+        description: '报告数据，需包含 title (string) 和 sections (array of {title, content})',
+      },
+      locale: { type: 'string', description: '语言地区（默认 zh-CN）' },
+    },
+    required: ['formats', 'data'],
+  },
+  async handler(args) {
+    const formats = (args.formats as string[]) ?? ['html'];
+    const results = await Promise.allSettled(
+      formats.map(async (fmt) => {
+        const body: Record<string, unknown> = {
+          format: fmt,
+          data: args.data,
+          locale: args.locale ?? 'zh-CN',
+        };
+        const result = await aoFetch<Record<string, unknown>>('/api/generate', {
+          method: 'POST',
+          body,
+          timeoutMs: 120000,
+        });
+        if (!result.ok) return { format: fmt, error: result.error };
+        return { format: fmt, ...result.data };
+      }),
+    );
+    return {
+      results: results.map((r, i) => {
+        if (r.status === 'fulfilled') return r.value;
+        return { format: formats[i], error: String(r.reason) };
+      }),
+    };
+  },
+};
+
+export const autoofficeGeneratePaper: IToolHandler = {
+  name: 'autooffice_generate_paper',
+  description:
+    '生成学术论文（如 CVPR、NeurIPS 格式）。使用 LaTeX 编译为 PDF。' +
+    '传入论文数据（title, abstract, sections, references），返回 PDF。',
+  parameters: {
+    type: 'object',
+    properties: {
+      data: {
+        type: 'object',
+        description: '论文数据：{ title, abstract, sections: [{heading, body, math?}], references?: string[], latex?: { theme?, toc? } }',
+      },
+      locale: { type: 'string', description: '语言（默认 en-US）' },
+    },
+    required: ['data'],
+  },
+  async handler(args) {
+    const paperData = args.data as Record<string, unknown>;
+    const body: Record<string, unknown> = {
+      format: 'latex-pdf',
+      data: paperData,
+      locale: args.locale ?? 'en-US',
+    };
+    const result = await aoFetch<Record<string, unknown>>('/api/generate', {
+      method: 'POST',
+      body,
+      timeoutMs: 120000,
+    });
+    if (!result.ok) return { error: result.error };
+    return { format: 'latex-pdf', ...result.data };
+  },
+};
+
 export const autoofficeTools: IToolHandler[] = [
   autoofficeHealth,
   autoofficeGenerateReport,
+  autoofficeBatchGenerate,
+  autoofficeGeneratePaper,
   autoofficeSummarize,
   autoofficeEnrich,
   autoofficeCheckQuality,

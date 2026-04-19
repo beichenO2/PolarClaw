@@ -17,7 +17,9 @@ requires:
 
 ## 工具列表
 
-- `autooffice_generate_report`: 生成报告（5 种格式），返回 base64 编码文件
+- `autooffice_generate_report`: 生成报告（6 种格式：pptx/pdf/docx/latex/latex-pdf/html），返回 base64 编码文件
+- `autooffice_batch_generate`: 批量生成多种格式（一次调用同时产出 PPT+PDF+Word 等）
+- `autooffice_generate_paper`: 生成学术论文（CVPR/NeurIPS 格式，LaTeX→PDF 编译）
 - `autooffice_summarize`: 分析内容 → Mermaid 图 + 路由建议（LLMWiki / KnowLever）
 - `autooffice_enrich`: 通过 KnowLever RAG 增强 Markdown 内容
 - `autooffice_check_quality`: 文本质量分析（去 AI 味、单调度、多样性），返回评级和建议
