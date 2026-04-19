@@ -75,6 +75,7 @@ async function main() {
     defaultMaxTokens: config.llm.maxTokens,
     fallbackProviders: config.llm.fallbackProviders,
     requestTimeoutMs: config.llm.requestTimeoutMs,
+    concurrencyLimit: config.llm.concurrencyLimit,
   });
   const rawTools = createToolExecutor();
 

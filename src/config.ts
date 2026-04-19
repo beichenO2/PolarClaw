@@ -40,6 +40,8 @@ export interface IMyclawConfig {
     fallbackProviders: IProviderEntry[];
     /** 单次 LLM 请求超时 ms */
     requestTimeoutMs: number;
+    /** 最大并发 LLM 请求数 */
+    concurrencyLimit: number;
   };
   memory: {
     dbPath: string;
@@ -137,6 +139,7 @@ export function loadConfig(): IMyclawConfig {
       maxToolRounds: Number(env('MYCLAW_MAX_TOOL_ROUNDS', '0')),
       fallbackProviders,
       requestTimeoutMs: Number(env('MYCLAW_LLM_TIMEOUT_MS', '60000')),
+      concurrencyLimit: Number(env('MYCLAW_LLM_CONCURRENCY', '5')),
     },
     memory: {
       dbPath: env('MYCLAW_DB_PATH', join(ROOT, '.data', 'myclaw.db')),

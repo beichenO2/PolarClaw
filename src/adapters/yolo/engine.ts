@@ -103,6 +103,53 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
   }
 
   /**
+   * Alignment Score: multi-dimensional plan quality assessment.
+   * Combines heuristic checks with LLM judgment for robust scoring.
+   */
+  function computeAlignmentScore(goal: string, plan: string): {
+    heuristicScore: number;
+    dimensions: Record<string, { score: number; reason: string }>;
+  } {
+    const dimensions: Record<string, { score: number; reason: string }> = {};
+
+    // Coverage: does the plan mention key terms from the goal?
+    const goalTerms = goal.toLowerCase().split(/[\s,，。、]+/).filter(t => t.length > 2);
+    const planLower = plan.toLowerCase();
+    const covered = goalTerms.filter(t => planLower.includes(t)).length;
+    const coverageRatio = goalTerms.length > 0 ? covered / goalTerms.length : 0;
+    dimensions.coverage = {
+      score: Math.min(coverageRatio * 1.2, 1),
+      reason: `${covered}/${goalTerms.length} goal terms found in plan`,
+    };
+
+    // Structure: does the plan have numbered steps?
+    const stepCount = (plan.match(/^\s*\d+[.、)]/gm) || []).length;
+    dimensions.structure = {
+      score: stepCount >= 3 ? 1 : stepCount >= 1 ? 0.6 : 0.2,
+      reason: `${stepCount} numbered steps detected`,
+    };
+
+    // Specificity: plan length and detail level
+    const wordCount = plan.split(/\s+/).length;
+    dimensions.specificity = {
+      score: wordCount > 200 ? 1 : wordCount > 50 ? 0.7 : 0.3,
+      reason: `${wordCount} words in plan`,
+    };
+
+    // Risk awareness: mentions risks or caveats
+    const riskTerms = ['风险', '注意', '前置条件', 'risk', 'caveat', '依赖', '限制'];
+    const hasRisk = riskTerms.some(t => planLower.includes(t));
+    dimensions.risk_awareness = {
+      score: hasRisk ? 1 : 0.5,
+      reason: hasRisk ? 'Risk/caveat awareness present' : 'No explicit risk discussion',
+    };
+
+    const heuristicScore = Object.values(dimensions).reduce((sum, d) => sum + d.score, 0) / Object.keys(dimensions).length;
+
+    return { heuristicScore, dimensions };
+  }
+
+  /**
    * LLM-as-judge: Use a second LLM call to verify the alignment plan is
    * genuinely on-target, not just pattern-matching keywords.
    * Returns { aligned: boolean, reason: string, confidence: number }.
@@ -207,20 +254,25 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
           return session;
         }
 
-        // LLM-as-judge: second opinion on alignment quality
-        const judgeVerdict = await llmJudgeAlignment(
-          config.goal,
-          alignResponse.text,
-          async (prompt) => {
-            const resp = await deps.agent.handleMessage(context.channel, context.userId, prompt, convId);
-            session.totalTokensUsed += resp.usage?.totalTokens ?? 0;
-            return resp.text;
-          },
-        );
+        // Alignment scoring: heuristic + LLM-as-judge
+        const heuristicResult = computeAlignmentScore(config.goal, alignResponse.text);
+        const judgeVerdict = heuristicResult.heuristicScore < 0.3
+          ? { aligned: false, reason: `Heuristic score too low: ${heuristicResult.heuristicScore.toFixed(2)}`, confidence: 0.8 }
+          : await llmJudgeAlignment(
+              config.goal,
+              alignResponse.text,
+              async (prompt) => {
+                const resp = await deps.agent.handleMessage(context.channel, context.userId, prompt, convId);
+                session.totalTokensUsed += resp.usage?.totalTokens ?? 0;
+                return resp.text;
+              },
+            );
+
+        const finalScore = heuristicResult.heuristicScore * 0.4 + (judgeVerdict.aligned ? 1 : 0) * judgeVerdict.confidence * 0.6;
 
         if (!judgeVerdict.aligned && judgeVerdict.confidence > 0.6) {
           session.status = 'escalated';
-          session.stopReason = `LLM-as-judge 判定未对齐 (confidence=${judgeVerdict.confidence}): ${judgeVerdict.reason}`;
+          session.stopReason = `对齐评分不足 (score=${finalScore.toFixed(2)}, heuristic=${heuristicResult.heuristicScore.toFixed(2)}): ${judgeVerdict.reason}`;
           session.elapsedMs = Date.now() - startTime;
           session.steps.push({
             step: 0, text: alignResponse.text, tokensUsed: alignTokens,
