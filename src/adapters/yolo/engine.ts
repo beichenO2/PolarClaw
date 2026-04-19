@@ -76,12 +76,18 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
     return [
       `[YOLO 对齐验证] 目标: ${goal}`,
       '',
-      '在开始自主执行之前，请先确认你对目标的理解：',
+      '在开始自主执行之前，请先完成对齐验证：',
+      '',
+      '第一步：判断输入类型',
+      '- 如果目标是一个**完整方案**（包含具体步骤、技术路线、预期产物），回复 "INPUT_TYPE:PLAN"',
+      '- 如果目标是一个**想法或需求**（需要你来拆解和规划），回复 "INPUT_TYPE:IDEA"',
+      '',
+      '第二步：无论哪种类型，都必须：',
       '1. 用一句话复述目标的核心要求',
       '2. 列出你计划执行的关键步骤（编号列表）',
       '3. 指出可能的风险或需要用户确认的前置条件',
       '',
-      '以"对齐确认："开头回复你的理解。',
+      '以"对齐确认："开头回复。',
     ].join('\n');
   }
 
@@ -90,6 +96,10 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
   function verifyAlignment(text: string): boolean {
     const lower = text.toLowerCase();
     return ALIGNMENT_SIGNALS.some(s => lower.includes(s)) || text.includes('1.') || text.includes('1、');
+  }
+
+  function isCompletePlan(text: string): boolean {
+    return text.includes('INPUT_TYPE:PLAN');
   }
 
   function buildStepPrompt(goal: string, step: number, prevResult?: IStepResult): string {
@@ -133,55 +143,59 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
       const startTime = Date.now();
       const convId = context.conversationId ?? `yolo:${context.userId}:${sessionId}`;
 
-      // Step 0: Intent alignment verification
-      if (!config.skipUserAlignment) {
-        try {
-          const alignPrompt = buildAlignmentPrompt(config.goal);
-          const alignResponse = await deps.agent.handleMessage(
-            context.channel, context.userId, alignPrompt, convId,
-          );
-          const alignTokens = alignResponse.usage?.totalTokens ?? 0;
-          session.totalTokensUsed += alignTokens;
+      // Step 0: Intent alignment verification (always runs)
+      try {
+        const alignPrompt = buildAlignmentPrompt(config.goal);
+        const alignResponse = await deps.agent.handleMessage(
+          context.channel, context.userId, alignPrompt, convId,
+        );
+        const alignTokens = alignResponse.usage?.totalTokens ?? 0;
+        session.totalTokensUsed += alignTokens;
 
-          if (!verifyAlignment(alignResponse.text)) {
-            session.status = 'escalated';
-            session.stopReason = '对齐验证未通过：Agent 可能未正确理解目标';
+        if (!verifyAlignment(alignResponse.text)) {
+          session.status = 'escalated';
+          session.stopReason = '对齐验证未通过：Agent 可能未正确理解目标';
+          session.elapsedMs = Date.now() - startTime;
+          session.steps.push({
+            step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+            goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
+          });
+          deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
+          return session;
+        }
+
+        // LLM auto-decides: complete plan → auto-proceed; idea → require user confirmation
+        const needsUserConfirm = !isCompletePlan(alignResponse.text);
+
+        if (needsUserConfirm && deps.onAlignmentCheck) {
+          const userConfirmed = await deps.onAlignmentCheck(sessionId, alignResponse.text);
+          if (!userConfirmed) {
+            session.status = 'aborted';
+            session.stopReason = '用户拒绝执行计划';
             session.elapsedMs = Date.now() - startTime;
             session.steps.push({
               step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-              goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
+              goalReached: false, error: '用户拒绝', durationMs: Date.now() - startTime,
             });
-            deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
             return session;
           }
-
-          // If user alignment callback is provided, present the plan and wait for confirmation
-          if (deps.onAlignmentCheck) {
-            const userConfirmed = await deps.onAlignmentCheck(sessionId, alignResponse.text);
-            if (!userConfirmed) {
-              session.status = 'aborted';
-              session.stopReason = '用户拒绝执行计划';
-              session.elapsedMs = Date.now() - startTime;
-              session.steps.push({
-                step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-                goalReached: false, error: '用户拒绝', durationMs: Date.now() - startTime,
-              });
-              return session;
-            }
-          }
-
-          session.steps.push({
-            step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-            goalReached: false, durationMs: Date.now() - startTime,
-          });
-          deps.onStepComplete?.({ step: 0, text: '对齐验证通过', tokensUsed: alignTokens, goalReached: false, durationMs: Date.now() - startTime }, session);
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          session.status = 'aborted';
-          session.stopReason = `对齐验证失败: ${msg}`;
-          session.elapsedMs = Date.now() - startTime;
-          return session;
         }
+
+        session.steps.push({
+          step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+          goalReached: false, durationMs: Date.now() - startTime,
+        });
+        deps.onStepComplete?.({
+          step: 0,
+          text: needsUserConfirm ? '对齐验证通过（用户确认）' : '对齐验证通过（完整方案，自动放行）',
+          tokensUsed: alignTokens, goalReached: false, durationMs: Date.now() - startTime,
+        }, session);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        session.status = 'aborted';
+        session.stopReason = `对齐验证失败: ${msg}`;
+        session.elapsedMs = Date.now() - startTime;
+        return session;
       }
 
       let prevResult: IStepResult | undefined;
