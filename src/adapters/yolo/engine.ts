@@ -29,6 +29,8 @@ export interface IYoloEngineDeps {
   onStepComplete?: (step: IStepResult, session: IYoloSessionState) => void;
   /** 需要用户介入时的回调 */
   onEscalate?: (sessionId: string, message: string) => void;
+  /** 对齐确认回调：向用户展示计划并等待确认。返回 true=确认，false=拒绝 */
+  onAlignmentCheck?: (sessionId: string, plan: string) => Promise<boolean>;
 }
 
 const GOAL_REACHED_SIGNALS = [
@@ -132,37 +134,54 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
       const convId = context.conversationId ?? `yolo:${context.userId}:${sessionId}`;
 
       // Step 0: Intent alignment verification
-      try {
-        const alignPrompt = buildAlignmentPrompt(config.goal);
-        const alignResponse = await deps.agent.handleMessage(
-          context.channel, context.userId, alignPrompt, convId,
-        );
-        const alignTokens = alignResponse.usage?.totalTokens ?? 0;
-        session.totalTokensUsed += alignTokens;
+      if (!config.skipUserAlignment) {
+        try {
+          const alignPrompt = buildAlignmentPrompt(config.goal);
+          const alignResponse = await deps.agent.handleMessage(
+            context.channel, context.userId, alignPrompt, convId,
+          );
+          const alignTokens = alignResponse.usage?.totalTokens ?? 0;
+          session.totalTokensUsed += alignTokens;
 
-        if (!verifyAlignment(alignResponse.text)) {
-          session.status = 'escalated';
-          session.stopReason = '对齐验证未通过：Agent 可能未正确理解目标';
-          session.elapsedMs = Date.now() - startTime;
+          if (!verifyAlignment(alignResponse.text)) {
+            session.status = 'escalated';
+            session.stopReason = '对齐验证未通过：Agent 可能未正确理解目标';
+            session.elapsedMs = Date.now() - startTime;
+            session.steps.push({
+              step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+              goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
+            });
+            deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
+            return session;
+          }
+
+          // If user alignment callback is provided, present the plan and wait for confirmation
+          if (deps.onAlignmentCheck) {
+            const userConfirmed = await deps.onAlignmentCheck(sessionId, alignResponse.text);
+            if (!userConfirmed) {
+              session.status = 'aborted';
+              session.stopReason = '用户拒绝执行计划';
+              session.elapsedMs = Date.now() - startTime;
+              session.steps.push({
+                step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+                goalReached: false, error: '用户拒绝', durationMs: Date.now() - startTime,
+              });
+              return session;
+            }
+          }
+
           session.steps.push({
             step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-            goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
+            goalReached: false, durationMs: Date.now() - startTime,
           });
-          deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
+          deps.onStepComplete?.({ step: 0, text: '对齐验证通过', tokensUsed: alignTokens, goalReached: false, durationMs: Date.now() - startTime }, session);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          session.status = 'aborted';
+          session.stopReason = `对齐验证失败: ${msg}`;
+          session.elapsedMs = Date.now() - startTime;
           return session;
         }
-
-        session.steps.push({
-          step: 0, text: alignResponse.text, tokensUsed: alignTokens,
-          goalReached: false, durationMs: Date.now() - startTime,
-        });
-        deps.onStepComplete?.({ step: 0, text: '对齐验证通过', tokensUsed: alignTokens, goalReached: false, durationMs: Date.now() - startTime }, session);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        session.status = 'aborted';
-        session.stopReason = `对齐验证失败: ${msg}`;
-        session.elapsedMs = Date.now() - startTime;
-        return session;
       }
 
       let prevResult: IStepResult | undefined;

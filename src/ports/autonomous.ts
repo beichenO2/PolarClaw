@@ -20,6 +20,8 @@ export interface IYoloSessionConfig {
   maxWallTimeMs: number;
   /** 单步失败最大重试次数 */
   maxRetries: number;
+  /** 是否跳过用户对齐确认（默认 false = 需要确认） */
+  skipUserAlignment?: boolean;
 }
 
 /** 单步执行结果 */
