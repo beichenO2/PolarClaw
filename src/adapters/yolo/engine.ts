@@ -70,12 +70,32 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
   const sessions = new Map<string, IYoloSessionState>();
   const cancelTokens = new Set<string>();
 
+  function buildAlignmentPrompt(goal: string): string {
+    return [
+      `[YOLO 对齐验证] 目标: ${goal}`,
+      '',
+      '在开始自主执行之前，请先确认你对目标的理解：',
+      '1. 用一句话复述目标的核心要求',
+      '2. 列出你计划执行的关键步骤（编号列表）',
+      '3. 指出可能的风险或需要用户确认的前置条件',
+      '',
+      '以"对齐确认："开头回复你的理解。',
+    ].join('\n');
+  }
+
+  const ALIGNMENT_SIGNALS = ['对齐确认', '目标理解', '计划如下', '步骤如下', '执行计划'];
+
+  function verifyAlignment(text: string): boolean {
+    const lower = text.toLowerCase();
+    return ALIGNMENT_SIGNALS.some(s => lower.includes(s)) || text.includes('1.') || text.includes('1、');
+  }
+
   function buildStepPrompt(goal: string, step: number, prevResult?: IStepResult): string {
     if (step === 1) {
       return [
         `[YOLO 自主模式] 目标: ${goal}`,
         '',
-        '你现在进入自主执行模式。请分析目标，规划步骤，然后开始执行第一步。',
+        '对齐验证已通过。现在开始自主执行第一步。',
         '每步执行完后报告进展。当所有步骤完成时，明确说"目标已完成"。',
         '如果遇到需要用户决策的问题，说"需要用户确认"并描述问题。',
       ].join('\n');
@@ -110,6 +130,40 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
 
       const startTime = Date.now();
       const convId = context.conversationId ?? `yolo:${context.userId}:${sessionId}`;
+
+      // Step 0: Intent alignment verification
+      try {
+        const alignPrompt = buildAlignmentPrompt(config.goal);
+        const alignResponse = await deps.agent.handleMessage(
+          context.channel, context.userId, alignPrompt, convId,
+        );
+        const alignTokens = alignResponse.usage?.totalTokens ?? 0;
+        session.totalTokensUsed += alignTokens;
+
+        if (!verifyAlignment(alignResponse.text)) {
+          session.status = 'escalated';
+          session.stopReason = '对齐验证未通过：Agent 可能未正确理解目标';
+          session.elapsedMs = Date.now() - startTime;
+          session.steps.push({
+            step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+            goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
+          });
+          deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
+          return session;
+        }
+
+        session.steps.push({
+          step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+          goalReached: false, durationMs: Date.now() - startTime,
+        });
+        deps.onStepComplete?.({ step: 0, text: '对齐验证通过', tokensUsed: alignTokens, goalReached: false, durationMs: Date.now() - startTime }, session);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        session.status = 'aborted';
+        session.stopReason = `对齐验证失败: ${msg}`;
+        session.elapsedMs = Date.now() - startTime;
+        return session;
+      }
 
       let prevResult: IStepResult | undefined;
 

@@ -17,7 +17,7 @@ import type { IToolExecutor } from '../ports/tools.js';
 import type { IContextCompressor } from '../ports/compression.js';
 
 export interface IAgentConfig {
-  /** 每轮最多工具调用次数 */
+  /** 工具调用安全上限（0 = 无限制，由压缩器管理上下文） */
   maxToolRounds: number;
   /** system prompt */
   systemPrompt: string;
@@ -168,7 +168,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
     const compressionBudget = (config.maxTokens ?? 4096) * 12;
 
-    for (let round = 0; round < config.maxToolRounds; round++) {
+    const maxRounds = config.maxToolRounds > 0 ? config.maxToolRounds : Infinity;
+    for (let round = 0; round < maxRounds; round++) {
       const history = conversations.getHistory(convId);
       let contextMessages = history;
 

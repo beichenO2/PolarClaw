@@ -18,7 +18,7 @@ describe('createToolExecutor', () => {
     expect(result).toEqual({ msg: 'hi' });
   });
 
-  it('lists registered tools in OpenAI format', () => {
+  it('lists registered tools in function calling format', () => {
     const executor = createToolExecutor();
     executor.register(makeTool('a', () => 1));
     executor.register(makeTool('b', () => 2));

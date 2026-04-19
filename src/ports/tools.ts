@@ -25,7 +25,7 @@ export interface IToolExecutor {
   /** 执行工具 */
   execute(name: string, args: Record<string, unknown>): Promise<unknown>;
 
-  /** 列出所有已注册工具（OpenAI 格式） */
+  /** 列出所有已注册工具（function calling 格式） */
   list(): IToolDefinition[];
 
   /** 检查工具是否已注册 */

@@ -95,7 +95,7 @@ export function loadConfig(): IMyclawConfig {
 
   const polarPrivatePort = env('POLARPRIVATE_PORT', '8790');
   const defaultProxyUrl = `http://127.0.0.1:${polarPrivatePort}/proxy/llm.aliyun.codingplan/v1`;
-  const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || env('OPENAI_API_KEY') || 'proxy-managed';
+  const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || 'proxy-managed';
   if (apiKey === 'proxy-managed' && env('MYCLAW_LLM_BASE_URL')) {
     // Custom base URL with proxy-managed key — valid proxy override
   } else if (apiKey === 'proxy-managed') {
@@ -134,7 +134,7 @@ export function loadConfig(): IMyclawConfig {
       },
       temperature: Number(env('MYCLAW_TEMPERATURE', '0.7')),
       maxTokens: Number(env('MYCLAW_MAX_TOKENS', '4096')),
-      maxToolRounds: Number(env('MYCLAW_MAX_TOOL_ROUNDS', '10')),
+      maxToolRounds: Number(env('MYCLAW_MAX_TOOL_ROUNDS', '0')),
       fallbackProviders,
       requestTimeoutMs: Number(env('MYCLAW_LLM_TIMEOUT_MS', '60000')),
     },
@@ -173,8 +173,8 @@ export function loadConfig(): IMyclawConfig {
   if (config.llm.temperature < 0 || config.llm.temperature > 2) {
     throw new Error(`Invalid config: llm.temperature must be 0–2, got ${config.llm.temperature}`);
   }
-  if (config.llm.maxToolRounds < 1) {
-    throw new Error(`Invalid config: llm.maxToolRounds must be >= 1, got ${config.llm.maxToolRounds}`);
+  if (config.llm.maxToolRounds < 0) {
+    throw new Error(`Invalid config: llm.maxToolRounds must be >= 0 (0 = unlimited), got ${config.llm.maxToolRounds}`);
   }
 
   return config;

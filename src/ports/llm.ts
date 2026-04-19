@@ -34,7 +34,7 @@ export interface ILLMOptions {
   toolChoice?: 'auto' | 'none' | 'required';
 }
 
-/** 工具定义（OpenAI 格式） */
+/** 工具定义（function calling 格式） */
 export interface IToolDefinition {
   type: 'function';
   function: {

@@ -10,7 +10,7 @@ import { loadConfig, loadEnvFileEarly } from './config.js';
 import { createAgent } from './core/agent.js';
 import { createSqliteMemoryStore } from './adapters/memory/sqlite-store.js';
 import { createPersistentConversation } from './adapters/memory/persistent-conversation.js';
-import { createOpenAICompatibleRouter } from './adapters/llm/openai-compatible.js';
+import { createLLMRouter } from './adapters/llm/llm-router.js';
 import { createToolExecutor } from './adapters/tools/tool-executor.js';
 import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
 import { loadSecretsToEnv } from './adapters/privacy/secrets-loader.js';
@@ -67,7 +67,7 @@ async function main() {
     maxMessages: config.memory.maxMessages,
     maxTokens: config.memory.maxTokens,
   });
-  const llm = createOpenAICompatibleRouter({
+  const llm = createLLMRouter({
     baseUrl: config.llm.baseUrl,
     apiKey: config.llm.apiKey,
     models: config.llm.models,

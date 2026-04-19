@@ -35,7 +35,7 @@ src/
 │   ├── channel/        ← CLI、飞书适配器
 │   ├── compression/    ← 三阶段上下文压缩
 │   ├── learning/       ← 自学习系统（追踪/反馈/模式检测/技能生成/组合）
-│   ├── llm/            ← OpenAI-compatible 路由器
+│   ├── llm/            ← LLM 路由器（Chat Completions 兼容）
 │   ├── memory/         ← SQLite 存储 + 对话历史
 │   ├── privacy/        ← PII 检测 + PolarPrivate 集成
 │   ├── skills/         ← Skill 加载器 + SkillRegistry 热加载

@@ -1,10 +1,10 @@
 /**
- * OpenAI-Compatible LLM 适配器
+ * LLM 路由器适配器
  *
- * 支持所有兼容 OpenAI Chat Completions API 的服务商：
+ * 支持所有兼容 Chat Completions API 的服务商：
  * - 阿里云百炼 Coding Plan
- * - OpenAI
  * - 本地 Ollama
+ * - 其他兼容服务商
  *
  * 三层弹性 Provider Fallback：主模型 → 备用 → 降级
  * 每层带独立健康状态追踪（半开熔断器），避免持续请求已知不可用的 Provider。
@@ -152,7 +152,7 @@ async function callProvider(
   }
 }
 
-export function createOpenAICompatibleRouter(config: ILLMConfig): ILLMRouter {
+export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const defaultTemp = config.defaultTemperature ?? 0.7;
   const defaultMaxTokens = config.defaultMaxTokens ?? 4096;
   const cbThreshold = config.circuitBreakerThreshold ?? 3;
