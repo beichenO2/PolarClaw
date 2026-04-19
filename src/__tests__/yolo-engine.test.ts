@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createYoloEngine } from '../adapters/yolo/engine.js';
 import { createRecoveryStrategy } from '../adapters/yolo/recovery.js';
 
-const ALIGNMENT_RESPONSE = { text: 'INPUT_TYPE:PLAN\n对齐确认：\n1. 理解目标\n2. 执行步骤\n3. 无风险' };
+const ALIGNMENT_RESPONSE: { text: string; tokens?: number } = { text: 'INPUT_TYPE:PLAN\n对齐确认：\n1. 理解目标\n2. 执行步骤\n3. 无风险' };
 
 function makeAgent(responses: Array<{ text: string; tokens?: number }>) {
   let idx = 0;

@@ -246,6 +246,19 @@ async function main() {
     onEscalate: (_sessionId, message) => {
       console.error(`[YOLO] 需要用户介入: ${message}`);
     },
+    async onAlignmentCheck(_sessionId, plan) {
+      console.error(`[YOLO] 对齐计划:\n${plan.slice(0, 500)}`);
+      const reply = await handleChannelMessage({
+        channel: 'yolo',
+        userId: 'admin',
+        text: `[YOLO 对齐确认] 以下是 Agent 的执行计划，请确认是否执行：\n\n${plan}\n\n回复"确认"或"拒绝"。`,
+      });
+      const lower = reply.toLowerCase();
+      const confirmed = lower.includes('确认') || lower.includes('ok') || lower.includes('yes')
+        || lower.includes('proceed') || lower.includes('go');
+      console.error(`[YOLO] 用户确认结果: ${confirmed ? '✓ 通过' : '✗ 拒绝'}`);
+      return confirmed;
+    },
   });
 
   // 注册引擎工具（让 Agent 可通过对话控制）
