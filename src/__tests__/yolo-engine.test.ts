@@ -2,11 +2,14 @@ import { describe, it, expect, vi } from 'vitest';
 import { createYoloEngine } from '../adapters/yolo/engine.js';
 import { createRecoveryStrategy } from '../adapters/yolo/recovery.js';
 
+const ALIGNMENT_RESPONSE = { text: 'INPUT_TYPE:PLAN\n对齐确认：\n1. 理解目标\n2. 执行步骤\n3. 无风险' };
+
 function makeAgent(responses: Array<{ text: string; tokens?: number }>) {
   let idx = 0;
+  const allResponses = [ALIGNMENT_RESPONSE, ...responses];
   return {
     handleMessage: vi.fn().mockImplementation(async () => {
-      const r = responses[Math.min(idx++, responses.length - 1)]!;
+      const r = allResponses[Math.min(idx++, allResponses.length - 1)]!;
       return {
         text: r.text,
         blocked: false,
@@ -33,7 +36,7 @@ describe('createYoloEngine', () => {
     );
     expect(result.status).toBe('completed');
     expect(result.stepsCompleted).toBe(3);
-    expect(result.totalTokensUsed).toBe(300);
+    expect(result.totalTokensUsed).toBe(400);
   });
 
   it('stops at maxSteps', async () => {
@@ -95,15 +98,16 @@ describe('createYoloEngine', () => {
       { goal: 'quick', maxSteps: 5, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
       { channel: 'test', userId: 'u1' },
     );
-    expect(onStepComplete).toHaveBeenCalledOnce();
+    expect(onStepComplete).toHaveBeenCalledTimes(2);
   });
 
   it('cancel token prevents subsequent steps', async () => {
-    let stepCount = 0;
+    let idx = 0;
+    const allResponses = [ALIGNMENT_RESPONSE, { text: 'working...' }, { text: 'working...' }];
     const agent = {
       handleMessage: vi.fn().mockImplementation(async () => {
-        stepCount++;
-        return { text: 'working...', blocked: false, usage: { totalTokens: 10 } };
+        const r = allResponses[Math.min(idx++, allResponses.length - 1)]!;
+        return { text: r.text, blocked: false, usage: { totalTokens: 10 } };
       }),
     };
     const engine = createYoloEngine({
