@@ -38,6 +38,8 @@ export interface ILLMConfig {
   circuitBreakerCooldownMs?: number;
   /** 单次请求超时 ms（默认 60s） */
   requestTimeoutMs?: number;
+  /** 最大并发 LLM 请求数（默认 5） */
+  concurrencyLimit?: number;
 }
 
 /** Provider 健康状态（简化的半开熔断器） */
@@ -152,12 +154,41 @@ async function callProvider(
   }
 }
 
+class Semaphore {
+  private queue: Array<() => void> = [];
+  private active = 0;
+
+  constructor(private readonly limit: number) {}
+
+  async acquire(): Promise<void> {
+    if (this.active < this.limit) {
+      this.active++;
+      return;
+    }
+    return new Promise<void>(resolve => {
+      this.queue.push(() => { this.active++; resolve(); });
+    });
+  }
+
+  release(): void {
+    this.active--;
+    const next = this.queue.shift();
+    if (next) next();
+  }
+
+  get pending(): number { return this.queue.length; }
+  get running(): number { return this.active; }
+}
+
 export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const defaultTemp = config.defaultTemperature ?? 0.7;
   const defaultMaxTokens = config.defaultMaxTokens ?? 4096;
   const cbThreshold = config.circuitBreakerThreshold ?? 3;
   const cbCooldownMs = config.circuitBreakerCooldownMs ?? 60_000;
   const requestTimeoutMs = config.requestTimeoutMs ?? 60_000;
+
+  const concurrencyLimit = config.concurrencyLimit ?? 5;
+  const semaphore = new Semaphore(concurrencyLimit);
 
   // 构建 Provider 链：主 → 备用们
   const providers: IProviderConfig[] = [
@@ -218,38 +249,42 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
     },
 
     async chat(messages, options = {}) {
-      const intent = detectIntent(messages);
-      const errors: Array<{ provider: number; error: string }> = [];
+      await semaphore.acquire();
+      try {
+        const intent = detectIntent(messages);
+        const errors: Array<{ provider: number; error: string }> = [];
 
-      for (let i = 0; i < providers.length; i++) {
-        if (!isAvailable(i)) continue;
+        for (let i = 0; i < providers.length; i++) {
+          if (!isAvailable(i)) continue;
 
-        const provider = providers[i]!;
-        const model = options.model ?? (provider.models[intent] ?? provider.models.general);
+          const provider = providers[i]!;
+          const model = options.model ?? (provider.models[intent] ?? provider.models.general);
 
-        try {
-          const result = await callProvider(
-            provider, messages, model, options,
-            defaultTemp, defaultMaxTokens, requestTimeoutMs,
-          );
-          recordSuccess(i);
+          try {
+            const result = await callProvider(
+              provider, messages, model, options,
+              defaultTemp, defaultMaxTokens, requestTimeoutMs,
+            );
+            recordSuccess(i);
 
-          if (i > 0) {
-            console.error(`[LLM Fallback] 使用备用 Provider #${i} (${provider.baseUrl}) 成功`);
+            if (i > 0) {
+              console.error(`[LLM Fallback] 使用备用 Provider #${i} (${provider.baseUrl}) 成功`);
+            }
+
+            return result;
+          } catch (err) {
+            recordFailure(i);
+            const errMsg = err instanceof Error ? err.message : String(err);
+            errors.push({ provider: i, error: errMsg });
+            console.error(`[LLM Fallback] Provider #${i} (${provider.baseUrl}) 失败: ${errMsg}`);
           }
-
-          return result;
-        } catch (err) {
-          recordFailure(i);
-          const errMsg = err instanceof Error ? err.message : String(err);
-          errors.push({ provider: i, error: errMsg });
-          console.error(`[LLM Fallback] Provider #${i} (${provider.baseUrl}) 失败: ${errMsg}`);
         }
-      }
 
-      // 所有 Provider 都失败
-      const summary = errors.map(e => `#${e.provider}: ${e.error}`).join(' | ');
-      throw new Error(`所有 LLM Provider 均不可用: ${summary}`);
+        const summary = errors.map(e => `#${e.provider}: ${e.error}`).join(' | ');
+        throw new Error(`所有 LLM Provider 均不可用: ${summary}`);
+      } finally {
+        semaphore.release();
+      }
     },
   };
 }
