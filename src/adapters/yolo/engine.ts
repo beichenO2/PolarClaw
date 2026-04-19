@@ -102,6 +102,49 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
     return text.includes('INPUT_TYPE:PLAN');
   }
 
+  /**
+   * LLM-as-judge: Use a second LLM call to verify the alignment plan is
+   * genuinely on-target, not just pattern-matching keywords.
+   * Returns { aligned: boolean, reason: string, confidence: number }.
+   */
+  async function llmJudgeAlignment(
+    goal: string,
+    plan: string,
+    llmCall: (prompt: string) => Promise<string>,
+  ): Promise<{ aligned: boolean; reason: string; confidence: number }> {
+    try {
+      const judgePrompt = [
+        '[LLM-as-Judge 对齐评估]',
+        '',
+        `原始目标: ${goal}`,
+        '',
+        `Agent 的执行计划:`,
+        plan.slice(0, 2000),
+        '',
+        '请评估这个计划是否与原始目标对齐。回复 JSON:',
+        '{"aligned": true/false, "reason": "一句话理由", "confidence": 0.0-1.0}',
+        '',
+        '评估标准:',
+        '1. 计划是否覆盖了目标的核心要求？',
+        '2. 步骤是否合理可行？',
+        '3. 是否有遗漏关键方面？',
+        '4. 是否存在明显偏离目标的步骤？',
+      ].join('\n');
+
+      const result = await llmCall(judgePrompt);
+      const jsonMatch = result.match(/\{[\s\S]*?"aligned"[\s\S]*?\}/);
+      if (!jsonMatch) return { aligned: true, reason: 'judge parse fallback', confidence: 0.5 };
+      const parsed = JSON.parse(jsonMatch[0]) as { aligned: boolean; reason: string; confidence: number };
+      return {
+        aligned: Boolean(parsed.aligned),
+        reason: String(parsed.reason || ''),
+        confidence: Number(parsed.confidence) || 0.5,
+      };
+    } catch {
+      return { aligned: true, reason: 'judge unavailable, defaulting to pass', confidence: 0.3 };
+    }
+  }
+
   function buildStepPrompt(goal: string, step: number, prevResult?: IStepResult): string {
     if (step === 1) {
       return [
@@ -161,6 +204,29 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
             goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
           });
           deps.onEscalate?.(sessionId, `对齐验证未通过，Agent 回复: ${alignResponse.text.slice(0, 200)}`);
+          return session;
+        }
+
+        // LLM-as-judge: second opinion on alignment quality
+        const judgeVerdict = await llmJudgeAlignment(
+          config.goal,
+          alignResponse.text,
+          async (prompt) => {
+            const resp = await deps.agent.handleMessage(context.channel, context.userId, prompt, convId);
+            session.totalTokensUsed += resp.usage?.totalTokens ?? 0;
+            return resp.text;
+          },
+        );
+
+        if (!judgeVerdict.aligned && judgeVerdict.confidence > 0.6) {
+          session.status = 'escalated';
+          session.stopReason = `LLM-as-judge 判定未对齐 (confidence=${judgeVerdict.confidence}): ${judgeVerdict.reason}`;
+          session.elapsedMs = Date.now() - startTime;
+          session.steps.push({
+            step: 0, text: alignResponse.text, tokensUsed: alignTokens,
+            goalReached: false, error: judgeVerdict.reason, durationMs: Date.now() - startTime,
+          });
+          deps.onEscalate?.(sessionId, `LLM-as-judge: ${judgeVerdict.reason}`);
           return session;
         }
 
