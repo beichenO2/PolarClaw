@@ -45,6 +45,35 @@ export interface PptReview extends ReviewItem {
   agent_diffs: PptDiff[]
 }
 
+export interface AlignmentSection {
+  name: string
+  confirmed: boolean
+  comment?: string
+}
+
+export interface AlignmentDoc {
+  id: string
+  agent_id: string
+  status: string
+  goal: string
+  work_logic: string
+  plan_markdown: string
+  sections: AlignmentSection[]
+  version: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HubPrompt {
+  id: string
+  agent_id: string
+  prompt: string
+  options?: string[]
+  answered: boolean
+  answer?: string
+  created_at: string
+}
+
 const BASE = ''
 
 async function get<T>(path: string): Promise<T> {
@@ -60,6 +89,16 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     body: body ? JSON.stringify(body) : undefined,
   })
   if (!res.ok) throw new Error(`POST ${path}: ${res.status}`)
+  return res.json() as Promise<T>
+}
+
+async function patch<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PATCH ${path}: ${res.status}`)
   return res.json() as Promise<T>
 }
 
@@ -85,5 +124,25 @@ export const api = {
     },
     delete: (id: string) =>
       fetch(`${BASE}/api/review/${id}`, { method: 'DELETE' }).then((r) => r.json() as Promise<{ ok: boolean }>),
+  },
+
+  hub: {
+    alignment: {
+      list: () => get<AlignmentDoc[]>('/hub-api/alignment'),
+      get: (id: string) => get<AlignmentDoc>(`/hub-api/alignment/${id}`),
+      update: (id: string, data: Partial<AlignmentDoc> & { changed_by?: string }) =>
+        patch<{ ok: boolean; version: number }>(`/hub-api/alignment/${id}`, data),
+      confirmSection: (id: string, sectionName: string, confirmed: boolean) =>
+        post<{ ok: boolean }>(`/hub-api/alignment/${id}/confirm-section`, { section_name: sectionName, confirmed }),
+      approve: (id: string) =>
+        post<{ ok: boolean }>(`/hub-api/alignment/${id}/approve`, { force: false }),
+      reject: (id: string, comment?: string) =>
+        post<{ ok: boolean }>(`/hub-api/alignment/${id}/reject`, { comment }),
+    },
+    prompts: {
+      pending: () => get<HubPrompt[]>('/hub-api/prompts/pending'),
+      answer: (id: string, answer: string) =>
+        post<{ ok: boolean }>(`/hub-api/prompts/${id}/answer`, { answer }),
+    },
   },
 }

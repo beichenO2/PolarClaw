@@ -1,0 +1,41 @@
+[
+  {
+    "id": "test-pdf-001",
+    "type": "pdf",
+    "filename": "test-report.pdf",
+    "filepath": "/Users/mac/Polarisor/MyClaw/data/uploads/test-report.pdf",
+    "status": "pending",
+    "agent_id": "solo-web-86cee5fb",
+    "annotations": [],
+    "created_at": "2026-04-22T15:00:00Z",
+    "updated_at": "2026-04-22T15:00:00Z"
+  },
+  {
+    "id": "test-ppt-001",
+    "type": "ppt",
+    "filename": "test-slides.pptx",
+    "filepath": "",
+    "status": "pending",
+    "agent_id": "solo-web-86cee5fb",
+    "annotations": [],
+    "slides": [],
+    "agent_diffs": [
+      {
+        "slide_index": 0,
+        "change_type": "modify",
+        "target": "标题文本框",
+        "before": "原始标题",
+        "after": "Agent 修改后的标题"
+      },
+      {
+        "slide_index": 1,
+        "change_type": "add",
+        "target": "新增文本框",
+        "before": "",
+        "after": "Agent 新增的内容"
+      }
+    ],
+    "created_at": "2026-04-22T15:00:00Z",
+    "updated_at": "2026-04-22T15:00:00Z"
+  }
+]

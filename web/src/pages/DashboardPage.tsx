@@ -54,28 +54,36 @@ export function DashboardPage() {
 
       <div className="bg-mc-surface border border-mc-border rounded-xl p-5">
         <h3 className="text-sm font-semibold text-mc-accent mb-3">Channels</h3>
-        <div className="space-y-2">
-          {status.channels.map((ch) => (
-            <div key={ch.name} className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${ch.connected ? 'bg-mc-green' : 'bg-mc-red'}`} />
-              <span className="text-sm text-mc-text">{ch.name}</span>
-              <span className="text-xs text-mc-text-muted">
-                {ch.connected ? 'Connected' : 'Disconnected'}
-              </span>
-            </div>
-          ))}
-        </div>
+        {status.channels.length > 0 ? (
+          <div className="space-y-2">
+            {status.channels.map((ch) => (
+              <div key={ch.name} className="flex items-center gap-2">
+                <div className={`w-2 h-2 rounded-full ${ch.connected ? 'bg-mc-green' : 'bg-mc-red'}`} />
+                <span className="text-sm text-mc-text">{ch.name}</span>
+                <span className="text-xs text-mc-text-muted">
+                  {ch.connected ? 'Connected' : 'Disconnected'}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-mc-text-muted">暂无已连接的通道。通过飞书或 CLI 启动 Agent 后，通道将自动注册。</p>
+        )}
       </div>
 
       <div className="bg-mc-surface border border-mc-border rounded-xl p-5">
         <h3 className="text-sm font-semibold text-mc-accent mb-3">Skills ({status.skills.count})</h3>
-        <div className="flex flex-wrap gap-2">
-          {status.skills.names.map((name) => (
-            <span key={name} className="text-xs px-2 py-1 rounded-lg bg-mc-bg border border-mc-border text-mc-text-muted">
-              {name}
-            </span>
-          ))}
-        </div>
+        {status.skills.names.length > 0 ? (
+          <div className="flex flex-wrap gap-2">
+            {status.skills.names.map((name) => (
+              <span key={name} className="text-xs px-2 py-1 rounded-lg bg-mc-bg border border-mc-border text-mc-text-muted">
+                {name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-mc-text-muted">暂无已注册的技能。Skills 在 Agent 启动通道后自动加载。</p>
+        )}
       </div>
     </div>
   )

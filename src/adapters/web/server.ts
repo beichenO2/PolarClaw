@@ -129,6 +129,26 @@ export function createWebServer(config: WebServerConfig) {
   app.use('/files', express.static(uploadsDir));
   app.use('/slides', express.static(slidesDir));
 
+  // ── Hub API proxy (for YOLO alignment docs) ───────────
+  const hubPort = process.env.PC_HUB_PORT || '10015';
+  app.use('/hub-api', async (req, res) => {
+    try {
+      const url = `http://127.0.0.1:${hubPort}/api/ui${req.url}`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (req.headers['x-agent-id']) headers['X-Agent-Id'] = String(req.headers['x-agent-id']);
+      const opts: RequestInit = { method: req.method, headers };
+      if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+        opts.body = JSON.stringify(req.body);
+      }
+      const upstream = await fetch(url, opts);
+      res.status(upstream.status);
+      const text = await upstream.text();
+      try { res.json(JSON.parse(text)); } catch { res.send(text); }
+    } catch (e: unknown) {
+      res.status(502).json({ error: 'hub_unreachable', message: String(e) });
+    }
+  });
+
   // ── API: status ────────────────────────────────────────
   app.get('/api/status', (_req, res) => {
     res.json({
