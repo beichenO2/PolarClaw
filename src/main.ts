@@ -29,6 +29,7 @@ import { createCareEngine } from './adapters/proactive/care-engine.js';
 import { createClockSseBridge } from './adapters/proactive/clock-sse-bridge.js';
 import { createYoloEngine } from './adapters/yolo/engine.js';
 import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
+import { createWebServer } from './adapters/web/server.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -325,6 +326,15 @@ async function main() {
   console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
   console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
+  // Web 服务器（Review API + SPA）
+  const webPort = Number(process.env.MYCLAW_WEB_PORT) || 3910;
+  const webServer = createWebServer({
+    port: webPort,
+    dataDir: join(config.projectRoot, 'data'),
+    webDistDir: join(config.projectRoot, 'web', 'dist'),
+  });
+  await webServer.start();
+
   // 启动通道
   const channels: IChannelAdapter[] = [];
 
@@ -402,6 +412,7 @@ async function main() {
   // 优雅退出
   const shutdown = async () => {
     console.error('[MyClaw] 正在关闭...');
+    webServer.stop();
     clockSseBridge?.stop();
     careEngine.stop();
     skillRegistry.unwatch();
