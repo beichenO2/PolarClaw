@@ -1,0 +1,29 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+const myClawPort = process.env.MYCLAW_WEB_PORT || '3910'
+
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/mc/' : '/',
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': '/src',
+    },
+  },
+  server: {
+    host: '127.0.0.1',
+    port: 5181,
+    strictPort: true,
+    proxy: {
+      '/api': {
+        target: `http://127.0.0.1:${myClawPort}`,
+        changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    outDir: 'dist',
+    sourcemap: true,
+  },
+}))
