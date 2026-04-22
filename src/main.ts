@@ -326,8 +326,19 @@ async function main() {
   console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
   console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
-  // Web 服务器（Review API + SPA）
-  const webPort = Number(process.env.MYCLAW_WEB_PORT) || 3910;
+  // Web 服务器（Review API + SPA）— 端口通过 port-sdk 申请
+  let webPort = 3910;
+  try {
+    const { createRequire } = await import('node:module');
+    const { resolve, dirname } = await import('node:path');
+    const _req = createRequire(import.meta.url);
+    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+    const { claimPort } = _req(sdkPath);
+    webPort = await claimPort({ service: 'myclaw-web', project: 'MyClaw', preferred: 3910 });
+  } catch (err) {
+    console.error('[MyClaw] port-sdk 不可用，Web 服务器无法启动:', err);
+    process.exit(1);
+  }
   const webServer = createWebServer({
     port: webPort,
     dataDir: join(config.projectRoot, 'data'),
