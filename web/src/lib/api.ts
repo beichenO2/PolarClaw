@@ -75,5 +75,15 @@ export const api = {
       post<{ ok: boolean }>(`/api/review/${id}/approve`),
     submitDiff: (id: string, diffs: PptDiff[]) =>
       post<{ ok: boolean }>(`/api/review/${id}/diff`, { diffs }),
+    async upload(file: File, agentId = 'local'): Promise<{ ok: boolean; id: string; slides: number }> {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('agent_id', agentId)
+      const res = await fetch(`${BASE}/api/review/upload`, { method: 'POST', body: form })
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`)
+      return res.json()
+    },
+    delete: (id: string) =>
+      fetch(`${BASE}/api/review/${id}`, { method: 'DELETE' }).then((r) => r.json() as Promise<{ ok: boolean }>),
   },
 }

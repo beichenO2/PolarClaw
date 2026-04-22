@@ -32,21 +32,29 @@ export function ReviewPage() {
 
   const filtered = items.filter((i) => tab === 'all' || i.type === tab)
 
-  const handleLocalFile = (file: File) => {
+  const handleLocalFile = async (file: File) => {
     const ext = file.name.split('.').pop()?.toLowerCase()
     const type = ext === 'pdf' ? 'pdf' : 'ppt'
-    const mockItem: ReviewItem = {
-      id: `local-${Date.now()}`,
-      type: type as 'pdf' | 'ppt',
-      filename: file.name,
-      status: 'pending',
-      agent_id: 'local',
-      annotations: [],
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+
+    try {
+      const result = await api.review.upload(file)
+      await load()
+      const uploaded = (await api.review.get(result.id)) as ReviewItem
+      setSelected(uploaded)
+    } catch {
+      const mockItem: ReviewItem = {
+        id: `local-${Date.now()}`,
+        type: type as 'pdf' | 'ppt',
+        filename: file.name,
+        status: 'pending',
+        agent_id: 'local',
+        annotations: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }
+      setLocalFile(file)
+      setSelected(mockItem)
     }
-    setLocalFile(file)
-    setSelected(mockItem)
   }
 
   if (selected) {
