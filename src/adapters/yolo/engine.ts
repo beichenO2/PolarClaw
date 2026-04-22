@@ -219,7 +219,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
 
   return {
     async run(config, context) {
-      const sessionId = generateSessionId();
+      const sessionId = config.sessionId ?? generateSessionId();
       const session: IYoloSessionState = {
         sessionId,
         status: 'running',

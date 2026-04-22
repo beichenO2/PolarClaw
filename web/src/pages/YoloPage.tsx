@@ -1,214 +1,201 @@
 import { useCallback, useEffect, useState } from 'react'
+import { clsx } from 'clsx'
 import { api } from '../lib/api'
-import type { AlignmentDoc } from '../lib/api'
-import { renderMarkdown } from '../lib/markdown'
+import type { YoloSession } from '../lib/api'
 
-const STATUS_LABELS: Record<string, { text: string; color: string }> = {
-  draft: { text: '草稿', color: 'text-gray-400 border-gray-600' },
-  pending_review: { text: '待审核', color: 'text-yellow-400 border-yellow-600' },
-  approved: { text: '已批准', color: 'text-green-400 border-green-600' },
-  rejected: { text: '已驳回', color: 'text-red-400 border-red-600' },
-  executing: { text: '执行中', color: 'text-blue-400 border-blue-600' },
-  completed: { text: '已完成', color: 'text-green-400 border-green-600' },
+const STATUS_STYLES: Record<string, { label: string; color: string }> = {
+  running: { label: '执行中', color: 'text-blue-400 border-blue-600 bg-blue-600/10' },
+  completed: { label: '已完成', color: 'text-green-400 border-green-600 bg-green-600/10' },
+  aborted: { label: '已中止', color: 'text-red-400 border-red-600 bg-red-600/10' },
+  escalated: { label: '需介入', color: 'text-yellow-400 border-yellow-600 bg-yellow-600/10' },
 }
 
 export function YoloPage() {
-  const [docs, setDocs] = useState<AlignmentDoc[]>([])
-  const [hubOk, setHubOk] = useState(true)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editBuffer, setEditBuffer] = useState('')
-  const [editOriginal, setEditOriginal] = useState('')
+  const [sessions, setSessions] = useState<YoloSession[]>([])
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [goal, setGoal] = useState('')
+  const [maxSteps, setMaxSteps] = useState(10)
+  const [starting, setStarting] = useState(false)
 
   const load = useCallback(async () => {
     try {
-      const all = await api.hub.alignment.list()
-      setDocs([...all].reverse())
-      setHubOk(true)
-    } catch {
-      setHubOk(false)
-    }
+      const data = await api.yolo.sessions()
+      setSessions([...data].reverse())
+    } catch { /* server may not be up */ }
   }, [])
 
   useEffect(() => {
     load()
-    const iv = setInterval(load, 4000)
+    const iv = setInterval(load, 3000)
     return () => clearInterval(iv)
   }, [load])
 
-  const handleConfirm = async (docId: string, name: string, confirmed: boolean) => {
-    await api.hub.alignment.confirmSection(docId, name, confirmed)
+  const handleStart = async () => {
+    if (!goal.trim() || starting) return
+    setStarting(true)
+    try {
+      await api.yolo.start(goal.trim(), maxSteps)
+      setGoal('')
+      await load()
+    } catch { /* ignore */ }
+    setStarting(false)
+  }
+
+  const handleCancel = async (sessionId: string) => {
+    await api.yolo.cancel(sessionId)
     await load()
   }
 
-  const handleApprove = async (docId: string) => {
-    await api.hub.alignment.approve(docId)
-    await load()
-  }
-
-  const handleReject = async (docId: string) => {
-    const comment = prompt('驳回原因（可选）:')
-    await api.hub.alignment.reject(docId, comment ?? undefined)
-    await load()
-  }
-
-  const startEdit = (doc: AlignmentDoc) => {
-    setEditingId(doc.id)
-    setEditBuffer(doc.plan_markdown)
-    setEditOriginal(doc.plan_markdown)
-  }
-
-  const saveEdit = async (doc: AlignmentDoc) => {
-    if (editBuffer === editOriginal) { setEditingId(null); return }
-    await api.hub.alignment.update(doc.id, { plan_markdown: editBuffer, changed_by: 'user' })
-    const pending = await api.hub.prompts.pending()
-    const p = pending.find(pr => pr.agent_id === doc.agent_id && !pr.answered)
-    if (p) await api.hub.prompts.answer(p.id, `用户编辑了对齐方案`)
-    setEditingId(null)
-    await load()
-  }
-
-  const canEdit = (doc: AlignmentDoc) => ['draft', 'pending_review', 'rejected'].includes(doc.status)
-
-  if (!hubOk) {
-    return (
-      <div className="text-center py-12 space-y-4">
-        <p className="text-lg font-medium text-red-400">Hub 未连接</p>
-        <p className="text-sm text-mc-text-muted">
-          YOLO 功能需要 PolarCopilot Hub 运行中（默认 :10015）。
-          <br />确认 Hub 启动后刷新页面。
-        </p>
-      </div>
-    )
-  }
-
-  if (docs.length === 0) {
-    return (
-      <div className="text-center py-12 space-y-4">
-        <p className="text-lg font-medium text-mc-purple">YOLO 全自动模式</p>
-        <p className="text-sm text-mc-text-muted max-w-lg mx-auto leading-relaxed">
-          在 Hub Web UI 或通过 Agent 触发 YOLO 模式后，对齐方案将在此显示。
-        </p>
-        <div className="flex justify-center gap-6 pt-4">
-          <div className="text-xs space-y-1">
-            <p className="text-mc-purple font-medium">三维对齐</p>
-            <p className="text-mc-text-muted">极限目标 + 工作逻辑 + 预期体验</p>
-          </div>
-          <div className="text-xs space-y-1">
-            <p className="text-mc-purple font-medium">执行优先级</p>
-            <p className="text-mc-text-muted">Debug &gt; Test &gt; Dev</p>
-          </div>
-        </div>
-      </div>
-    )
-  }
+  const hasRunning = sessions.some(s => s.status === 'running')
 
   return (
-    <div className="space-y-5">
-      {docs.map(doc => {
-        const info = STATUS_LABELS[doc.status] ?? STATUS_LABELS.draft!
-        const editing = editingId === doc.id
-        const sections = doc.sections ?? []
-        const allConfirmed = sections.length > 0 && sections.every(s => s.confirmed)
+    <div className="space-y-6">
+      {/* Start form */}
+      <div className="bg-mc-surface border border-mc-border rounded-xl p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-mc-purple">YOLO 自主执行</h3>
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-mc-purple/10 text-mc-purple border border-mc-purple/20">
+            Debug &gt; Test &gt; Dev
+          </span>
+        </div>
+        <textarea
+          value={goal}
+          onChange={e => setGoal(e.target.value)}
+          placeholder="描述要完成的目标..."
+          rows={3}
+          className="w-full bg-mc-bg border border-mc-border rounded-lg px-4 py-3 text-sm text-mc-text resize-y focus:outline-none focus:border-mc-purple transition-[border-color]"
+          onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleStart() }}
+        />
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs text-mc-text-muted">
+            最大步数
+            <input
+              type="number"
+              value={maxSteps}
+              onChange={e => setMaxSteps(Math.max(1, parseInt(e.target.value) || 10))}
+              className="w-16 bg-mc-bg border border-mc-border rounded px-2 py-1 text-xs text-mc-text text-center focus:outline-none focus:border-mc-purple"
+            />
+          </label>
+          <button
+            onClick={handleStart}
+            disabled={!goal.trim() || starting || hasRunning}
+            className="ml-auto px-5 py-2 text-sm rounded-lg bg-mc-purple/80 text-white hover:bg-mc-purple font-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {starting ? '启动中...' : hasRunning ? '有会话运行中' : '启动 YOLO'}
+          </button>
+        </div>
+        {hasRunning && (
+          <p className="text-[10px] text-mc-text-muted">当前有 YOLO 会话正在运行，请等待完成或取消后再启动新会话。</p>
+        )}
+      </div>
 
-        return (
-          <div key={doc.id} className="bg-mc-surface border border-mc-border rounded-xl overflow-hidden">
-            {/* Header */}
-            <div className="px-5 py-3 border-b border-mc-border flex items-center gap-3">
-              <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${info.color}`}>
-                {info.text}
-              </span>
-              <span className="text-sm text-mc-accent font-medium">{doc.agent_id}</span>
-              <span className="text-xs text-mc-text-muted">v{doc.version}</span>
-              <span className="ml-auto flex items-center gap-2">
-                {canEdit(doc) && !editing && (
-                  <button onClick={() => startEdit(doc)} className="text-xs px-2.5 py-1 rounded-lg border border-mc-border text-mc-text-muted hover:text-mc-accent hover:border-mc-accent transition-colors">
-                    编辑方案
-                  </button>
-                )}
-                <span className="text-xs text-mc-text-muted">
-                  {new Date(doc.created_at).toLocaleString('zh', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </span>
+      {/* Sessions */}
+      {sessions.length === 0 ? (
+        <div className="text-center py-12 space-y-4">
+          <p className="text-lg font-medium text-mc-purple">YOLO 自主执行模式</p>
+          <p className="text-sm text-mc-text-muted max-w-lg mx-auto leading-relaxed">
+            设定目标后，Agent 将自主执行多步操作直到目标达成。
+            每步包含对齐验证、LLM-as-Judge 评估和自动恢复。
+          </p>
+          <div className="flex justify-center gap-6 pt-4">
+            <div className="text-xs space-y-1">
+              <p className="text-mc-purple font-medium">对齐验证</p>
+              <p className="text-mc-text-muted">启动前确认目标理解</p>
             </div>
-
-            {/* Goal */}
-            {doc.goal && (
-              <div className="px-5 py-3 border-b border-mc-border bg-mc-bg/50">
-                <p className="text-xs text-mc-purple font-medium mb-1">极限目标</p>
-                <p className="text-sm text-mc-text">{doc.goal}</p>
-              </div>
-            )}
-
-            {/* Content */}
-            {editing ? (
-              <div className="px-5 py-4">
-                <textarea
-                  value={editBuffer}
-                  onChange={e => setEditBuffer(e.target.value)}
-                  className="w-full bg-mc-bg border border-mc-border rounded-lg px-4 py-3 text-sm text-mc-text font-mono leading-relaxed resize-y min-h-[400px] focus:outline-none focus:border-mc-purple transition-[border-color]"
-                />
-                <div className="flex gap-2 mt-3">
-                  <button onClick={() => saveEdit(doc)} className="px-4 py-2 text-sm rounded-lg bg-mc-purple/80 text-white hover:bg-mc-purple transition-colors font-medium">
-                    保存修改
-                  </button>
-                  <button onClick={() => setEditingId(null)} className="px-4 py-2 text-sm rounded-lg bg-mc-surface text-mc-text-muted border border-mc-border hover:border-mc-accent transition-colors">
-                    取消
-                  </button>
-                </div>
-              </div>
-            ) : doc.plan_markdown ? (
-              <div
-                className="px-5 py-4 text-sm leading-relaxed markdown-body [&_h1]:text-mc-purple [&_h2]:text-mc-purple [&_h3]:text-mc-purple [&_code]:text-mc-purple [&_th]:text-mc-purple"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(doc.plan_markdown) }}
-              />
-            ) : null}
-
-            {/* Section checklist */}
-            {sections.length > 0 && (
-              <div className="px-5 py-3 border-t border-mc-border">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-xs text-mc-text-muted">
-                    对齐确认 ({sections.filter(s => s.confirmed).length}/{sections.length})
-                  </p>
-                  {allConfirmed && doc.status !== 'approved' && (
-                    <button onClick={() => handleApprove(doc.id)} className="px-3 py-1 text-xs rounded-lg bg-green-600/80 text-white hover:bg-green-600 transition-colors font-medium">
-                      全部确认，开始 YOLO
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-1.5">
-                  {sections.map(s => (
-                    <div key={s.name} className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleConfirm(doc.id, s.name, !s.confirmed)}
-                        disabled={doc.status === 'approved' || doc.status === 'completed'}
-                        className={`w-5 h-5 rounded border flex items-center justify-center text-xs transition-colors ${
-                          s.confirmed ? 'bg-green-600/20 border-green-600/40 text-green-400' : 'border-mc-border hover:border-mc-accent'
-                        } ${(doc.status === 'approved' || doc.status === 'completed') ? 'opacity-60 cursor-not-allowed' : ''}`}
-                      >
-                        {s.confirmed ? '✓' : ''}
-                      </button>
-                      <span className="text-sm text-mc-text">{s.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Actions */}
-            {canEdit(doc) && !editing && (
-              <div className="px-5 py-3 border-t border-mc-border flex gap-2">
-                <button onClick={() => handleApprove(doc.id)} className="px-4 py-2 text-sm rounded-lg bg-green-600/20 text-green-400 border border-green-600/30 hover:bg-green-600/30 transition-colors font-medium">
-                  批准
-                </button>
-                <button onClick={() => handleReject(doc.id)} className="px-4 py-2 text-sm rounded-lg bg-red-600/20 text-red-400 border border-red-600/30 hover:bg-red-600/30 transition-colors font-medium">
-                  驳回
-                </button>
-              </div>
-            )}
+            <div className="text-xs space-y-1">
+              <p className="text-mc-purple font-medium">自动恢复</p>
+              <p className="text-mc-text-muted">失败时自动重试/跳过/升级</p>
+            </div>
+            <div className="text-xs space-y-1">
+              <p className="text-mc-purple font-medium">预算控制</p>
+              <p className="text-mc-text-muted">Token + 时间双重限制</p>
+            </div>
           </div>
-        )
-      })}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {sessions.map(session => {
+            const style = STATUS_STYLES[session.status] ?? STATUS_STYLES.running!
+            const expanded = expandedId === session.sessionId
+
+            return (
+              <div key={session.sessionId} className="bg-mc-surface border border-mc-border rounded-xl overflow-hidden">
+                {/* Session header */}
+                <button
+                  className="w-full px-5 py-3 flex items-center gap-3 text-left hover:bg-mc-bg/50 transition-colors"
+                  onClick={() => setExpandedId(expanded ? null : session.sessionId)}
+                >
+                  <span className={clsx('text-xs px-2 py-0.5 rounded-full border font-medium', style.color)}>
+                    {style.label}
+                  </span>
+                  <span className="text-xs font-mono text-mc-text-muted">{session.sessionId.slice(0, 20)}</span>
+                  <div className="ml-auto flex items-center gap-3 text-xs text-mc-text-muted">
+                    <span>{session.stepsCompleted} steps</span>
+                    <span>{(session.totalTokensUsed / 1000).toFixed(1)}k tokens</span>
+                    <span>{(session.elapsedMs / 1000).toFixed(0)}s</span>
+                    {session.status === 'running' && (
+                      <button
+                        onClick={e => { e.stopPropagation(); handleCancel(session.sessionId) }}
+                        className="px-2 py-0.5 rounded border border-mc-red/30 text-mc-red hover:bg-mc-red/10 transition-colors"
+                      >
+                        取消
+                      </button>
+                    )}
+                    <span className="text-mc-text-muted">{expanded ? '▲' : '▼'}</span>
+                  </div>
+                </button>
+
+                {/* Stop reason */}
+                {session.stopReason && (
+                  <div className="px-5 py-2 border-t border-mc-border bg-mc-bg/30">
+                    <p className="text-xs text-mc-text-muted">
+                      <span className="text-mc-orange font-medium">终止原因：</span>
+                      {session.stopReason}
+                    </p>
+                  </div>
+                )}
+
+                {/* Steps */}
+                {expanded && session.steps.length > 0 && (
+                  <div className="border-t border-mc-border">
+                    {session.steps.map((step, i) => (
+                      <div
+                        key={i}
+                        className={clsx(
+                          'px-5 py-3 border-b border-mc-border last:border-b-0',
+                          step.goalReached ? 'bg-green-900/5' : step.error ? 'bg-red-900/5' : '',
+                        )}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <span className="text-[10px] font-mono text-mc-text-muted bg-mc-bg px-1.5 py-0.5 rounded">
+                            Step {step.step}
+                          </span>
+                          <span className="text-[10px] text-mc-text-muted">
+                            {step.tokensUsed} tokens · {(step.durationMs / 1000).toFixed(1)}s
+                          </span>
+                          {step.goalReached && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-mc-green/10 text-mc-green border border-mc-green/20">
+                              目标达成
+                            </span>
+                          )}
+                          {step.error && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-mc-red/10 text-mc-red border border-mc-red/20">
+                              错误
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-mc-text leading-relaxed whitespace-pre-wrap line-clamp-6">
+                          {step.text}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

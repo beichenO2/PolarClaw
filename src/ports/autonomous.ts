@@ -10,6 +10,8 @@
 
 /** YOLO 会话配置 */
 export interface IYoloSessionConfig {
+  /** 可选：预指定 session ID（Web API 使用） */
+  sessionId?: string;
   /** 目标描述（用户的高层指令） */
   goal: string;
   /** 最大自主步数（防止无限循环） */

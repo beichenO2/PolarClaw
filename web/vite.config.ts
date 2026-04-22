@@ -20,10 +20,6 @@ export default defineConfig(({ command }) => ({
         target: `http://127.0.0.1:${myClawPort}`,
         changeOrigin: true,
       },
-      '/hub-api': {
-        target: `http://127.0.0.1:${myClawPort}`,
-        changeOrigin: true,
-      },
     },
   },
   build: {

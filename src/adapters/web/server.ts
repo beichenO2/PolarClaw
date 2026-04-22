@@ -14,6 +14,33 @@ export interface WebServerConfig {
   port: number;
   dataDir: string;
   webDistDir?: string;
+  getStatus?: () => AgentStatusData;
+  yoloEngine?: {
+    run(config: { sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
+        context: { channel: string; userId: string }): Promise<YoloSessionData>;
+    cancel(sessionId: string): void;
+    getSession(sessionId: string): YoloSessionData | null;
+  };
+}
+
+export interface AgentStatusData {
+  name: string;
+  version: string;
+  channels: { name: string; connected: boolean }[];
+  uptime: number;
+  memory: { totalEntries: number; dbSizeBytes: number };
+  skills: { count: number; names: string[] };
+  yolo: { activeSessions: number };
+}
+
+export interface YoloSessionData {
+  sessionId: string;
+  status: string;
+  stepsCompleted: number;
+  totalTokensUsed: number;
+  elapsedMs: number;
+  steps: { step: number; text: string; tokensUsed: number; goalReached: boolean; error?: string; durationMs: number }[];
+  stopReason?: string;
 }
 
 interface ReviewRecord {
@@ -129,37 +156,61 @@ export function createWebServer(config: WebServerConfig) {
   app.use('/files', express.static(uploadsDir));
   app.use('/slides', express.static(slidesDir));
 
-  // ── Hub API proxy (for YOLO alignment docs) ───────────
-  const hubPort = process.env.PC_HUB_PORT || '10015';
-  app.use('/hub-api', async (req, res) => {
-    try {
-      const url = `http://127.0.0.1:${hubPort}/api/ui${req.url}`;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (req.headers['x-agent-id']) headers['X-Agent-Id'] = String(req.headers['x-agent-id']);
-      const opts: RequestInit = { method: req.method, headers };
-      if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
-        opts.body = JSON.stringify(req.body);
-      }
-      const upstream = await fetch(url, opts);
-      res.status(upstream.status);
-      const text = await upstream.text();
-      try { res.json(JSON.parse(text)); } catch { res.send(text); }
-    } catch (e: unknown) {
-      res.status(502).json({ error: 'hub_unreachable', message: String(e) });
+  // ── API: status ────────────────────────────────────────
+  app.get('/api/status', (_req, res) => {
+    if (config.getStatus) {
+      res.json(config.getStatus());
+    } else {
+      res.json({
+        name: 'MyClaw',
+        version: '0.1.0',
+        channels: [],
+        uptime: process.uptime(),
+        memory: { totalEntries: 0, dbSizeBytes: 0 },
+        skills: { count: 0, names: [] },
+        yolo: { activeSessions: 0 },
+      });
     }
   });
 
-  // ── API: status ────────────────────────────────────────
-  app.get('/api/status', (_req, res) => {
-    res.json({
-      name: 'MyClaw',
-      version: '0.1.0',
-      channels: [],
-      uptime: process.uptime(),
-      memory: { totalEntries: 0, dbSizeBytes: 0 },
-      skills: { count: 0, names: [] },
-      yolo: { activeSessions: 0 },
-    });
+  // ── API: YOLO sessions ─────────────────────────────────
+  const knownSessionIds: string[] = [];
+
+  app.get('/api/yolo/sessions', (_req, res) => {
+    if (!config.yoloEngine) return res.json([]);
+    const sessions = knownSessionIds
+      .map(id => config.yoloEngine!.getSession(id))
+      .filter((s): s is YoloSessionData => s !== null);
+    res.json(sessions);
+  });
+
+  app.get('/api/yolo/sessions/:id', (req, res) => {
+    if (!config.yoloEngine) return res.status(404).json({ error: 'yolo engine not available' });
+    const session = config.yoloEngine.getSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'session not found' });
+    res.json(session);
+  });
+
+  app.post('/api/yolo/start', (req, res) => {
+    if (!config.yoloEngine) return res.status(503).json({ error: 'yolo engine not available' });
+    const { goal, max_steps } = req.body as { goal?: string; max_steps?: number };
+    if (!goal?.trim()) return res.status(400).json({ error: 'goal is required' });
+
+    const sessionId = `yolo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    knownSessionIds.push(sessionId);
+
+    config.yoloEngine.run(
+      { sessionId, goal: goal.trim(), maxSteps: max_steps ?? 10, maxTotalTokens: 200000, maxWallTimeMs: 600000, maxRetries: 2 },
+      { channel: 'web', userId: 'admin' },
+    ).catch(err => console.error('[WebServer] YOLO run error:', err));
+
+    res.json({ ok: true, sessionId });
+  });
+
+  app.post('/api/yolo/cancel/:id', (req, res) => {
+    if (!config.yoloEngine) return res.status(503).json({ error: 'yolo engine not available' });
+    config.yoloEngine.cancel(req.params.id);
+    res.json({ ok: true });
   });
 
   // ── API: review list ───────────────────────────────────

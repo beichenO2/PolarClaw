@@ -326,7 +326,7 @@ async function main() {
   console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
   console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
-  // Web 服务器（Review API + SPA）— 端口通过 port-sdk 申请
+  // Web 服务器（Review API + SPA + YOLO API）— 端口通过 port-sdk 申请
   let webPort = 3910;
   try {
     const { createRequire } = await import('node:module');
@@ -343,6 +343,19 @@ async function main() {
     port: webPort,
     dataDir: join(config.projectRoot, 'data'),
     webDistDir: join(config.projectRoot, 'web', 'dist'),
+    getStatus: () => {
+      const skills = skillRegistry.listSkills();
+      return {
+        name: 'MyClaw',
+        version: '0.1.0',
+        channels: channels.map(ch => ({ name: ch.name, connected: true })),
+        uptime: process.uptime(),
+        memory: { totalEntries: memory.search('*', { limit: 0 }).total, dbSizeBytes: 0 },
+        skills: { count: skills.length, names: skills.map(s => s.name) },
+        yolo: { activeSessions: 0 },
+      };
+    },
+    yoloEngine,
   });
   await webServer.start();
 
