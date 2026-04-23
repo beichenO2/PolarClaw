@@ -1,0 +1,26 @@
+{
+  "name": "MyClaw",
+  "description": "Personal tool automation and workflow management",
+  "tier": "app",
+  "status": "active",
+  "version": "1.0",
+  "requirements": [
+    {
+      "id": "R1",
+      "need": "Automated workflow execution for personal productivity",
+      "approach": "Script-based automation with scheduling",
+      "features": [
+        {"name": "Workflow engine", "description": "Execute defined automation workflows", "status": "done"},
+        {"name": "Scheduling", "description": "Time-based and event-based triggers", "status": "in-progress"}
+      ],
+      "blockers": []
+    }
+  ],
+  "tech": {
+    "runtime": {"node": "20.x"}
+  },
+  "contacts": {
+    "last_updated": "2026-04-24",
+    "updated_by": "solo-ssot-agent"
+  }
+}
