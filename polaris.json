@@ -1,24 +1,79 @@
 {
   "name": "MyClaw",
-  "description": "个人工具自动化和工作流管理",
+  "description": "个人 AI Agent 融合平台（端口-适配器架构）：多通道交互、LLM 工具调用、隐私网关、YOLO 自主模式",
   "tier": "app",
   "status": "active",
-  "version": "1.0",
+  "version": "0.1.0",
   "requirements": [
     {
       "id": "R1",
-      "need": "个人生产力的自动化工作流执行",
-      "approach": "基于脚本的自动化 + 定时调度",
+      "need": "ReAct 工具调用 Agent 核心 + 多通道交互",
+      "approach": "端口-适配器架构，core/agent.ts ReAct 循环 + LLM Router（并发限制/回退/PolarPrivate 代理）",
       "features": [
-        {"name": "工作流引擎", "description": "执行预定义的自动化工作流", "status": "done"},
-        {"name": "调度系统", "description": "基于时间和事件的触发器", "status": "in-progress"}
+        {"name": "Agent 核心", "description": "ReAct 循环 + 工具注册 + 上下文压缩", "status": "done"},
+        {"name": "飞书通道", "description": "多 Bot（管理/女友应用），Webhook 事件驱动", "status": "done"},
+        {"name": "CLI 通道", "description": "TTY 终端交互（后台模式跳过）", "status": "done"},
+        {"name": "隐私网关", "description": "PII 检测 + Secret 加载 + 输出脱敏", "status": "done"},
+        {"name": "SQLite 记忆", "description": "FTS5 全文搜索 + 持久对话历史", "status": "done"},
+        {"name": "LLM 路由", "description": "多模型并发限制、回退链、PolarPrivate 代理", "status": "done"}
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R2",
+      "need": "主动关怀与调度系统",
+      "approach": "CareEngine 轮询规则引擎（间隔/不活跃/Clock 触发），可选 Clock SSE 桥接",
+      "features": [
+        {"name": "CareEngine", "description": "间隔规则（30m/2h 式）+ 不活跃触发", "status": "done"},
+        {"name": "Clock SSE 桥接", "description": "连接 Clock 服务获取时间事件（MYCLAW_PROACTIVE=1 时启用）", "status": "in-progress"}
+      ],
+      "blockers": [
+        "完整调度需要 MYCLAW_PROACTIVE=1 环境变量 + Clock 服务运行"
+      ]
+    },
+    {
+      "id": "R3",
+      "need": "YOLO 自主执行模式",
+      "approach": "createYoloEngine 多步自主执行 + 对齐检查 + 恢复机制",
+      "features": [
+        {"name": "YOLO 引擎", "description": "多步自主任务执行 + 异常恢复", "status": "done"},
+        {"name": "对齐检查", "description": "执行前确认目标一致性", "status": "done"}
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R4",
+      "need": "Web 控制台与文档审阅",
+      "approach": "Express + React SPA（Dashboard/YOLO/PDF/PPT 审阅），port-sdk 动态端口",
+      "features": [
+        {"name": "Web Dashboard", "description": "Agent 状态、对话历史、配置管理", "status": "done"},
+        {"name": "PDF/PPT 审阅", "description": "在线预览和标注生成的文档", "status": "done"}
+      ],
+      "blockers": [
+        "Web 服务启动依赖 SOTAgent/sdk-port（claimPort 失败会 exit(1)）"
+      ]
+    },
+    {
+      "id": "R5",
+      "need": "生态技能集成",
+      "approach": "热加载 Skill 注册表 + 外部服务适配器",
+      "features": [
+        {"name": "技能注册", "description": "skill-registry 热加载 + skills/ 目录", "status": "done"},
+        {"name": "AutoOffice 集成", "description": "报告生成技能", "status": "done"},
+        {"name": "KnowLever 集成", "description": "知识检索技能", "status": "done"},
+        {"name": "digist 集成", "description": "信息摘要技能", "status": "done"},
+        {"name": "自学习/工作流组合", "description": "learning_compose_workflow + SkillComposer", "status": "done"}
       ],
       "blockers": []
     }
   ],
   "tech": {
-    "runtime": {"node": "20.x"}
+    "runtime": {"node": ">=22（.nvmrc 22，better-sqlite3 需要）"},
+    "backend": "Express + better-sqlite3",
+    "frontend": "React 18 + Vite + Tailwind + pdfjs-dist",
+    "test": "Vitest（10 测试文件）"
   },
+  "depends_on": ["SOTAgent/sdk-port", "PolarPrivate", "Clock"],
   "contacts": {
     "last_updated": "2026-04-24",
     "updated_by": "solo-web-681f4736"
