@@ -3,7 +3,7 @@
  *
  * 支持所有兼容 Chat Completions API 的服务商：
  * - 阿里云百炼 Coding Plan
- * - 本地 Ollama
+ * - 本地 llama-server (llama.cpp)
  * - 其他兼容服务商
  *
  * 三层弹性 Provider Fallback：主模型 → 备用 → 降级
