@@ -15,6 +15,8 @@ export interface WebServerConfig {
   dataDir: string;
   webDistDir?: string;
   getStatus?: () => AgentStatusData;
+  pilotEngine?: import('../pilot/engine.js').PilotEngine;
+  pilotStore?: import('../pilot/store.js').PilotStore;
   yoloEngine?: {
     run(config: { sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
         context: { channel: string; userId: string }): Promise<YoloSessionData>;
@@ -375,6 +377,60 @@ export function createWebServer(config: WebServerConfig) {
 
     res.json({ ok: true });
   });
+
+  // ── API: Pilot projects ────────────────────────────────
+  if (config.pilotStore && config.pilotEngine) {
+    const pStore = config.pilotStore;
+    const pEngine = config.pilotEngine;
+
+    app.get('/api/pilot/projects', (_req, res) => {
+      try { res.json({ items: pStore.list() }); }
+      catch (err: any) { res.status(500).json({ error: err.message }); }
+    });
+
+    app.get('/api/pilot/projects/:id', (req, res) => {
+      const p = pStore.get(req.params.id);
+      if (!p) { res.status(404).json({ error: 'not_found' }); return; }
+      res.json(p);
+    });
+
+    app.post('/api/pilot/projects', (req, res) => {
+      try {
+        const { name, description, input_spec, output_spec } = req.body;
+        if (!name || !input_spec) { res.status(400).json({ error: 'name and input_spec required' }); return; }
+        const p = pStore.create({ name, description, input_spec, output_spec });
+        res.json(p);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    app.post('/api/pilot/projects/:id/start', async (req, res) => {
+      try {
+        const result = await pEngine.start(req.params.id);
+        const p = pStore.get(req.params.id);
+        res.json({ ok: true, ...result, project: p });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    app.post('/api/pilot/projects/:id/cancel', (req, res) => {
+      try {
+        pEngine.cancel(req.params.id);
+        res.json({ ok: true });
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+
+    app.post('/api/pilot/projects/:id/phases/:idx/status', (req, res) => {
+      try {
+        const result = pEngine.updatePhaseStatus(
+          req.params.id,
+          parseInt(req.params.idx, 10),
+          req.body.status,
+          req.body.agent_id,
+          req.body.deliverables,
+        );
+        res.json(result);
+      } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+  }
 
   let server: ReturnType<typeof app.listen> | null = null;
 

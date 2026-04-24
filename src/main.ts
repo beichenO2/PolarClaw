@@ -30,6 +30,8 @@ import { createClockSseBridge } from './adapters/proactive/clock-sse-bridge.js';
 import { createYoloEngine } from './adapters/yolo/engine.js';
 import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import { createWebServer } from './adapters/web/server.js';
+import { createPilotStore } from './adapters/pilot/store.js';
+import { createPilotEngine } from './adapters/pilot/engine.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -83,6 +85,12 @@ async function main() {
   // 学习系统：包装工具执行器以追踪使用记录
   const learningStore = createLearningStore(config.memory.dbPath);
   const tools = createTrackedToolExecutor(rawTools, learningStore);
+
+  // Pilot: MyClaw 的自主项目执行系统
+  const pilotDb = (await import('better-sqlite3')).default(join(dataDir, 'pilot.db'));
+  pilotDb.pragma('journal_mode = WAL');
+  const pilotStore = createPilotStore(pilotDb);
+  const pilotEngine = createPilotEngine({ store: pilotStore, llm });
 
   const privacy = createPrivacyGateway({
     polarPrivate: {
@@ -356,6 +364,8 @@ async function main() {
       };
     },
     yoloEngine,
+    pilotStore,
+    pilotEngine,
   });
   await webServer.start();
 
