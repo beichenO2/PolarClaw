@@ -363,6 +363,8 @@ async function main() {
         yolo: { activeSessions: 0 },
       };
     },
+    llm,
+    memoryStore: memory,
     yoloEngine,
     pilotStore,
     pilotEngine,

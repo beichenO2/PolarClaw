@@ -17,6 +17,8 @@ export interface WebServerConfig {
   getStatus?: () => AgentStatusData;
   pilotEngine?: import('../pilot/engine.js').PilotEngine;
   pilotStore?: import('../pilot/store.js').PilotStore;
+  llm?: import('../../ports/llm.js').ILLMRouter;
+  memoryStore?: import('../../ports/memory.js').IMemoryStore;
   yoloEngine?: {
     run(config: { sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
         context: { channel: string; userId: string }): Promise<YoloSessionData>;
@@ -172,6 +174,50 @@ export function createWebServer(config: WebServerConfig) {
         skills: { count: 0, names: [] },
         yolo: { activeSessions: 0 },
       });
+    }
+  });
+
+  // ── API: chat (LLM proxy for external callers) ────────
+  app.post('/api/chat', async (req, res) => {
+    if (!config.llm) return res.status(503).json({ error: 'llm not configured' });
+    try {
+      const { messages, system, context_query } = req.body as {
+        messages?: Array<{ role: string; content: string }>;
+        system?: string;
+        context_query?: string;
+      };
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ error: 'messages[] required' });
+      }
+
+      const chatMessages: Array<{ role: 'system' | 'user' | 'assistant' | 'tool'; content: string }> = [];
+
+      if (system) {
+        chatMessages.push({ role: 'system', content: system });
+      }
+
+      if (context_query && config.memoryStore) {
+        const memResults = config.memoryStore.search(context_query, { limit: 5 });
+        if (memResults.entries.length > 0) {
+          const memContext = memResults.entries.map(e => e.content).join('\n---\n');
+          chatMessages.push({ role: 'system', content: `## 长期记忆上下文\n${memContext}` });
+        }
+      }
+
+      for (const m of messages) {
+        chatMessages.push({ role: m.role as 'user' | 'assistant', content: m.content });
+      }
+
+      const { model } = config.llm.resolveModel(chatMessages);
+      const result = await config.llm.chat(chatMessages, { temperature: 0.3, maxTokens: 4096 });
+      res.json({
+        content: result.content ?? '',
+        usage: result.usage,
+        model,
+      });
+    } catch (err) {
+      console.error('[MyClaw] /api/chat error:', err);
+      res.status(500).json({ error: String(err) });
     }
   });
 
