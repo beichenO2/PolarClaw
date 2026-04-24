@@ -47,7 +47,19 @@
       "approach": "Express + React SPA（Dashboard/YOLO/PDF/PPT 审阅），port-sdk 动态端口",
       "features": [
         {"name": "Web Dashboard", "description": "Agent 状态、对话历史、配置管理", "status": "done"},
-        {"name": "PDF/PPT 审阅", "description": "在线预览和标注生成的文档", "status": "done"}
+        {"name": "PDF/PPT 审阅", "description": "在线预览和标注生成的文档", "status": "done"},
+        {
+          "name": "LLM 代理 API",
+          "status": "done",
+          "interfaces": ["POST /api/chat"],
+          "behavior": [
+            "接受 messages[]/system/context_query 参数",
+            "内部走 llmRouter → PolarPrivate proxy",
+            "context_query 触发长期记忆搜索自动注入上下文",
+            "供 PolarCopilot Hub 等外部服务调用"
+          ],
+          "depends_on": ["LLM 路由", "SQLite 记忆"]
+        }
       ],
       "blockers": [
         "Web 服务启动依赖 SOTAgent/sdk-port（claimPort 失败会 exit(1)）"
