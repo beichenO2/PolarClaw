@@ -95,8 +95,8 @@ function env(key: string, fallback = ''): string {
 export function loadConfig(): IMyclawConfig {
   loadEnvFile(join(ROOT, '.env'));
 
-  const polarPrivatePort = env('POLARPRIVATE_PORT', '8790');
-  const defaultProxyUrl = `http://127.0.0.1:${polarPrivatePort}/proxy/llm.aliyun.codingplan/v1`;
+  const ppUrl = env('POLARPRIVATE_URL', 'http://127.0.0.1:12790');
+  const defaultProxyUrl = `${ppUrl}/proxy/llm.aliyun.codingplan/v1`;
   const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || 'proxy-managed';
   if (apiKey === 'proxy-managed' && env('MYCLAW_LLM_BASE_URL')) {
     // Custom base URL with proxy-managed key — valid proxy override
