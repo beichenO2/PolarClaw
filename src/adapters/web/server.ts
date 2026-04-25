@@ -181,10 +181,11 @@ export function createWebServer(config: WebServerConfig) {
   app.post('/api/chat', async (req, res) => {
     if (!config.llm) return res.status(503).json({ error: 'llm not configured' });
     try {
-      const { messages, system, context_query } = req.body as {
+      const { messages, system, context_query, max_tokens } = req.body as {
         messages?: Array<{ role: string; content: string }>;
         system?: string;
         context_query?: string;
+        max_tokens?: number;
       };
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'messages[] required' });
@@ -209,7 +210,7 @@ export function createWebServer(config: WebServerConfig) {
       }
 
       const { model } = config.llm.resolveModel(chatMessages);
-      const result = await config.llm.chat(chatMessages, { temperature: 0.3, maxTokens: 4096 });
+      const result = await config.llm.chat(chatMessages, { temperature: 0.3, maxTokens: max_tokens ?? 4096 });
       res.json({
         content: result.content ?? '',
         usage: result.usage,
