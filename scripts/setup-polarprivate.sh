@@ -2,7 +2,7 @@
 # MyClaw — PolarPrivate 飞书凭证初始化脚本
 #
 # 前提：
-#   1. PolarPrivate 后端已运行（端口 8790）
+#   1. PolarPrivate 后端已运行（端口 12790）
 #   2. Vault 已解锁（在浏览器 http://localhost:5170 输入 Master Password）
 #
 # 用法：
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-PP="${POLARPRIVATE_URL:-http://127.0.0.1:8790}"
+PP="${POLARPRIVATE_URL:-http://127.0.0.1:12790}"
 
 log() { echo "[setup-pp] $*"; }
 err() { echo "[setup-pp] ❌ $*" >&2; }
