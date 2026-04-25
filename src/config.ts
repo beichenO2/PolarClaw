@@ -138,7 +138,7 @@ export function loadConfig(): IMyclawConfig {
       maxTokens: Number(env('MYCLAW_MAX_TOKENS', '4096')),
       maxToolRounds: Number(env('MYCLAW_MAX_TOOL_ROUNDS', '0')),
       fallbackProviders,
-      requestTimeoutMs: Number(env('MYCLAW_LLM_TIMEOUT_MS', '60000')),
+      requestTimeoutMs: Number(env('MYCLAW_LLM_TIMEOUT_MS', '120000')),
       concurrencyLimit: Number(env('MYCLAW_LLM_CONCURRENCY', '5')),
     },
     memory: {
