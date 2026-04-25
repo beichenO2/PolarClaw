@@ -22,6 +22,7 @@ function makeAgent(responses: Array<{ text: string; tokens?: number }>) {
 describe('createYoloEngine', () => {
   it('runs until goal reached', async () => {
     const agent = makeAgent([
+      { text: '{"aligned": true, "reason": "ok", "confidence": 0.9}' },
       { text: '分析目标...开始第一步' },
       { text: '第二步完成' },
       { text: '目标已完成' },
@@ -36,7 +37,7 @@ describe('createYoloEngine', () => {
     );
     expect(result.status).toBe('completed');
     expect(result.stepsCompleted).toBe(3);
-    expect(result.totalTokensUsed).toBe(400);
+    expect(result.totalTokensUsed).toBe(500);
   });
 
   it('stops at maxSteps', async () => {

@@ -76,10 +76,13 @@
         },
         {
           "name": "Clock SSE 桥接",
-          "description": "连接 Clock 服务获取时间事件（MYCLAW_PROACTIVE=1 时启用）",
-          "status": "in-progress",
+          "status": "done",
+          "tech": ["EventSource/fetch SSE", "AbortController"],
           "behavior": [
-            "连接 Clock 服务获取时间事件（MYCLAW_PROACTIVE=1 时启用）"
+            "订阅 Clock /api/sync/events SSE 端点",
+            "监听 timer_change/session_complete 事件",
+            "指数退避重连（1s→30s 上限）",
+            "MYCLAW_PROACTIVE=1 + CLOCK_API_URL + CLOCK_DEFAULT_USERNAME 启用"
           ]
         }
       ],
