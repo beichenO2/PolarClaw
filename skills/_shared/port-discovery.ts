@@ -43,6 +43,33 @@ function getSDK(): PortSDK | null {
 
 const SOTAGENT_BASE = process.env.SOTAGENT_URL ?? 'http://127.0.0.1:4800';
 
+let _lastRecoveryAttempt = 0;
+const RECOVERY_COOLDOWN_MS = 60_000;
+
+async function ensureSOTAgentAlive(): Promise<boolean> {
+  try {
+    const res = await fetch(`${SOTAGENT_BASE}/api/status`, { signal: AbortSignal.timeout(3000) });
+    return res.ok;
+  } catch {
+    if (Date.now() - _lastRecoveryAttempt < RECOVERY_COOLDOWN_MS) return false;
+    _lastRecoveryAttempt = Date.now();
+    console.warn('[port-discovery] SOTAgent unreachable, attempting sotctl start...');
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('sotctl start 2>/dev/null || ~/Polarisor/SOTAgent/bin/sotctl start', {
+        timeout: 15_000, stdio: 'ignore',
+      });
+      await new Promise(r => setTimeout(r, 3000));
+      const res = await fetch(`${SOTAGENT_BASE}/api/status`, { signal: AbortSignal.timeout(3000) });
+      if (res.ok) {
+        console.log('[port-discovery] SOTAgent recovered via sotctl start');
+        return true;
+      }
+    } catch { /* recovery failed, will use fallback */ }
+    return false;
+  }
+}
+
 const _portCache = new Map<string, { port: number; ts: number }>();
 const CACHE_TTL_MS = 60_000;
 
@@ -109,11 +136,16 @@ export async function getServicePort(serviceName: string): Promise<number | null
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.port;
 
   const sdk = getSDK();
-  if (!sdk) return null;
+  if (!sdk) {
+    await ensureSOTAgentAlive();
+    return null;
+  }
 
   const port = await sdk.getPort(serviceName);
   if (port != null) {
     _portCache.set(serviceName, { port, ts: Date.now() });
+  } else {
+    await ensureSOTAgentAlive();
   }
   return port;
 }
