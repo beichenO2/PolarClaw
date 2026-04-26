@@ -2,28 +2,27 @@
  * Shared port discovery for MyClaw skills.
  *
  * Uses SOTAgent port-sdk to discover service ports dynamically.
- * No hardcoded fallback ports — if SOTAgent is down, the call fails.
- * This enforces the port-sdk-mandatory rule across all skills.
+ * Includes CircuitBreaker for resilient external service calls.
  */
 
 import { createRequire } from 'node:module';
-import { resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 
 const _require = createRequire(import.meta.url);
 
 interface PortSDK {
-  getPort(serviceName: string): Promise<number>;
+  getPort(serviceName: string): Promise<number | null>;
   discoverService(serviceName: string): Promise<{
-    gatewayUrl: string;
+    gatewayUrl: string | null;
     directUrl: string | null;
     port: number | null;
+    degraded?: boolean;
   }>;
 }
 
 let _sdk: PortSDK | null = null;
 
-function getSDK(): PortSDK {
+function getSDK(): PortSDK | null {
   if (_sdk) return _sdk;
 
   const home = process.env.HOME ?? '/Users/mac';
@@ -39,9 +38,7 @@ function getSDK(): PortSDK {
     } catch { /* try next */ }
   }
 
-  throw new Error(
-    'port-sdk not found. SOTAgent must be running and sdk-port must be accessible.',
-  );
+  return null;
 }
 
 const SOTAGENT_BASE = process.env.SOTAGENT_URL ?? 'http://127.0.0.1:4800';
@@ -49,31 +46,82 @@ const SOTAGENT_BASE = process.env.SOTAGENT_URL ?? 'http://127.0.0.1:4800';
 const _portCache = new Map<string, { port: number; ts: number }>();
 const CACHE_TTL_MS = 60_000;
 
+// ─── Circuit Breaker ────────────────────────────────────
+
+interface CircuitState {
+  failures: number;
+  lastFailure: number;
+  state: 'closed' | 'open' | 'half-open';
+}
+
+const _circuits = new Map<string, CircuitState>();
+const CIRCUIT_FAILURE_THRESHOLD = 3;
+const CIRCUIT_RESET_MS = 30_000;
+
+export function getCircuit(serviceName: string): CircuitState {
+  let circuit = _circuits.get(serviceName);
+  if (!circuit) {
+    circuit = { failures: 0, lastFailure: 0, state: 'closed' };
+    _circuits.set(serviceName, circuit);
+  }
+  if (circuit.state === 'open' && Date.now() - circuit.lastFailure > CIRCUIT_RESET_MS) {
+    circuit.state = 'half-open';
+  }
+  return circuit;
+}
+
+export function recordSuccess(serviceName: string): void {
+  const circuit = getCircuit(serviceName);
+  circuit.failures = 0;
+  circuit.state = 'closed';
+}
+
+export function recordFailure(serviceName: string): void {
+  const circuit = getCircuit(serviceName);
+  circuit.failures++;
+  circuit.lastFailure = Date.now();
+  if (circuit.failures >= CIRCUIT_FAILURE_THRESHOLD) {
+    circuit.state = 'open';
+    console.error(`[CircuitBreaker] ${serviceName}: OPEN (${circuit.failures} failures)`);
+  }
+}
+
+export function isCircuitOpen(serviceName: string): boolean {
+  return getCircuit(serviceName).state === 'open';
+}
+
 /**
- * Get a service port via port-sdk. Caches for 60s.
- * Falls back to gateway URL construction if port-sdk fails.
+ * Check if a service is reachable via HTTP health probe.
  */
-export async function getServicePort(serviceName: string): Promise<number> {
+export async function isHealthy(url: string, timeoutMs = 3000): Promise<boolean> {
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs) });
+    return res.ok || res.status < 500;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Port Discovery ─────────────────────────────────────
+
+export async function getServicePort(serviceName: string): Promise<number | null> {
   const cached = _portCache.get(serviceName);
   if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.port;
 
   const sdk = getSDK();
+  if (!sdk) return null;
+
   const port = await sdk.getPort(serviceName);
-  _portCache.set(serviceName, { port, ts: Date.now() });
+  if (port != null) {
+    _portCache.set(serviceName, { port, ts: Date.now() });
+  }
   return port;
 }
 
-/**
- * Get the gateway URL for a service (preferred access method).
- * Always available as long as SOTAgent is running.
- */
 export function getGatewayUrl(servicePrefix: string): string {
   return `${SOTAGENT_BASE}/gw/${servicePrefix.toLowerCase()}`;
 }
 
-/**
- * Build a service URL: tries gateway first, falls back to direct port.
- */
 export async function getServiceUrl(
   serviceName: string,
   gatewayPrefix?: string,
@@ -82,7 +130,43 @@ export async function getServiceUrl(
     return getGatewayUrl(gatewayPrefix);
   }
   const port = await getServicePort(serviceName);
+  if (port == null) {
+    throw new Error(`[port-discovery] Cannot resolve port for "${serviceName}" — SOTAgent/port-sdk unavailable`);
+  }
   return `http://127.0.0.1:${port}`;
+}
+
+/**
+ * Resilient service call: respects circuit breaker.
+ * Returns { ok, data } or { ok: false, error, circuitOpen }.
+ */
+export async function resilientFetch<T>(
+  serviceName: string,
+  url: string,
+  opts: RequestInit = {},
+  timeoutMs = 10000,
+): Promise<{ ok: true; data: T } | { ok: false; error: string; circuitOpen: boolean }> {
+  if (isCircuitOpen(serviceName)) {
+    return { ok: false, error: `Circuit open for ${serviceName}`, circuitOpen: true };
+  }
+
+  try {
+    const res = await fetch(url, {
+      ...opts,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) {
+      recordFailure(serviceName);
+      return { ok: false, error: `HTTP ${res.status}`, circuitOpen: false };
+    }
+    const data = await res.json() as T;
+    recordSuccess(serviceName);
+    return { ok: true, data };
+  } catch (err) {
+    recordFailure(serviceName);
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: msg, circuitOpen: isCircuitOpen(serviceName) };
+  }
 }
 
 /** Well-known service names and their gateway prefixes */
