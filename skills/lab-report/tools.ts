@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 // ─── LLM Proxy (reuses MyClaw config convention) ───────────────────────
 
 const PP_URL = process.env.POLARPRIVATE_URL ?? 'http://127.0.0.1:12790';
-const LLM_BASE = process.env.MYCLAW_LLM_BASE_URL ?? `${PP_URL}/proxy/llm.aliyun.codingplan/v1`;
+const LLM_BASE = process.env.MYCLAW_LLM_BASE_URL ?? `${PP_URL}/proxy/llm.aliyun.codingplan`;
 const LLM_MODEL = process.env.LAB_REPORT_MODEL ?? process.env.MYCLAW_MODEL_GENERAL ?? 'qwen3.6-plus';
 const LLM_TIMEOUT_MS = 120_000;
 
@@ -440,8 +440,13 @@ export const labReportHealth: IToolHandler = {
 
     // LLM Proxy
     try {
-      const modelsUrl = `${LLM_BASE}/models`;
-      const res = await fetch(modelsUrl, { signal: AbortSignal.timeout(5000) });
+      const testUrl = `${LLM_BASE}/chat/completions`;
+      const res = await fetch(testUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: LLM_MODEL, messages: [{ role: 'user', content: 'ping' }], max_tokens: 1 }),
+        signal: AbortSignal.timeout(10_000),
+      });
       checks.llm_proxy = { reachable: res.ok, url: LLM_BASE, model: LLM_MODEL };
     } catch {
       checks.llm_proxy = { reachable: false, url: LLM_BASE };
