@@ -169,9 +169,7 @@
           ]
         }
       ],
-      "blockers": [
-        "Web 服务启动依赖 SOTAgent/sdk-port（claimPort 失败会 exit(1)）"
-      ]
+      "blockers": []
     },
     {
       "id": "R5",
