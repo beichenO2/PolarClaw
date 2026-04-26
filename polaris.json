@@ -217,6 +217,18 @@
           "behavior": [
             "learning_compose_workflow + SkillComposer"
           ]
+        },
+        {
+          "name": "ComputerUse 浏览器自动化",
+          "description": "Stagehand（Playwright AI 层）驱动的浏览器操作",
+          "status": "done",
+          "behavior": [
+            "browse_and_act：自然语言驱动浏览器操作",
+            "screenshot_and_analyze：截图 + 可交互元素观察",
+            "fill_form：结构化表单自动填写",
+            "Docker 隔离模式（COMPUTER_USE_DOCKER=1）",
+            "CircuitBreaker 防护 + 截图持久化"
+          ]
         }
       ],
       "blockers": []
