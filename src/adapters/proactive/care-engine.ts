@@ -90,6 +90,35 @@ export function createCarePolicy(
           };
         }
 
+        case 'schedule-pre-alert': {
+          const block = trigger.context?.block as { name?: string; start_hhmm?: string; type?: string } | undefined;
+          const minutesLeft = trigger.context?.minutesLeft as number | undefined;
+          if (block?.type === 'meal') {
+            return {
+              userId: trigger.userId,
+              prompt: `[系统提示：${block.name ?? '用餐'}时间快到了（${minutesLeft ?? '?'}分钟后）。自然地提醒用户注意用餐，不要太机械。]`,
+              priority: 'normal',
+              tag: 'schedule-meal-alert',
+            };
+          }
+          return {
+            userId: trigger.userId,
+            prompt: `[系统提示：用户的日程「${block?.name ?? '活动'}」将在 ${minutesLeft ?? '?'} 分钟后开始（${block?.start_hhmm ?? ''}）。自然地提醒用户准备。]`,
+            priority: 'normal',
+            tag: 'schedule-pre-alert',
+          };
+        }
+
+        case 'schedule-ended': {
+          const block = trigger.context?.block as { name?: string; type?: string } | undefined;
+          return {
+            userId: trigger.userId,
+            prompt: `[系统提示：用户的日程「${block?.name ?? '活动'}」刚刚结束。如果合适，自然地问问感受或建议接下来的安排。]`,
+            priority: 'low',
+            tag: 'schedule-ended',
+          };
+        }
+
         default:
           return null;
       }

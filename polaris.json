@@ -76,16 +76,29 @@
         },
         {
           "name": "Clock SSE 桥接",
-          "description": "连接 Clock 服务获取时间事件（MYCLAW_PROACTIVE=1 时启用）",
-          "status": "in-progress",
+          "status": "done",
+          "tech": ["EventSource/fetch SSE", "AbortController"],
           "behavior": [
-            "连接 Clock 服务获取时间事件（MYCLAW_PROACTIVE=1 时启用）"
+            "订阅 Clock /api/sync/events SSE 端点",
+            "监听 timer_change/session_complete 事件",
+            "指数退避重连（1s→30s 上限）",
+            "MYCLAW_PROACTIVE=1 + CLOCK_API_URL + CLOCK_DEFAULT_USERNAME 启用"
+          ]
+        },
+        {
+          "name": "日程驱动关怀",
+          "status": "done",
+          "tech": ["fetch", "Clock /schedule/today API"],
+          "behavior": [
+            "定期拉取 Clock /schedule/today 获取日程和三餐时间",
+            "日程块开始前 10 分钟触发预提醒",
+            "日程块结束后触发结束关怀",
+            "三餐时间窗口触发用餐提醒",
+            "同日去重（同一日程只提醒一次）"
           ]
         }
       ],
-      "blockers": [
-        "完整调度需要 MYCLAW_PROACTIVE=1 环境变量 + Clock 服务运行"
-      ]
+      "blockers": []
     },
     {
       "id": "R3",
@@ -94,18 +107,24 @@
       "features": [
         {
           "name": "YOLO 引擎",
-          "description": "多步自主任务执行 + 异常恢复",
+          "description": "多步自主任务执行 + 异常恢复 + Hub 对接",
           "status": "done",
           "behavior": [
-            "多步自主任务执行 + 异常恢复"
+            "多步自主任务执行 + 异常恢复",
+            "Hub Alignment API 对接（结构化对齐文档 + 分节审核）",
+            "Hub 不可达时降级到启发式+LLM-as-Judge 本地对齐",
+            "每步通过 Hub 信息型 prompt 汇报进度",
+            "完成后自动标记 alignment 为 completed"
           ]
         },
         {
           "name": "对齐检查",
-          "description": "执行前确认目标一致性",
+          "description": "执行前确认目标一致性（本地 + Hub 双模式）",
           "status": "done",
           "behavior": [
-            "执行前确认目标一致性"
+            "Hub 优先：POST /api/ui/alignment 创建对齐文档，等待用户分节确认",
+            "降级模式：启发式评分 + LLM-as-Judge 多维评估",
+            "对齐评分不足时 escalate 给用户"
           ]
         }
       ],
@@ -197,6 +216,18 @@
           "status": "done",
           "behavior": [
             "learning_compose_workflow + SkillComposer"
+          ]
+        },
+        {
+          "name": "ComputerUse 浏览器自动化",
+          "description": "Stagehand（Playwright AI 层）驱动的浏览器操作",
+          "status": "done",
+          "behavior": [
+            "browse_and_act：自然语言驱动浏览器操作",
+            "screenshot_and_analyze：截图 + 可交互元素观察",
+            "fill_form：结构化表单自动填写",
+            "Docker 隔离模式（COMPUTER_USE_DOCKER=1）",
+            "CircuitBreaker 防护 + 截图持久化"
           ]
         }
       ],

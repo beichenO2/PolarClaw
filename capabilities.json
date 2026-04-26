@@ -72,6 +72,36 @@
       "idempotent": false,
       "side_effects": true,
       "timeout_ms": 60000
+    },
+    {
+      "id": "myclaw.skill.lab_report",
+      "service_name": "myclaw-agent",
+      "description": "实验报告自动生成 — LLM 驱动内容生成 + officecli 文档构建",
+      "transport": "skill",
+      "tool_name": "lab_report_generate",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 300000
+    },
+    {
+      "id": "myclaw.skill.lab_report_preview",
+      "service_name": "myclaw-agent",
+      "description": "实验报告内容预览 — 仅 LLM 生成各章节文本，不构建文档",
+      "transport": "skill",
+      "tool_name": "lab_report_preview",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 180000
+    },
+    {
+      "id": "myclaw.skill.lab_report_health",
+      "service_name": "myclaw-agent",
+      "description": "实验报告 Skill 健康检查（officecli + LLM Proxy 连通性）",
+      "transport": "skill",
+      "tool_name": "lab_report_health",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 10000
     }
   ]
 }

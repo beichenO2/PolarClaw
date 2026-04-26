@@ -12,6 +12,7 @@ import type {
   IStepResult,
   IRecoveryStrategy,
 } from '../../ports/autonomous.js';
+import type { IHubAlignmentClient } from './hub-alignment.js';
 
 export interface IYoloAgentHandle {
   handleMessage(
@@ -31,6 +32,8 @@ export interface IYoloEngineDeps {
   onEscalate?: (sessionId: string, message: string) => void;
   /** 对齐确认回调：向用户展示计划并等待确认。返回 true=确认，false=拒绝 */
   onAlignmentCheck?: (sessionId: string, plan: string) => Promise<boolean>;
+  /** Hub alignment client for structured review (optional, falls back to heuristic) */
+  hubAlignment?: IHubAlignmentClient;
 }
 
 const GOAL_REACHED_SIGNALS = [
@@ -233,7 +236,66 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
       const startTime = Date.now();
       const convId = context.conversationId ?? `yolo:${context.userId}:${sessionId}`;
 
-      // Step 0: Intent alignment verification (always runs)
+      // Step 0: Intent alignment — try Hub first, fall back to heuristic
+      let useHubAlignment = false;
+      let hubAlignmentId: string | undefined;
+
+      if (deps.hubAlignment) {
+        try {
+          const available = await deps.hubAlignment.isAvailable();
+          if (available) {
+            const planPrompt = buildAlignmentPrompt(config.goal);
+            const planResp = await deps.agent.handleMessage(
+              context.channel, context.userId, planPrompt, convId,
+            );
+            session.totalTokensUsed += planResp.usage?.totalTokens ?? 0;
+
+            const doc = await deps.hubAlignment.createAlignment(
+              config.goal,
+              planResp.text,
+              ['对齐验证', '执行计划'],
+            );
+
+            if (doc) {
+              hubAlignmentId = doc.id;
+              useHubAlignment = true;
+
+              deps.onStepComplete?.({
+                step: 0,
+                text: `Hub 对齐文档已创建 (${doc.id}), 等待审核...`,
+                tokensUsed: planResp.usage?.totalTokens ?? 0,
+                goalReached: false,
+                durationMs: Date.now() - startTime,
+              }, session);
+
+              const decision = await deps.hubAlignment.waitForApproval(doc.id, 300_000);
+
+              if (decision === 'rejected') {
+                session.status = 'aborted';
+                session.stopReason = 'Hub 审核拒绝';
+                session.elapsedMs = Date.now() - startTime;
+                return session;
+              }
+              if (decision === 'timeout') {
+                console.error('[YoloEngine] Hub 审核超时，降级到本地对齐');
+                useHubAlignment = false;
+              }
+
+              session.steps.push({
+                step: 0,
+                text: `Hub 对齐${decision === 'approved' ? '通过' : '超时降级'}`,
+                tokensUsed: planResp.usage?.totalTokens ?? 0,
+                goalReached: false,
+                durationMs: Date.now() - startTime,
+              });
+            }
+          }
+        } catch (err) {
+          console.error('[YoloEngine] Hub alignment failed, falling back:', err);
+        }
+      }
+
+      if (!useHubAlignment)
       try {
         const alignPrompt = buildAlignmentPrompt(config.goal);
         const alignResponse = await deps.agent.handleMessage(
@@ -449,8 +511,20 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
           prevResult = stepResult;
           deps.onStepComplete?.(stepResult, session);
 
+          if (useHubAlignment && deps.hubAlignment) {
+            deps.hubAlignment.reportProgress(
+              step,
+              stepResult.goalReached
+                ? `步骤 ${step} 完成 — 目标已达成`
+                : `步骤 ${step} 完成 (${stepResult.tokensUsed} tokens)`,
+            ).catch(() => {});
+          }
+
           if (stepResult.goalReached) {
             session.status = 'completed';
+            if (useHubAlignment && hubAlignmentId && deps.hubAlignment) {
+              deps.hubAlignment.completeAlignment(hubAlignmentId).catch(() => {});
+            }
             break;
           }
 

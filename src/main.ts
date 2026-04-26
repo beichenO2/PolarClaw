@@ -27,6 +27,7 @@ import { createSkillComposer } from './adapters/learning/skill-composer.js';
 import { createLearningTools } from './adapters/learning/learning-tools.js';
 import { createCareEngine } from './adapters/proactive/care-engine.js';
 import { createClockSseBridge } from './adapters/proactive/clock-sse-bridge.js';
+import { createScheduleBridge } from './adapters/proactive/schedule-bridge.js';
 import { createYoloEngine } from './adapters/yolo/engine.js';
 import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import { createWebServer } from './adapters/web/server.js';
@@ -424,6 +425,7 @@ async function main() {
 
   // 启动主动关怀引擎
   let clockSseBridge: ReturnType<typeof createClockSseBridge> | null = null;
+  let scheduleBridge: ReturnType<typeof createScheduleBridge> | null = null;
 
   if (process.env.MYCLAW_PROACTIVE === '1') {
     careEngine.start();
@@ -442,6 +444,17 @@ async function main() {
       );
       clockSseBridge.start();
       console.error('[MyClaw] Clock SSE 桥接已启动');
+
+      scheduleBridge = createScheduleBridge(
+        {
+          clockBaseUrl: clockUrl,
+          username: clockUser.split(',')[0]?.trim() ?? clockUser,
+          clockToken: process.env.CLOCK_TOKEN?.trim() || undefined,
+        },
+        careEngine,
+      );
+      scheduleBridge.start();
+      console.error('[MyClaw] 日程关怀桥接已启动');
     }
   }
 
@@ -449,6 +462,7 @@ async function main() {
   const shutdown = async () => {
     console.error('[MyClaw] 正在关闭...');
     webServer.stop();
+    scheduleBridge?.stop();
     clockSseBridge?.stop();
     careEngine.stop();
     skillRegistry.unwatch();
