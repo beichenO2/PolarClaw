@@ -107,18 +107,24 @@
       "features": [
         {
           "name": "YOLO 引擎",
-          "description": "多步自主任务执行 + 异常恢复",
+          "description": "多步自主任务执行 + 异常恢复 + Hub 对接",
           "status": "done",
           "behavior": [
-            "多步自主任务执行 + 异常恢复"
+            "多步自主任务执行 + 异常恢复",
+            "Hub Alignment API 对接（结构化对齐文档 + 分节审核）",
+            "Hub 不可达时降级到启发式+LLM-as-Judge 本地对齐",
+            "每步通过 Hub 信息型 prompt 汇报进度",
+            "完成后自动标记 alignment 为 completed"
           ]
         },
         {
           "name": "对齐检查",
-          "description": "执行前确认目标一致性",
+          "description": "执行前确认目标一致性（本地 + Hub 双模式）",
           "status": "done",
           "behavior": [
-            "执行前确认目标一致性"
+            "Hub 优先：POST /api/ui/alignment 创建对齐文档，等待用户分节确认",
+            "降级模式：启发式评分 + LLM-as-Judge 多维评估",
+            "对齐评分不足时 escalate 给用户"
           ]
         }
       ],
