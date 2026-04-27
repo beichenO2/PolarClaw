@@ -177,15 +177,32 @@ export function createWebServer(config: WebServerConfig) {
     }
   });
 
+  // ── API: models (list configured models) ────────────
+  app.get('/api/models', (_req, res) => {
+    if (!config.llm) return res.json({ models: [] });
+    const { model: _unused, intent: _i, ...resolveInfo } = config.llm.resolveModel([{ role: 'user', content: 'test' }]);
+    const modelSet = new Set<string>();
+    const intentModels: Record<string, string> = {};
+    for (const intent of ['general', 'coding', 'research', 'vision'] as const) {
+      const { model: m } = config.llm.resolveModel([{ role: 'user', content:
+        intent === 'coding' ? '写代码' : intent === 'research' ? '研究论文' : intent === 'vision' ? '看图片' : '你好'
+      }]);
+      modelSet.add(m);
+      intentModels[intent] = m;
+    }
+    res.json({ models: [...modelSet], intent_models: intentModels });
+  });
+
   // ── API: chat (LLM proxy for external callers) ────────
   app.post('/api/chat', async (req, res) => {
     if (!config.llm) return res.status(503).json({ error: 'llm not configured' });
     try {
-      const { messages, system, context_query, max_tokens } = req.body as {
+      const { messages, system, context_query, max_tokens, model: requestedModel } = req.body as {
         messages?: Array<{ role: string; content: string }>;
         system?: string;
         context_query?: string;
         max_tokens?: number;
+        model?: string;
       };
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'messages[] required' });
@@ -209,12 +226,16 @@ export function createWebServer(config: WebServerConfig) {
         chatMessages.push({ role: m.role as 'user' | 'assistant', content: m.content });
       }
 
-      const { model } = config.llm.resolveModel(chatMessages);
-      const result = await config.llm.chat(chatMessages, { temperature: 0.3, maxTokens: max_tokens ?? 4096 });
+      const resolvedModel = requestedModel || config.llm.resolveModel(chatMessages).model;
+      const result = await config.llm.chat(chatMessages, {
+        model: requestedModel || undefined,
+        temperature: 0.3,
+        maxTokens: max_tokens ?? 4096,
+      });
       res.json({
         content: result.content ?? '',
         usage: result.usage,
-        model,
+        model: resolvedModel,
       });
     } catch (err) {
       console.error('[MyClaw] /api/chat error:', err);
