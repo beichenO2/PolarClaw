@@ -16,6 +16,7 @@ import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
 import { loadSecretsToEnv } from './adapters/privacy/secrets-loader.js';
 import { createFeishuAdapter } from './adapters/channel/feishu.js';
 import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
+import { createFeishuDedup } from './adapters/channel/feishu-dedup.js';
 import { createCLIAdapter } from './adapters/channel/cli.js';
 import { createContextCompressor } from './adapters/compression/summarizer.js';
 import { createSkillRegistry } from './adapters/skills/skill-registry.js';
@@ -376,17 +377,27 @@ async function main() {
   const channels: IChannelAdapter[] = [];
 
   if (config.channels.feishu) {
+    const feishuDataDir = join(config.projectRoot, '.data');
+
     try {
       const adminConfig = loadFeishuConfig('FEISHU_ADMIN');
+      const adminDedup = createFeishuDedup(feishuDataDir, 'feishu-admin');
       const feishuAdmin = createFeishuAdapter({
         config: adminConfig,
         transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
         channelName: 'feishu:admin',
+        dedup: adminDedup,
       });
       feishuAdmin.onMessage(async (msg) => handleChannelMessage(msg));
       await feishuAdmin.start();
       channels.push(feishuAdmin);
       console.error('[MyClaw] 飞书管理员 Bot 已连接');
+
+      const adminCatchupChats = (process.env.FEISHU_ADMIN_CATCHUP_CHATS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+      if (adminCatchupChats.length > 0) {
+        feishuAdmin.catchUp?.(adminCatchupChats).catch((err: unknown) =>
+          console.error('[MyClaw] 管理员 Bot 补漏失败:', err));
+      }
     } catch (err) {
       console.error('[MyClaw] 飞书管理员 Bot 启动失败:', err);
     }
@@ -394,15 +405,23 @@ async function main() {
     if (process.env.FEISHU_GIRLFRIEND_APP_ID) {
       try {
         const gfConfig = loadFeishuConfig('FEISHU_GIRLFRIEND');
+        const gfDedup = createFeishuDedup(feishuDataDir, 'feishu-girlfriend');
         const feishuGf = createFeishuAdapter({
           config: gfConfig,
           transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
           channelName: 'feishu:girlfriend',
+          dedup: gfDedup,
         });
         feishuGf.onMessage(async (msg) => handleChannelMessage(msg));
         await feishuGf.start();
         channels.push(feishuGf);
         console.error('[MyClaw] 飞书女友 Bot 已连接');
+
+        const gfCatchupChats = (process.env.FEISHU_GIRLFRIEND_CATCHUP_CHATS ?? '').split(',').map(s => s.trim()).filter(Boolean);
+        if (gfCatchupChats.length > 0) {
+          feishuGf.catchUp?.(gfCatchupChats).catch((err: unknown) =>
+            console.error('[MyClaw] 女友 Bot 补漏失败:', err));
+        }
       } catch (err) {
         console.error('[MyClaw] 飞书女友 Bot 启动失败:', err);
       }

@@ -14,6 +14,7 @@ import crypto from 'node:crypto';
 import * as Lark from '@larksuiteoapi/node-sdk';
 import type { IChannelAdapter, IInboundMessage, IOutboundMessage } from '../../ports/channel.js';
 import type { IFeishuBotConfig } from './feishu-config.js';
+import type { IFeishuDedup } from './feishu-dedup.js';
 
 export interface IFeishuAdapterOptions {
   config: IFeishuBotConfig;
@@ -21,6 +22,8 @@ export interface IFeishuAdapterOptions {
   transport?: 'websocket' | 'webhook';
   /** 通道名称标识（如 "feishu:admin" 或 "feishu:girlfriend"） */
   channelName?: string;
+  /** 消息去重实例（可选，启用后自动过滤重复 + 启动补漏） */
+  dedup?: IFeishuDedup;
 }
 
 function resolveSdkDomain(config: IFeishuBotConfig) {
@@ -91,7 +94,7 @@ function parseJsonContent(raw: string): Record<string, unknown> | null {
 }
 
 export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAdapter {
-  const { config, transport = 'websocket', channelName = 'feishu' } = options;
+  const { config, transport = 'websocket', channelName = 'feishu', dedup } = options;
   let messageHandler: ((msg: IInboundMessage) => Promise<string>) | null = null;
 
   const client = new Lark.Client({
@@ -115,8 +118,13 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     messageId: string,
     openId: string | undefined,
     text: string,
+    createTime?: string,
   ) {
     if (!messageHandler || !text) return;
+
+    if (dedup?.isProcessed(messageId)) {
+      return;
+    }
 
     const inbound: IInboundMessage = {
       channel: channelName,
@@ -135,9 +143,60 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
           content: JSON.stringify({ text: reply }),
         },
       });
+      dedup?.markProcessed(messageId, createTime);
     } catch (err) {
       console.error(`[${channelName}] handleTextMessage error:`, err);
+      dedup?.markProcessed(messageId, createTime);
     }
+  }
+
+  /** 启动补漏：拉取停机期间的未处理消息 */
+  async function catchUpMissedMessages(chatIds: string[]): Promise<number> {
+    if (!dedup || !messageHandler) return 0;
+    const lastTime = dedup.getLastProcessedTime();
+    if (!lastTime) return 0;
+
+    let caught = 0;
+    for (const chatId of chatIds) {
+      try {
+        const res = await client.im.message.list({
+          params: {
+            container_id_type: 'chat',
+            container_id: chatId,
+            start_time: lastTime,
+            page_size: 50,
+            sort_type: 'ByCreateTimeAsc' as any,
+          },
+        });
+        const items = res?.data?.items ?? [];
+        for (const msg of items) {
+          const msgId = msg.message_id;
+          if (!msgId || dedup.isProcessed(msgId)) continue;
+          if (msg.sender?.sender_type === 'app') continue;
+
+          const senderId = msg.sender?.id;
+          const contentRaw = msg.body?.content;
+          if (!contentRaw) continue;
+
+          let text = '';
+          if (msg.msg_type === 'text') {
+            const parsed = parseJsonContent(contentRaw);
+            text = parsed && typeof parsed.text === 'string' ? parsed.text.trim() : '';
+          } else if (msg.msg_type === 'post') {
+            const parsed = parseJsonContent(contentRaw);
+            text = parsed ? postToPlainText(parsed) : '';
+          }
+          if (!text || text.startsWith('/')) continue;
+
+          console.error(`[${channelName}] 补漏消息: ${msgId} (${text.slice(0, 30)}...)`);
+          await handleTextMessage(chatId, msgId, senderId, text, msg.create_time);
+          caught++;
+        }
+      } catch (err) {
+        console.error(`[${channelName}] 补漏拉取失败 (chat=${chatId}):`, err);
+      }
+    }
+    return caught;
   }
 
   /** 注册飞书事件 */
@@ -161,11 +220,13 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       const contentRaw = str(message.content);
       if (!messageId || !chatId || !messageType || !contentRaw) return;
 
+      const createTime = str(message.create_time);
+
       if (messageType === 'text') {
         const parsed = parseJsonContent(contentRaw);
         const text = parsed && typeof parsed.text === 'string' ? parsed.text.trim() : '';
         if (text && !text.startsWith('/')) {
-          await handleTextMessage(chatId, messageId, openId, text);
+          await handleTextMessage(chatId, messageId, openId, text, createTime);
         }
         return;
       }
@@ -174,7 +235,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
         const parsed = parseJsonContent(contentRaw);
         const plain = parsed ? postToPlainText(parsed) : '';
         if (plain) {
-          await handleTextMessage(chatId, messageId, openId, plain);
+          await handleTextMessage(chatId, messageId, openId, plain, createTime);
         }
         return;
       }
@@ -188,7 +249,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
             summary = `[card] ${(title.title as Record<string, unknown>).content}`;
           }
         }
-        await handleTextMessage(chatId, messageId, openId, summary);
+        await handleTextMessage(chatId, messageId, openId, summary, createTime);
       }
     },
   });
@@ -297,7 +358,16 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       }
     },
 
+    async catchUp(chatIds: string[]) {
+      const caught = await catchUpMissedMessages(chatIds);
+      if (caught > 0) {
+        console.error(`[${channelName}] 启动补漏完成: 处理了 ${caught} 条遗漏消息`);
+      }
+      dedup?.flush();
+    },
+
     async stop() {
+      dedup?.flush();
       if (wsClient) {
         try { wsClient.close(); } catch { /* ignore */ }
         wsClient = null;
