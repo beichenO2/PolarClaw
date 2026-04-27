@@ -55,6 +55,6 @@ export interface IChannelAdapter {
   /** 注册入站消息处理器 */
   onMessage(handler: (message: IInboundMessage) => Promise<string>): void;
 
-  /** 启动时补漏（可选，仅飞书等有消息历史的通道支持） */
-  catchUp?(chatIds: string[]): Promise<void>;
+  /** 启动时补漏（可选，自动发现会话列表或指定 chatIds） */
+  catchUp?(chatIds?: string[]): Promise<void>;
 }

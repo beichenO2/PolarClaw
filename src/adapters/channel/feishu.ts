@@ -150,14 +150,38 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     }
   }
 
+  /** 自动获取 Bot 所在的所有会话 */
+  async function discoverChatIds(): Promise<string[]> {
+    const ids: string[] = [];
+    let pageToken: string | undefined;
+    try {
+      do {
+        const res = await client.im.chat.list({
+          params: { page_size: 100, ...(pageToken && { page_token: pageToken }) },
+        });
+        for (const chat of res?.data?.items ?? []) {
+          if (chat.chat_id) ids.push(chat.chat_id);
+        }
+        pageToken = res?.data?.page_token ?? undefined;
+      } while (pageToken);
+    } catch (err) {
+      console.error(`[${channelName}] 获取会话列表失败:`, err);
+    }
+    return ids;
+  }
+
   /** 启动补漏：拉取停机期间的未处理消息 */
-  async function catchUpMissedMessages(chatIds: string[]): Promise<number> {
+  async function catchUpMissedMessages(chatIds?: string[]): Promise<number> {
     if (!dedup || !messageHandler) return 0;
     const lastTime = dedup.getLastProcessedTime();
     if (!lastTime) return 0;
 
+    const targetChats = chatIds?.length ? chatIds : await discoverChatIds();
+    if (!targetChats.length) return 0;
+    console.error(`[${channelName}] 开始补漏: ${targetChats.length} 个会话, 从 ${lastTime} 开始`);
+
     let caught = 0;
-    for (const chatId of chatIds) {
+    for (const chatId of targetChats) {
       try {
         const res = await client.im.message.list({
           params: {
@@ -358,7 +382,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       }
     },
 
-    async catchUp(chatIds: string[]) {
+    async catchUp(chatIds?: string[]) {
       const caught = await catchUpMissedMessages(chatIds);
       if (caught > 0) {
         console.error(`[${channelName}] 启动补漏完成: 处理了 ${caught} 条遗漏消息`);

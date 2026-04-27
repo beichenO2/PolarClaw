@@ -393,11 +393,8 @@ async function main() {
       channels.push(feishuAdmin);
       console.error('[MyClaw] 飞书管理员 Bot 已连接');
 
-      const adminCatchupChats = (process.env.FEISHU_ADMIN_CATCHUP_CHATS ?? '').split(',').map(s => s.trim()).filter(Boolean);
-      if (adminCatchupChats.length > 0) {
-        feishuAdmin.catchUp?.(adminCatchupChats).catch((err: unknown) =>
-          console.error('[MyClaw] 管理员 Bot 补漏失败:', err));
-      }
+      feishuAdmin.catchUp?.().catch((err: unknown) =>
+        console.error('[MyClaw] 管理员 Bot 补漏失败:', err));
     } catch (err) {
       console.error('[MyClaw] 飞书管理员 Bot 启动失败:', err);
     }
@@ -417,11 +414,8 @@ async function main() {
         channels.push(feishuGf);
         console.error('[MyClaw] 飞书女友 Bot 已连接');
 
-        const gfCatchupChats = (process.env.FEISHU_GIRLFRIEND_CATCHUP_CHATS ?? '').split(',').map(s => s.trim()).filter(Boolean);
-        if (gfCatchupChats.length > 0) {
-          feishuGf.catchUp?.(gfCatchupChats).catch((err: unknown) =>
-            console.error('[MyClaw] 女友 Bot 补漏失败:', err));
-        }
+        feishuGf.catchUp?.().catch((err: unknown) =>
+          console.error('[MyClaw] 女友 Bot 补漏失败:', err));
       } catch (err) {
         console.error('[MyClaw] 飞书女友 Bot 启动失败:', err);
       }
