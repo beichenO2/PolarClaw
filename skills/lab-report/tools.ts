@@ -59,7 +59,7 @@ async function callLLM(messages: LLMMessage[], maxTokens = 3000): Promise<string
 
 async function officecli(...args: string[]): Promise<{ stdout: string; stderr: string }> {
   try {
-    return await execFileAsync('officecli', args, { timeout: 30_000 });
+    return await execFileAsync('/Users/mac/.local/bin/officecli', args, { timeout: 30_000 });
   } catch (err: unknown) {
     const e = err as { stdout?: string; stderr?: string };
     return { stdout: e.stdout ?? '', stderr: e.stderr ?? String(err) };
@@ -178,11 +178,12 @@ async function buildDocument(
     // Insert new content (reverse order so final order is correct)
     const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
     for (const line of [...lines].reverse()) {
-      await officecli(
+      const res = await officecli(
         'add', out, '/body', '--type', 'paragraph',
         '--prop', `text=${line}`,
         '--after', `/body/p[@paraId=${mapping.headingParaId}]`,
       );
+      if (res.stderr) console.error(`[officecli error] ${res.stderr}`);
     }
   }
 
