@@ -367,6 +367,7 @@ async function main() {
     },
     llm,
     memoryStore: memory,
+    agentHandler: handleChannelMessage,
     yoloEngine,
     pilotStore,
     pilotEngine,

@@ -19,6 +19,8 @@ export interface WebServerConfig {
   pilotStore?: import('../pilot/store.js').PilotStore;
   llm?: import('../../ports/llm.js').ILLMRouter;
   memoryStore?: import('../../ports/memory.js').IMemoryStore;
+  /** Full agent handler (ReAct loop + tools + memory + privacy) */
+  agentHandler?: (msg: { channel: string; userId: string; text: string }) => Promise<string>;
   yoloEngine?: {
     run(config: { sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
         context: { channel: string; userId: string }): Promise<YoloSessionData>;
@@ -191,6 +193,30 @@ export function createWebServer(config: WebServerConfig) {
       intentModels[intent] = m;
     }
     res.json({ models: [...modelSet], intent_models: intentModels });
+  });
+
+  // ── API: agent chat (full ReAct loop with tools) ────────
+  app.post('/api/agent/chat', async (req, res) => {
+    if (!config.agentHandler) return res.status(503).json({ error: 'agent not available' });
+    try {
+      const { message, conversation_id } = req.body as {
+        message?: string;
+        conversation_id?: string;
+      };
+      if (!message || typeof message !== 'string') {
+        return res.status(400).json({ error: 'message (string) required' });
+      }
+      const channel = conversation_id ? `hub:${conversation_id}` : 'hub:anonymous';
+      const reply = await config.agentHandler({
+        channel,
+        userId: 'hub-user',
+        text: message,
+      });
+      res.json({ content: reply, conversation_id: channel });
+    } catch (err) {
+      console.error('[MyClaw] /api/agent/chat error:', err);
+      res.status(500).json({ error: String(err) });
+    }
   });
 
   // ── API: chat (LLM proxy for external callers) ────────
