@@ -31,6 +31,8 @@ export interface ISecretsLoaderOptions {
   baseUrl: string;
   projectName: string;
   timeoutMs?: number;
+  /** PolarPrivate Service Token (Bearer) for reveal endpoint auth */
+  serviceToken?: string;
 }
 
 function dotToEnvKey(dotKey: string): string {
@@ -53,13 +55,15 @@ async function fetchJson<T>(url: string, timeoutMs: number): Promise<T | null> {
   }
 }
 
-async function postJson<T>(url: string, timeoutMs: number): Promise<T | null> {
+async function postJson<T>(url: string, timeoutMs: number, bearerToken?: string): Promise<T | null> {
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Accept': 'application/json' },
+      headers,
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -75,7 +79,8 @@ async function postJson<T>(url: string, timeoutMs: number): Promise<T | null> {
  * @returns 注入的变量数量
  */
 export async function loadSecretsToEnv(options: ISecretsLoaderOptions): Promise<number> {
-  const { baseUrl, projectName, timeoutMs = 3000 } = options;
+  const { baseUrl, projectName, timeoutMs = 3000, serviceToken } = options;
+  const token = serviceToken || process.env.POLARPRIVATE_SERVICE_TOKEN;
 
   const health = await fetchJson<{ vault_unlocked: boolean }>(`${baseUrl}/health`, timeoutMs);
   if (!health?.vault_unlocked) {
@@ -111,7 +116,7 @@ export async function loadSecretsToEnv(options: ISecretsLoaderOptions): Promise<
     if (process.env[envKey]?.trim()) continue;
 
     const revealed = await postJson<{ value: string }>(
-      `${baseUrl}/api/secrets/${secret.id}/reveal`, timeoutMs,
+      `${baseUrl}/api/secrets/${secret.id}/reveal`, timeoutMs, token,
     );
     if (!revealed?.value || revealed.value === 'PLACEHOLDER') continue;
 
