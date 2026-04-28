@@ -47,6 +47,8 @@ export type {
   ISkillLoader,
   ISkillMeta,
   ISkillRegistry,
+  ISkillIndexEntry,
+  ISkillSearchResult,
   SkillEvent,
   SkillEventHandler,
 } from './skills.js';

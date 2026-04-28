@@ -20,6 +20,8 @@ import { createFeishuDedup } from './adapters/channel/feishu-dedup.js';
 import { createCLIAdapter } from './adapters/channel/cli.js';
 import { createContextCompressor } from './adapters/compression/summarizer.js';
 import { createSkillRegistry } from './adapters/skills/skill-registry.js';
+import { createMetaIndex } from './adapters/skills/meta-index.js';
+import { createSkillDiscoveryTools } from './adapters/skills/skill-discovery.js';
 import { createLearningStore } from './adapters/learning/feedback-store.js';
 import { createTrackedToolExecutor } from './adapters/learning/usage-tracker.js';
 import { createPatternDetector } from './adapters/learning/pattern-detector.js';
@@ -108,10 +110,20 @@ async function main() {
     soulPrompt = readFileSync(soulPath, 'utf8');
   }
 
-  // 技能注册表（替代旧的 skillLoader.scan + registerTools）
+  // 元技能索引（轻量扫描，不加载工具实现）
+  const metaIndex = createMetaIndex();
+  metaIndex.scan(config.skills.scanDirs);
+  console.error(`[MyClaw] 元技能索引: ${metaIndex.all().length} 技能已索引`);
+
+  // 技能注册表（按需加载技能工具）
   const skillRegistry = createSkillRegistry(tools);
   await skillRegistry.init(config.skills.scanDirs);
   skillRegistry.watch();
+
+  // 标记已加载技能为已激活
+  for (const skill of skillRegistry.listSkills()) {
+    metaIndex.markActivated(skill.name, skill.toolNames ?? []);
+  }
 
   // 学习子系统
   const patternDetector = createPatternDetector(learningStore);
@@ -119,6 +131,17 @@ async function main() {
     outputDir: join(config.projectRoot, 'skills'),
   }, llm);
   const skillComposer = createSkillComposer(tools);
+
+  // 技能发现工具（skill_search / skill_activate / skill_deactivate）
+  const discoveryTools = createSkillDiscoveryTools({
+    metaIndex,
+    skillRegistry,
+    polarisorRoot: join(config.projectRoot, '..'),
+    localSkillDirs: config.skills.scanDirs,
+  });
+  for (const dt of discoveryTools) {
+    tools.register(dt);
+  }
 
   // 连接自进化晋升系统
   tools.setSkillRegistry(skillRegistry);
@@ -265,10 +288,16 @@ async function main() {
     },
   });
 
+  // 注入技能目录到 system prompt
+  const skillCatalog = metaIndex.toPromptCatalog();
+  const fullSystemPrompt = skillCatalog
+    ? `${soulPrompt}\n\n${skillCatalog}`
+    : soulPrompt;
+
   // 创建 Agent
   const agent = createAgent(
     {
-      systemPrompt: soulPrompt,
+      systemPrompt: fullSystemPrompt,
       maxToolRounds: config.llm.maxToolRounds,
       temperature: config.llm.temperature,
       maxTokens: config.llm.maxTokens,

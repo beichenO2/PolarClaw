@@ -49,6 +49,27 @@ export type SkillEvent =
 
 export type SkillEventHandler = (event: SkillEvent) => void;
 
+/** 元技能条目 — 轻量描述，不含工具实现 */
+export interface ISkillIndexEntry {
+  name: string;
+  description: string;
+  /** 此技能提供的工具名列表（仅名称） */
+  toolNames: string[];
+  origin: 'static' | 'generated' | 'composed' | 'downloaded';
+  status: 'draft' | 'verified' | 'retired';
+  /** 是否当前已激活（工具已注册到执行器） */
+  activated: boolean;
+  /** 技能目录路径 */
+  skillDir: string;
+}
+
+/** 技能发现结果 */
+export interface ISkillSearchResult {
+  entries: ISkillIndexEntry[];
+  source: 'local' | 'ecosystem';
+  query: string;
+}
+
 /** 技能注册表 — 运行时管理所有技能的生命周期 */
 export interface ISkillRegistry {
   /** 首次启动：扫描 + 注册所有技能 */
