@@ -12,7 +12,7 @@
 import * as http from 'node:http';
 import crypto from 'node:crypto';
 import * as Lark from '@larksuiteoapi/node-sdk';
-import type { IChannelAdapter, IInboundMessage, IOutboundMessage } from '../../ports/channel.js';
+import type { IAttachment, IChannelAdapter, IInboundMessage, IOutboundMessage } from '../../ports/channel.js';
 import type { IFeishuBotConfig } from './feishu-config.js';
 import type { IFeishuDedup } from './feishu-dedup.js';
 
@@ -24,6 +24,10 @@ export interface IFeishuAdapterOptions {
   channelName?: string;
   /** 消息去重实例（可选，启用后自动过滤重复 + 启动补漏） */
   dedup?: IFeishuDedup;
+  /** 消息聚合窗口 ms（同一用户连续消息在窗口内合并为一条）。0 = 关闭。默认 3000 */
+  debounceMs?: number;
+  /** 接收到文件时的本地存放根目录（默认 ~/Polarisor/macbook） */
+  fileReceiveRoot?: string;
 }
 
 function resolveSdkDomain(config: IFeishuBotConfig) {
@@ -94,7 +98,14 @@ function parseJsonContent(raw: string): Record<string, unknown> | null {
 }
 
 export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAdapter {
-  const { config, transport = 'websocket', channelName = 'feishu', dedup } = options;
+  const {
+    config,
+    transport = 'websocket',
+    channelName = 'feishu',
+    dedup,
+    debounceMs = 3000,
+    fileReceiveRoot,
+  } = options;
   let messageHandler: ((msg: IInboundMessage) => Promise<string>) | null = null;
 
   const client = new Lark.Client({
@@ -112,24 +123,98 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
   let wsClient: Lark.WSClient | null = null;
   let httpServer: http.Server | null = null;
 
-  /** 统一消息处理入口 */
-  async function handleTextMessage(
+  // ─── Message Aggregation Buffer ───────────────────────────────────────
+  interface PendingMsg {
+    messageId: string;
+    text: string;
+    createTime?: string;
+    attachments?: IAttachment[];
+  }
+  interface PendingBatch {
+    chatId: string;
+    openId: string | undefined;
+    messages: PendingMsg[];
+    timer: ReturnType<typeof setTimeout>;
+  }
+  const pendingBatches = new Map<string, PendingBatch>();
+
+  function enqueueMessage(
     chatId: string,
     messageId: string,
     openId: string | undefined,
     text: string,
     createTime?: string,
+    attachments?: IAttachment[],
   ) {
-    if (!messageHandler || !text) return;
+    if (dedup?.isProcessed(messageId)) return;
 
-    if (dedup?.isProcessed(messageId)) {
+    if (debounceMs <= 0) {
+      void dispatchSingle(chatId, messageId, openId, text, createTime, attachments);
       return;
     }
+
+    const key = `${chatId}:${openId ?? chatId}`;
+    const existing = pendingBatches.get(key);
+
+    if (existing) {
+      clearTimeout(existing.timer);
+      existing.messages.push({ messageId, text, createTime, attachments });
+    } else {
+      pendingBatches.set(key, {
+        chatId,
+        openId,
+        messages: [{ messageId, text, createTime, attachments }],
+        timer: undefined as unknown as ReturnType<typeof setTimeout>,
+      });
+    }
+
+    const batch = pendingBatches.get(key)!;
+    batch.timer = setTimeout(() => void flushBatch(key), debounceMs);
+  }
+
+  async function flushBatch(key: string) {
+    const batch = pendingBatches.get(key);
+    if (!batch || batch.messages.length === 0) return;
+    pendingBatches.delete(key);
+
+    const mergedText = batch.messages.map(m => m.text).filter(Boolean).join('\n');
+    const allAttachments = batch.messages.flatMap(m => m.attachments ?? []);
+    const lastMsg = batch.messages[batch.messages.length - 1]!;
+
+    if (batch.messages.length > 1) {
+      console.error(`[${channelName}] 聚合 ${batch.messages.length} 条消息 → 1 条`);
+    }
+
+    for (const m of batch.messages) {
+      dedup?.markProcessed(m.messageId, m.createTime);
+    }
+
+    await dispatchSingle(
+      batch.chatId,
+      lastMsg.messageId,
+      batch.openId,
+      mergedText,
+      lastMsg.createTime,
+      allAttachments.length > 0 ? allAttachments : undefined,
+    );
+  }
+
+  /** Process a single (possibly aggregated) message */
+  async function dispatchSingle(
+    chatId: string,
+    messageId: string,
+    openId: string | undefined,
+    text: string,
+    createTime?: string,
+    attachments?: IAttachment[],
+  ) {
+    if (!messageHandler || (!text && !attachments?.length)) return;
 
     const inbound: IInboundMessage = {
       channel: channelName,
       userId: openId ?? chatId,
-      text,
+      text: text || '',
+      attachments,
       timestamp: new Date(),
       metadata: { chatId, messageId, openId },
     };
@@ -145,8 +230,60 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       });
       dedup?.markProcessed(messageId, createTime);
     } catch (err) {
-      console.error(`[${channelName}] handleTextMessage error:`, err);
+      console.error(`[${channelName}] dispatchSingle error:`, err);
       dedup?.markProcessed(messageId, createTime);
+    }
+  }
+
+  // ─── File Download ────────────────────────────────────────────────────
+  async function downloadFeishuFile(
+    messageId: string,
+    fileKey: string,
+    fileName: string | undefined,
+    fileType: 'image' | 'file',
+  ): Promise<IAttachment | null> {
+    try {
+      const { existsSync: fsExists, mkdirSync, writeFileSync } = await import('node:fs');
+      const { join, resolve: pathResolve } = await import('node:path');
+      const { homedir } = await import('node:os');
+
+      const root = fileReceiveRoot ?? join(homedir(), 'Polarisor', 'macbook');
+      const inboxDir = join(root, '_feishu_inbox');
+      if (!fsExists(inboxDir)) mkdirSync(inboxDir, { recursive: true });
+
+      const safeName = fileName?.replace(/[/\\:*?"<>|]/g, '_') ?? `${fileKey}.dat`;
+      const localPath = pathResolve(inboxDir, `${Date.now()}_${safeName}`);
+
+      const res = await client.im.messageResource.get({
+        path: { message_id: messageId, file_key: fileKey },
+        params: { type: fileType },
+      });
+
+      if (res && typeof (res as any).writeFile === 'function') {
+        await (res as any).writeFile(localPath);
+      } else {
+        const stream = (res as any)?.getReadableStream?.();
+        if (stream) {
+          const chunks: Buffer[] = [];
+          for await (const chunk of stream as AsyncIterable<Buffer>) {
+            chunks.push(chunk);
+          }
+          writeFileSync(localPath, Buffer.concat(chunks));
+        } else {
+          console.error(`[${channelName}] ${fileType}下载无数据: ${fileKey}`);
+          return null;
+        }
+      }
+
+      console.error(`[${channelName}] 文件已下载: ${localPath}`);
+      return {
+        type: fileType,
+        url: `file://${localPath}`,
+        filename: safeName,
+      };
+    } catch (err) {
+      console.error(`[${channelName}] 文件下载失败 (${fileKey}):`, err);
+      return null;
     }
   }
 
@@ -213,7 +350,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
           if (!text || text.startsWith('/')) continue;
 
           console.error(`[${channelName}] 补漏消息: ${msgId} (${text.slice(0, 30)}...)`);
-          await handleTextMessage(chatId, msgId, senderId, text, msg.create_time);
+          enqueueMessage(chatId, msgId, senderId, text, msg.create_time);
           caught++;
         }
       } catch (err) {
@@ -242,29 +379,58 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       const chatId = str(message.chat_id);
       const messageType = str(message.message_type);
       const contentRaw = str(message.content);
-      if (!messageId || !chatId || !messageType || !contentRaw) return;
+      if (!messageId || !chatId || !messageType) return;
 
       const createTime = str(message.create_time);
 
       if (messageType === 'text') {
+        if (!contentRaw) return;
         const parsed = parseJsonContent(contentRaw);
         const text = parsed && typeof parsed.text === 'string' ? parsed.text.trim() : '';
         if (text && !text.startsWith('/')) {
-          await handleTextMessage(chatId, messageId, openId, text, createTime);
+          enqueueMessage(chatId, messageId, openId, text, createTime);
         }
         return;
       }
 
       if (messageType === 'post') {
+        if (!contentRaw) return;
         const parsed = parseJsonContent(contentRaw);
         const plain = parsed ? postToPlainText(parsed) : '';
         if (plain) {
-          await handleTextMessage(chatId, messageId, openId, plain, createTime);
+          enqueueMessage(chatId, messageId, openId, plain, createTime);
         }
         return;
       }
 
+      if (messageType === 'file') {
+        if (!contentRaw) return;
+        const parsed = parseJsonContent(contentRaw);
+        const fileKey = parsed && typeof parsed.file_key === 'string' ? parsed.file_key : '';
+        const fileName = parsed && typeof parsed.file_name === 'string' ? parsed.file_name : undefined;
+        if (!fileKey) return;
+
+        const attachment = await downloadFeishuFile(messageId, fileKey, fileName, 'file');
+        const label = fileName ? `[文件] ${fileName}` : '[文件]';
+        enqueueMessage(chatId, messageId, openId, label, createTime,
+          attachment ? [attachment] : undefined);
+        return;
+      }
+
+      if (messageType === 'image') {
+        if (!contentRaw) return;
+        const parsed = parseJsonContent(contentRaw);
+        const imageKey = parsed && typeof parsed.image_key === 'string' ? parsed.image_key : '';
+        if (!imageKey) return;
+
+        const attachment = await downloadFeishuFile(messageId, imageKey, `${imageKey}.png`, 'image');
+        enqueueMessage(chatId, messageId, openId, '[图片]', createTime,
+          attachment ? [attachment] : undefined);
+        return;
+      }
+
       if (messageType === 'interactive') {
+        if (!contentRaw) return;
         let summary = '[interactive card]';
         const parsed = parseJsonContent(contentRaw);
         if (parsed && isRecord(parsed.header)) {
@@ -273,7 +439,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
             summary = `[card] ${(title.title as Record<string, unknown>).content}`;
           }
         }
-        await handleTextMessage(chatId, messageId, openId, summary, createTime);
+        enqueueMessage(chatId, messageId, openId, summary, createTime);
       }
     },
   });
@@ -391,6 +557,10 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     },
 
     async stop() {
+      for (const [key, batch] of pendingBatches) {
+        clearTimeout(batch.timer);
+        await flushBatch(key);
+      }
       dedup?.flush();
       if (wsClient) {
         try { wsClient.close(); } catch { /* ignore */ }

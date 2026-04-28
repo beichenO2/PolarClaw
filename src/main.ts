@@ -138,7 +138,74 @@ async function main() {
     tools.register(lt);
   }
 
-  // 注册内置工具
+  // 注册内置工具 — 文件组织（将飞书收到的文件移到正确位置）
+  tools.register({
+    name: 'file_organize',
+    description: '将文件从飞书收件箱移动到指定目录。用于对收到的文件进行分类归档。学习类文件放 macbook/Class/<科目>/，科研类放 macbook/<项目名>/。',
+    parameters: {
+      type: 'object',
+      properties: {
+        source: { type: 'string', description: '源文件路径（通常是 _feishu_inbox 中的文件）' },
+        destination: { type: 'string', description: '目标目录路径（如 ~/Polarisor/macbook/Class/雷达实验/）' },
+        filename: { type: 'string', description: '目标文件名（可选，默认保留原名）' },
+      },
+      required: ['source', 'destination'],
+    },
+    async handler(args) {
+      const { rename, mkdir, stat, access } = await import('node:fs/promises');
+      const { join: pjoin, basename, resolve: presolve } = await import('node:path');
+
+      const src = presolve(String(args.source));
+      const destDir = presolve(String(args.destination));
+      const fname = args.filename ? String(args.filename) : basename(src).replace(/^\d+_/, '');
+
+      try { await access(src); } catch { throw new Error(`源文件不存在: ${src}`); }
+
+      await mkdir(destDir, { recursive: true });
+      const destPath = pjoin(destDir, fname);
+      await rename(src, destPath);
+      const info = await stat(destPath);
+      return {
+        ok: true,
+        path: destPath,
+        size: info.size,
+      };
+    },
+  });
+
+  tools.register({
+    name: 'file_inbox_list',
+    description: '列出飞书收件箱中尚未归档的文件。',
+    parameters: { type: 'object', properties: {}, required: [] },
+    async handler() {
+      const { readdir, stat } = await import('node:fs/promises');
+      const { join: pjoin } = await import('node:path');
+      const { homedir } = await import('node:os');
+
+      const inboxDir = process.env.FEISHU_FILE_ROOT
+        ? pjoin(process.env.FEISHU_FILE_ROOT, '_feishu_inbox')
+        : pjoin(homedir(), 'Polarisor', 'macbook', '_feishu_inbox');
+
+      try {
+        const entries = await readdir(inboxDir);
+        const files = [];
+        for (const e of entries) {
+          if (e.startsWith('.')) continue;
+          const info = await stat(pjoin(inboxDir, e));
+          files.push({
+            name: e,
+            path: pjoin(inboxDir, e),
+            size: info.size,
+            mtime: info.mtime.toISOString(),
+          });
+        }
+        return { inbox: inboxDir, files, count: files.length };
+      } catch {
+        return { inbox: inboxDir, files: [], count: 0 };
+      }
+    },
+  });
+
   tools.register({
     name: 'memory_save',
     description: '保存一条长期记忆（笔记），可选标签。',
@@ -386,6 +453,10 @@ async function main() {
   if (config.channels.feishu) {
     const feishuDataDir = join(config.projectRoot, '.data');
 
+    const debounceMs = Number(process.env.FEISHU_DEBOUNCE_MS) || 3000;
+    const fileReceiveRoot = process.env.FEISHU_FILE_ROOT
+      || join(process.env.HOME ?? '~', 'Polarisor', 'macbook');
+
     try {
       const adminConfig = loadFeishuConfig('FEISHU_ADMIN');
       const adminDedup = createFeishuDedup(feishuDataDir, 'feishu-admin');
@@ -394,6 +465,8 @@ async function main() {
         transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
         channelName: 'feishu:admin',
         dedup: adminDedup,
+        debounceMs,
+        fileReceiveRoot,
       });
       feishuAdmin.onMessage(async (msg) => handleChannelMessage(msg));
       await feishuAdmin.start();
@@ -415,6 +488,8 @@ async function main() {
           transport: (process.env.FEISHU_TRANSPORT as 'websocket' | 'webhook') || 'websocket',
           channelName: 'feishu:girlfriend',
           dedup: gfDedup,
+          debounceMs,
+          fileReceiveRoot,
         });
         feishuGf.onMessage(async (msg) => handleChannelMessage(msg));
         await feishuGf.start();

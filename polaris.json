@@ -20,10 +20,14 @@
         },
         {
           "name": "飞书通道",
-          "description": "多 Bot（管理/女友应用），Webhook 事件驱动",
+          "description": "多 Bot（管理/女友应用），消息聚合 + 文件接收",
           "status": "done",
           "behavior": [
-            "多 Bot（管理/女友应用），Webhook 事件驱动"
+            "多 Bot（管理/女友应用），WebSocket/Webhook 事件驱动",
+            "消息聚合：同一用户连续消息在 debounceMs 窗口内合并为一条（默认 3s）",
+            "文件/图片接收：处理 file/image 消息类型，自动下载到 _feishu_inbox/",
+            "file_organize 工具：Agent 根据上下文将文件从收件箱移到正确位置",
+            "file_inbox_list 工具：列出收件箱中待归档文件"
           ]
         },
         {
@@ -230,6 +234,42 @@
         }
       ],
       "blockers": []
+    },
+    {
+      "id": "R6",
+      "need": "元技能架构 + 生态地图",
+      "approach": "三层 Skill 架构：SOUL（生态地图）→ Meta-Skills（任务类型思维框架）→ Tool-Skills（按需加载工具）",
+      "features": [
+        {
+          "name": "生态地图",
+          "description": "SOUL.md 中嵌入 Polarisor 生态全景：项目、能力、文件系统约定",
+          "status": "planned",
+          "behavior": [
+            "SOUL.md 包含所有生态项目的名称、用途、接口",
+            "文件系统约定：macbook/Class（学习）、macbook/<project>（科研）"
+          ]
+        },
+        {
+          "name": "Meta-Skills",
+          "description": "任务类型元认知：实验+报告、研究型任务、日常对话",
+          "status": "planned",
+          "behavior": [
+            "skills/_meta/ 目录存放 .md 格式元技能",
+            "元技能描述注入 system prompt，不注册工具",
+            "包含思维框架和工具寻路指引"
+          ]
+        },
+        {
+          "name": "Tool-Skills 按需加载",
+          "description": "元技能触发时才加载对应的 Tool-Skills",
+          "status": "planned",
+          "behavior": [
+            "skill-registry 支持延迟加载（只注册元数据，不注册工具）",
+            "Agent 通过元技能指引选择加载哪些 Tool-Skills"
+          ]
+        }
+      ],
+      "blockers": []
     }
   ],
   "tech": {
@@ -246,7 +286,7 @@
     "Clock"
   ],
   "contacts": {
-    "last_updated": "2026-04-25",
-    "updated_by": "solo-web-557fb284"
+    "last_updated": "2026-04-28",
+    "updated_by": "solo-web-e8521f47"
   }
 }
