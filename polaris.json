@@ -193,7 +193,28 @@
           "description": "报告生成技能",
           "status": "done",
           "behavior": [
-            "报告生成技能"
+            "报告生成技能",
+            "lab-report skill 可通过 PolarPrivate LLM proxy + officecli 生成 Word 实验报告"
+          ]
+        },
+        {
+          "name": "雷达测距 MATLAB 报告链路",
+          "description": "radar-ranging-mat skill 支持 MATLAB R2026a 数据处理与实验报告生成",
+          "status": "done",
+          "tech": [
+            "MATLAB R2026a",
+            "matlab.engine 26.1",
+            "officecli 1.0.60"
+          ],
+          "interfaces": [
+            "npx tsx ../macbook/Class/雷达实验/雷达测距和距离分辨率/code_mat/run_mat.ts health",
+            "npx tsx ../macbook/Class/雷达实验/雷达测距和距离分辨率/code_mat/run_mat.ts report"
+          ],
+          "behavior": [
+            "自动识别 /Applications/MATLAB_R2026a.app 或 R2025b 的 MATLAB binary",
+            "venv_mat 中 matlab.engine 可导入并连接 MATLAB 路线",
+            "读取 code_mat/output_mat/results_mat.json 与测距图表，调用 lab-report 生成 report_mat/实验报告_雷达测距_mat.docx",
+            "2026-04-28 已验证生成 7 个章节、22 张图，officecli validate 通过"
           ]
         },
         {
@@ -287,6 +308,6 @@
   ],
   "contacts": {
     "last_updated": "2026-04-28",
-    "updated_by": "solo-web-e8521f47"
+    "updated_by": "solo-web-030276c0"
   }
 }

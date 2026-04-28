@@ -29,11 +29,22 @@ const REPORT_MAT = join(WORK, 'report_mat');
 const TEMPLATE = join(EXPERIMENT_ROOT, '实验报告模板.docx');
 const VENV_PYTHON = join(WORK, '.venv_mat/bin/python3');
 const PROCESS_SCRIPT = join(CODE_MAT, 'process_mat.py');
+const MATLAB_APP_CANDIDATES = [
+  '/Applications/MATLAB_R2026a.app',
+  '/Applications/MATLAB_R2025b.app',
+];
 
 // ─── Helpers ───────────────────────────────────────────────────────────
 
 async function fileExists(p: string): Promise<boolean> {
   try { await access(p); return true; } catch { return false; }
+}
+
+async function resolveMatlabApp(): Promise<string | null> {
+  for (const app of MATLAB_APP_CANDIDATES) {
+    if (await fileExists(join(app, 'bin/matlab'))) return app;
+  }
+  return null;
 }
 
 async function shell(
@@ -408,9 +419,13 @@ export const radarMatProcess: IToolHandler = {
 
     // Verify prerequisites
     if (!(await fileExists(VENV_PYTHON))) {
+      const matlabApp = await resolveMatlabApp();
+      const engineDir = matlabApp
+        ? join(matlabApp, 'extern/engines/python')
+        : '/Applications/MATLAB_R2026a.app/extern/engines/python';
       return {
         success: false,
-        error: `venv not found: ${VENV_PYTHON}. Run: python3 -m venv ${join(WORK, '.venv_mat')} && cd /Applications/MATLAB_R2025b.app/extern/engines/python && ${VENV_PYTHON} -m pip install .`,
+        error: `venv not found: ${VENV_PYTHON}. Run: python3 -m venv ${join(WORK, '.venv_mat')} && cd ${engineDir} && ${VENV_PYTHON} -m pip install .`,
       };
     }
     if (!(await fileExists(DATA_DIR))) {
@@ -560,7 +575,12 @@ export const radarMatHealth: IToolHandler = {
     const checks: Record<string, unknown> = {};
 
     // MATLAB binary
-    checks.matlab_binary = { exists: await fileExists('/Applications/MATLAB_R2025b.app/bin/matlab') };
+    const matlabApp = await resolveMatlabApp();
+    checks.matlab_binary = {
+      exists: Boolean(matlabApp),
+      app: matlabApp,
+      binary: matlabApp ? join(matlabApp, 'bin/matlab') : null,
+    };
 
     // venv + matlab.engine
     checks.venv_python = { exists: await fileExists(VENV_PYTHON) };
