@@ -153,7 +153,7 @@ export const digistStatus: IToolHandler = {
     const result: Record<string, unknown> = {};
 
     try {
-      result.health = await digistGet('/health', 5000);
+      result.health = await digistGet('/health?fast=1', 5000);
     } catch (err) {
       return { online: false, error: err instanceof Error ? err.message : String(err) };
     }
@@ -164,10 +164,6 @@ export const digistStatus: IToolHandler = {
 
     try {
       result.scheduler = await digistGet('/api/scheduler/status', 3000);
-    } catch { /* non-critical */ }
-
-    try {
-      result.port = await getDigistPort();
     } catch { /* non-critical */ }
 
     return { online: true, ...result };

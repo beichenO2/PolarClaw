@@ -99,4 +99,13 @@ export interface ILearningStore {
 
   /** 标记模式已提升为技能 */
   promotePattern(patternId: number, skillName: string): void;
+
+  /** 记录技能下某工具的一次成功使用，返回该技能的累计成功次数 */
+  recordSkillUse(skillName: string, toolName: string): number;
+
+  /** 查询技能的累计成功使用次数 */
+  getSkillUseCount(skillName: string): number;
+
+  /** 获取所有已注册的不同工具名（从 tool_usage 表动态查询） */
+  getDistinctToolNames(userId: string): string[];
 }

@@ -64,10 +64,12 @@ export function createSkillGenerator(config: ISkillGeneratorConfig, llm?: ILLMRo
         version: '0.1.0',
         path: join(skillDir, 'SKILL.md'),
         origin: 'generated',
+        status: 'draft',
+        successfulUses: 0,
         createdAt: new Date().toISOString(),
       };
 
-      console.error(`[SkillGenerator] 从模式生成技能: ${skillName} (${steps.length} 步)`);
+      console.error(`[SkillGenerator] 从模式生成技能: ${skillName} (${steps.length} 步) [draft]`);
       return { meta, skillDir, fromPattern: pattern };
     },
 
@@ -115,10 +117,12 @@ export function createSkillGenerator(config: ISkillGeneratorConfig, llm?: ILLMRo
           version: '0.1.0',
           path: join(skillDir, 'SKILL.md'),
           origin: 'generated',
+          status: 'draft',
+          successfulUses: 0,
           createdAt: new Date().toISOString(),
         };
 
-        console.error(`[SkillGenerator] 从描述生成技能: ${skillName}`);
+        console.error(`[SkillGenerator] 从描述生成技能: ${skillName} [draft]`);
         return { meta, skillDir };
       } catch (err) {
         console.error(`[SkillGenerator] LLM 生成失败:`, err);

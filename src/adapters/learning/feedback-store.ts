@@ -52,6 +52,14 @@ CREATE TABLE IF NOT EXISTS tool_patterns (
   skill_name TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS skill_tracking (
+  skill_name TEXT NOT NULL,
+  tool_name TEXT NOT NULL,
+  success_count INTEGER NOT NULL DEFAULT 0,
+  last_used_at TEXT NOT NULL,
+  PRIMARY KEY (skill_name, tool_name)
+);
 `;
 
 export function createLearningStore(dbPath: string): ILearningStore {
@@ -76,6 +84,22 @@ export function createLearningStore(dbPath: string): ILearningStore {
 
   const updatePatternPromoted = db.prepare(`
     UPDATE tool_patterns SET promoted = 1, skill_name = ? WHERE id = ?
+  `);
+
+  const upsertSkillTracking = db.prepare(`
+    INSERT INTO skill_tracking (skill_name, tool_name, success_count, last_used_at)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(skill_name, tool_name) DO UPDATE SET
+      success_count = success_count + 1,
+      last_used_at = ?
+  `);
+
+  const querySkillUseCount = db.prepare(`
+    SELECT COALESCE(SUM(success_count), 0) AS total FROM skill_tracking WHERE skill_name = ?
+  `);
+
+  const queryDistinctTools = db.prepare(`
+    SELECT DISTINCT tool_name FROM tool_usage WHERE user_id = ?
   `);
 
   return {
@@ -181,6 +205,23 @@ export function createLearningStore(dbPath: string): ILearningStore {
 
     promotePattern(patternId, skillName) {
       updatePatternPromoted.run(skillName, patternId);
+    },
+
+    recordSkillUse(skillName, toolName) {
+      const now = new Date().toISOString();
+      upsertSkillTracking.run(skillName, toolName, now, now);
+      const row = querySkillUseCount.get(skillName) as { total: number } | undefined;
+      return row?.total ?? 0;
+    },
+
+    getSkillUseCount(skillName) {
+      const row = querySkillUseCount.get(skillName) as { total: number } | undefined;
+      return row?.total ?? 0;
+    },
+
+    getDistinctToolNames(userId) {
+      const rows = queryDistinctTools.all(userId) as { tool_name: string }[];
+      return rows.map(r => r.tool_name);
     },
   };
 }

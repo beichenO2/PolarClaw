@@ -16,6 +16,10 @@ export interface ISkillMeta {
   path: string;
   /** 技能来源：static = 预置, generated = Agent 生成, composed = 组合 */
   origin?: 'static' | 'generated' | 'composed';
+  /** 验证状态：draft = 草稿(新生成), verified = 已验证(成功使用≥3次), retired = 已退役 */
+  status?: 'draft' | 'verified' | 'retired';
+  /** 生成后的成功使用次数 */
+  successfulUses?: number;
   /** 生成时间 */
   createdAt?: string;
   /** 此技能包含的工具名称列表（加载后填充） */

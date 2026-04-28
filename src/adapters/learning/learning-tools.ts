@@ -131,7 +131,7 @@ export function createLearningTools(deps: {
 
   const listSkills: IToolHandler = {
     name: 'learning_list_skills',
-    description: '列出所有已加载的技能及其工具。',
+    description: '列出所有已加载的技能及其工具，包含验证状态和使用次数。',
     parameters: { type: 'object', properties: {}, required: [] },
     handler() {
       const skills = skillRegistry.listSkills();
@@ -140,10 +140,14 @@ export function createLearningTools(deps: {
           name: s.name,
           description: s.description,
           origin: s.origin ?? 'static',
+          status: s.status ?? (s.origin === 'static' ? 'verified' : 'draft'),
+          successfulUses: s.successfulUses ?? 0,
           tools: s.toolNames ?? [],
           version: s.version,
         })),
         total: skills.length,
+        draft: skills.filter(s => s.status === 'draft').length,
+        verified: skills.filter(s => s.status === 'verified' || s.origin === 'static').length,
       };
     },
   };

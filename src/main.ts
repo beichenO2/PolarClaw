@@ -120,6 +120,12 @@ async function main() {
   }, llm);
   const skillComposer = createSkillComposer(tools);
 
+  // 连接自进化晋升系统
+  tools.setSkillRegistry(skillRegistry);
+  tools.onPromotion((skillName, useCount) => {
+    console.error(`[MyClaw] 技能晋升: ${skillName} → verified (${useCount} 次成功使用)`);
+  });
+
   // 注册学习系统工具（让 Agent 能调用反馈/生成/组合能力）
   const learningTools = createLearningTools({
     learningStore,

@@ -144,14 +144,7 @@ export function createPatternDetector(
   };
 
   function getDistinctToolNames(userId: string): string[] {
-    const names = new Set<string>();
-    for (const toolName of ['clock_get_user_context', 'clock_get_tasks', 'clock_get_timer_status',
-      'clock_get_schedule', 'clock_create_task', 'clock_complete_task',
-      'memory_save', 'memory_search']) {
-      const usage = learningStore.getUsageHistory(userId, toolName, 1);
-      if (usage.length > 0) names.add(toolName);
-    }
-    return Array.from(names);
+    return learningStore.getDistinctToolNames(userId);
   }
 }
 

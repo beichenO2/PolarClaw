@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 // ─── Paths ─────────────────────────────────────────────────────────────
 
 const EXPERIMENT_ROOT = resolve(
-  process.env.HOME ?? '/Users/macbook',
+  process.env.HOME ?? '~',
   'Polarisor/macbook/Class/雷达实验',
 );
 const SUBDIR = '雷达测距和距离分辨率';
