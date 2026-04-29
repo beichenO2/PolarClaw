@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 // ─── LLM Proxy (reuses MyClaw config convention) ───────────────────────
 
 const PP_URL = process.env.POLARPRIVATE_URL ?? 'http://127.0.0.1:12790';
-const LLM_BASE = process.env.MYCLAW_LLM_BASE_URL ?? `${PP_URL}/proxy/llm.aliyun.codingplan`;
+const LLM_BASE = process.env.MYCLAW_LLM_BASE_URL ?? `${PP_URL}/v1`;
 const LLM_MODEL = process.env.LAB_REPORT_MODEL ?? process.env.MYCLAW_MODEL_GENERAL ?? 'qwen3.6-plus';
 const LLM_TIMEOUT_MS = 120_000;
 

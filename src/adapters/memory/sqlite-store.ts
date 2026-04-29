@@ -19,8 +19,6 @@ CREATE TABLE IF NOT EXISTS memories (
   updated_at TEXT NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id);
-
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -60,8 +58,8 @@ function runMigrations(db: Database.Database): void {
   const cols = db.pragma('table_info(memories)') as Array<{ name: string }>;
   if (!cols.some(c => c.name === 'user_id')) {
     db.exec(MIGRATION_USER_ID);
-    db.exec('CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id)');
   }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id)');
 }
 
 export function createSqliteMemoryStore(dbPath: string): IMemoryStore {

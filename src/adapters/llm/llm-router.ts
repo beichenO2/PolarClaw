@@ -67,6 +67,29 @@ function detectIntent(messages: IChatMessage[]): IntentType {
   return 'general';
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function retryDelayFromError(message: string): number | null {
+  if (!message.includes('LLM API error 429')) return null;
+
+  const jsonStart = message.indexOf('{');
+  if (jsonStart >= 0) {
+    try {
+      const payload = JSON.parse(message.slice(jsonStart)) as { retry_after_seconds?: unknown };
+      const seconds = Number(payload.retry_after_seconds);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.min(seconds * 1000, 120_000);
+      }
+    } catch { /* fall back to header text below */ }
+  }
+
+  const match = message.match(/retry[_ -]?after[_ -]?seconds["']?\s*[:=]\s*(\d+)/i);
+  if (match) return Math.min(Number(match[1]) * 1000, 120_000);
+  return 60_000;
+}
+
 /** 向单个 Provider 发起请求 */
 async function callProvider(
   provider: IProviderConfig,
@@ -261,10 +284,34 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           const model = options.model ?? (provider.models[intent] ?? provider.models.general);
 
           try {
-            const result = await callProvider(
-              provider, messages, model, options,
-              defaultTemp, defaultMaxTokens, requestTimeoutMs,
-            );
+            let result: ILLMResponse | null = null;
+            let lastRateLimitError: string | null = null;
+
+            for (let attempt = 0; attempt < 3; attempt++) {
+              try {
+                result = await callProvider(
+                  provider, messages, model, options,
+                  defaultTemp, defaultMaxTokens, requestTimeoutMs,
+                );
+                break;
+              } catch (err) {
+                const errMsg = err instanceof Error ? err.message : String(err);
+                const retryDelayMs = retryDelayFromError(errMsg);
+                if (retryDelayMs == null || attempt >= 2) throw err;
+
+                lastRateLimitError = errMsg;
+                console.error(
+                  `[LLM Retry] Provider #${i} rate limited; retrying in ${Math.round(retryDelayMs / 1000)}s` +
+                  ` (attempt ${attempt + 2}/3)`
+                );
+                await sleep(retryDelayMs);
+              }
+            }
+
+            if (!result) {
+              throw new Error(lastRateLimitError ?? 'LLM provider returned no result');
+            }
+
             recordSuccess(i);
 
             if (i > 0) {

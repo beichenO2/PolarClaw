@@ -96,12 +96,12 @@ export function loadConfig(): IMyclawConfig {
   loadEnvFile(join(ROOT, '.env'));
 
   const ppUrl = env('POLARPRIVATE_URL', 'http://127.0.0.1:12790');
-  const defaultProxyUrl = `${ppUrl}/proxy/llm.aliyun.codingplan`;
+  const defaultV1Url = `${ppUrl}/v1`;
   const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || 'proxy-managed';
   if (apiKey === 'proxy-managed' && env('MYCLAW_LLM_BASE_URL')) {
     // Custom base URL with proxy-managed key — valid proxy override
   } else if (apiKey === 'proxy-managed') {
-    console.log('[Config] No API key found, defaulting to PolarPrivate Proxy mode');
+    console.log('[Config] No API key found, defaulting to PolarPrivate /v1 gateway');
   }
 
   // 解析备用 Provider（环境变量格式：MYCLAW_FALLBACK_1_URL, MYCLAW_FALLBACK_1_KEY, ...）
@@ -126,7 +126,7 @@ export function loadConfig(): IMyclawConfig {
   const config: IMyclawConfig = {
     projectRoot: ROOT,
     llm: {
-      baseUrl: env('MYCLAW_LLM_BASE_URL', defaultProxyUrl),
+      baseUrl: env('MYCLAW_LLM_BASE_URL', defaultV1Url),
       apiKey,
       models: {
         coding: env('MYCLAW_MODEL_CODING', 'qwen3-coder-plus'),

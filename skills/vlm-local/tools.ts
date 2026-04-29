@@ -93,7 +93,7 @@ export const tools: IToolHandler[] = [
       const base64Url = imageToBase64Url(imagePath);
 
       const baseUrl = process.env.MYCLAW_LLM_BASE_URL
-        || `${process.env.POLARPRIVATE_URL || 'http://127.0.0.1:12790'}/proxy/llm.aliyun.codingplan`;
+        || `${process.env.POLARPRIVATE_URL || 'http://127.0.0.1:12790'}/v1`;
       const apiKey = process.env.MYCLAW_LLM_API_KEY
         || process.env.DASHSCOPE_API_KEY
         || 'proxy-managed';
