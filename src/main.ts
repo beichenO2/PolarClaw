@@ -103,17 +103,22 @@ async function main() {
     enableSecretInterception: config.privacy.enableSecretInterception,
   });
 
-  // 读取 SOUL.md 作为 system prompt 基础
-  let soulPrompt = 'You are MyClaw, a helpful AI assistant.';
-  const soulPath = join(config.projectRoot, 'SOUL.md');
-  if (existsSync(soulPath)) {
-    soulPrompt = readFileSync(soulPath, 'utf8');
+  // 读取 SOUL.md 作为 system prompt 基础（优先 skills/SOUL.md 生态地图）
+  let soulPrompt = 'You are PolarClaw, a helpful AI assistant.';
+  const soulEcosystemPath = join(config.projectRoot, 'skills', 'SOUL.md');
+  const soulRootPath = join(config.projectRoot, 'SOUL.md');
+  if (existsSync(soulEcosystemPath)) {
+    const ecosystem = readFileSync(soulEcosystemPath, 'utf8');
+    const identity = existsSync(soulRootPath) ? readFileSync(soulRootPath, 'utf8') : '';
+    soulPrompt = identity ? `${identity}\n\n${ecosystem}` : ecosystem;
+  } else if (existsSync(soulRootPath)) {
+    soulPrompt = readFileSync(soulRootPath, 'utf8');
   }
 
   // 元技能索引（轻量扫描，不加载工具实现）
   const metaIndex = createMetaIndex();
   metaIndex.scan(config.skills.scanDirs);
-  console.error(`[MyClaw] 元技能索引: ${metaIndex.all().length} 技能已索引`);
+  console.error(`[MyClaw] 元技能索引: ${metaIndex.all().length} 技能, ${metaIndex.allMetaSkills().length} 元技能已索引`);
 
   // 技能注册表（按需加载技能工具）
   const skillRegistry = createSkillRegistry(tools);
@@ -198,16 +203,21 @@ async function main() {
 
   tools.register({
     name: 'file_inbox_list',
-    description: '列出飞书收件箱中尚未归档的文件。',
+    description: '列出飞书收件箱中尚未归档的文件。结果按用户隔离。',
     parameters: { type: 'object', properties: {}, required: [] },
     async handler() {
       const { readdir, stat } = await import('node:fs/promises');
       const { join: pjoin } = await import('node:path');
       const { homedir } = await import('node:os');
+      const { existsSync, mkdirSync } = await import('node:fs');
 
-      const inboxDir = process.env.FEISHU_FILE_ROOT
+      const userId = tools.getCurrentUserId();
+      const baseInbox = process.env.FEISHU_FILE_ROOT
         ? pjoin(process.env.FEISHU_FILE_ROOT, '_feishu_inbox')
         : pjoin(homedir(), 'Polarisor', 'macbook', '_feishu_inbox');
+      const inboxDir = pjoin(baseInbox, userId);
+
+      if (!existsSync(inboxDir)) mkdirSync(inboxDir, { recursive: true });
 
       try {
         const entries = await readdir(inboxDir);
@@ -231,7 +241,7 @@ async function main() {
 
   tools.register({
     name: 'memory_save',
-    description: '保存一条长期记忆（笔记），可选标签。',
+    description: '保存一条长期记忆（笔记），可选标签。记忆按用户隔离。',
     parameters: {
       type: 'object',
       properties: {
@@ -244,11 +254,13 @@ async function main() {
     handler(args) {
       const content = String(args.content ?? '');
       if (!content.trim()) throw new Error('content 不能为空');
+      const userId = tools.getCurrentUserId();
       const entry = memory.save({
         type: String(args.type ?? 'note'),
         content,
         tags: args.tags != null ? String(args.tags) : undefined,
         metadata: JSON.stringify({ source: 'tool' }),
+        userId,
       });
       return { id: entry.id, ok: true };
     },
@@ -256,7 +268,7 @@ async function main() {
 
   tools.register({
     name: 'memory_search',
-    description: '按关键词搜索记忆库（FTS5）。',
+    description: '按关键词搜索记忆库（FTS5）。结果按用户隔离。',
     parameters: {
       type: 'object',
       properties: {
@@ -268,7 +280,8 @@ async function main() {
     handler(args) {
       const q = String(args.query ?? '').trim();
       const limit = Number.isFinite(Number(args.limit)) ? Number(args.limit) : 8;
-      const result = memory.search(q, { limit });
+      const userId = tools.getCurrentUserId();
+      const result = memory.search(q, { limit, userId });
       return { hits: result.entries, total: result.total };
     },
   });
@@ -458,7 +471,7 @@ async function main() {
     getStatus: () => {
       const skills = skillRegistry.listSkills();
       return {
-        name: 'MyClaw',
+        name: 'PolarClaw',
         version: '0.1.0',
         channels: channels.map(ch => ({ name: ch.name, connected: true })),
         uptime: process.uptime(),
@@ -486,6 +499,12 @@ async function main() {
     const fileReceiveRoot = process.env.FEISHU_FILE_ROOT
       || join(process.env.HOME ?? '~', 'Polarisor', 'macbook');
 
+    const { createPolarPrivateClient } = await import('./adapters/privacy/polar-private-client.js');
+    const ppClient = createPolarPrivateClient({
+      baseUrl: config.privacy.polarPrivateUrl,
+    });
+    const resolveUser = async (openId: string) => ppClient.resolveFeishuUser(openId);
+
     try {
       const adminConfig = loadFeishuConfig('FEISHU_ADMIN');
       const adminDedup = createFeishuDedup(feishuDataDir, 'feishu-admin');
@@ -496,6 +515,7 @@ async function main() {
         dedup: adminDedup,
         debounceMs,
         fileReceiveRoot,
+        resolveUser,
       });
       feishuAdmin.onMessage(async (msg) => handleChannelMessage(msg));
       await feishuAdmin.start();
@@ -519,6 +539,7 @@ async function main() {
           dedup: gfDedup,
           debounceMs,
           fileReceiveRoot,
+          resolveUser,
         });
         feishuGf.onMessage(async (msg) => handleChannelMessage(msg));
         await feishuGf.start();

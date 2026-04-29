@@ -14,6 +14,7 @@ export interface IMemoryEntry {
   content: string;
   tags?: string;
   metadata?: string;
+  userId?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -33,11 +34,11 @@ export interface IUserProfile {
 
 /** 记忆存储接口 */
 export interface IMemoryStore {
-  /** 保存一条记忆 */
+  /** 保存一条记忆（userId 用于数据隔离） */
   save(entry: Omit<IMemoryEntry, 'id' | 'createdAt' | 'updatedAt'>): IMemoryEntry;
 
-  /** 全文搜索 */
-  search(query: string, options?: { limit?: number }): ISearchResult;
+  /** 全文搜索（userId 非空时强制按用户过滤） */
+  search(query: string, options?: { limit?: number; userId?: string }): ISearchResult;
 
   /** 保存用户画像 */
   saveProfile(userId: string, key: string, value: string | null): void;

@@ -7,9 +7,10 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsx watch src/main.ts",
-    "start": "node dist/main.js",
+    "start": "bash -lc 'if [ -s \"$HOME/.nvm/nvm.sh\" ]; then source \"$HOME/.nvm/nvm.sh\" && nvm use --silent; fi; node dist/main.js'",
     "test": "vitest run",
     "test:watch": "vitest",
+    "feishu:simulate": "tsx src/adapters/channel/feishu-simulate.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },

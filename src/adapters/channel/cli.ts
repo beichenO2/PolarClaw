@@ -14,8 +14,17 @@ export interface ICLIAdapterOptions {
   prompt?: string;
 }
 
+function parseUserFromArgs(): string | undefined {
+  const idx = process.argv.indexOf('--user');
+  if (idx >= 0 && idx + 1 < process.argv.length) {
+    return process.argv[idx + 1]!.trim() || undefined;
+  }
+  return undefined;
+}
+
 export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdapter {
-  const { channelName = 'cli', userId = 'cli-user', prompt = '你> ' } = options;
+  const argUser = parseUserFromArgs();
+  const { channelName = 'cli', userId = argUser ?? 'admin', prompt = '你> ' } = options;
   let messageHandler: ((msg: IInboundMessage) => Promise<string>) | null = null;
   let rl: readline.Interface | null = null;
   let running = false;
@@ -35,8 +44,9 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
 
       console.log('');
       console.log('╭──────────────────────────────────────╮');
-      console.log('│   MyClaw CLI — 输入消息开始对话      │');
-      console.log('│   输入 /quit 退出                    │');
+      console.log('│  PolarClaw CLI — 输入消息开始对话    │');
+      console.log(`│  用户: ${userId.padEnd(29)}│`);
+      console.log('│  输入 /quit 退出                     │');
       console.log('╰──────────────────────────────────────╯');
       console.log('');
 
@@ -64,7 +74,7 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
             }
 
             if (!messageHandler) {
-              console.log('[MyClaw] 未注册消息处理器');
+              console.log('[PolarClaw] 未注册消息处理器');
               askNext();
               return;
             }
@@ -78,7 +88,7 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
 
             try {
               const reply = await messageHandler(inbound);
-              console.log(`\nMyClaw> ${reply}\n`);
+              console.log(`\nPolarClaw> ${reply}\n`);
             } catch (err) {
               console.error(`\n[Error] ${err instanceof Error ? err.message : String(err)}\n`);
             }
@@ -100,7 +110,7 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
     },
 
     async send(message: IOutboundMessage) {
-      console.log(`\nMyClaw> ${message.text}\n`);
+      console.log(`\nPolarClaw> ${message.text}\n`);
     },
 
     onMessage(handler) {

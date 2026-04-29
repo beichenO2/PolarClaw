@@ -20,6 +20,8 @@ export type PromotionListener = (skillName: string, useCount: number) => void;
 export interface ITrackedToolExecutor extends IToolExecutor {
   /** 设置当前上下文（用于记录 userId / conversationId） */
   setContext(userId: string, conversationId: string): void;
+  /** 获取当前上下文 userId（用于工具内部的数据隔离） */
+  getCurrentUserId(): string;
   /** 注入 SkillRegistry 以启用自进化晋升 */
   setSkillRegistry(registry: ISkillRegistry): void;
   /** 晋升事件监听 */
@@ -128,6 +130,10 @@ export function createTrackedToolExecutor(
     setContext(userId: string, conversationId: string) {
       currentUserId = userId;
       currentConvId = conversationId;
+    },
+
+    getCurrentUserId() {
+      return currentUserId;
     },
 
     setSkillRegistry(registry: ISkillRegistry) {

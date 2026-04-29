@@ -23,7 +23,7 @@ export function Layout() {
   return (
     <div className="min-h-screen flex flex-col">
       <header className="px-6 py-4 border-b border-mc-border flex items-center gap-3">
-        <h1 className="text-lg font-semibold text-mc-purple">MyClaw</h1>
+        <h1 className="text-lg font-semibold text-mc-purple">PolarClaw</h1>
         <div className="flex items-center gap-1.5">
           <div className={`w-2 h-2 rounded-full transition-colors ${
             connected === null ? 'bg-mc-text-muted animate-pulse' :

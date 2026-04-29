@@ -25,7 +25,7 @@ export function DashboardPage() {
       <div className="text-center py-16 space-y-4">
         <div className="w-3 h-3 rounded-full bg-mc-red mx-auto" />
         <p className="text-mc-text-muted">{error}</p>
-        <p className="text-xs text-mc-text-muted">确保 MyClaw 已启动并开启 Web 端口</p>
+        <p className="text-xs text-mc-text-muted">确保 PolarClaw 已启动并开启 Web 端口</p>
       </div>
     )
   }

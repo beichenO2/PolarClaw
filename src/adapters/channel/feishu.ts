@@ -28,6 +28,8 @@ export interface IFeishuAdapterOptions {
   debounceMs?: number;
   /** 接收到文件时的本地存放根目录（默认 ~/Polarisor/macbook） */
   fileReceiveRoot?: string;
+  /** PolarPrivate 用户解析函数（可选，启用后将飞书 openId 映射为 Polarisor userId） */
+  resolveUser?: (openId: string) => Promise<{ user_id: string; username: string } | null>;
 }
 
 function resolveSdkDomain(config: IFeishuBotConfig) {
@@ -105,6 +107,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     dedup,
     debounceMs = 3000,
     fileReceiveRoot,
+    resolveUser,
   } = options;
   let messageHandler: ((msg: IInboundMessage) => Promise<string>) | null = null;
 
@@ -210,13 +213,25 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
   ) {
     if (!messageHandler || (!text && !attachments?.length)) return;
 
+    let resolvedUserId = openId ?? chatId;
+    if (resolveUser && openId) {
+      try {
+        const resolved = await resolveUser(openId);
+        if (resolved) {
+          resolvedUserId = resolved.user_id;
+        }
+      } catch (err) {
+        console.error(`[${channelName}] resolveUser failed for ${openId}:`, err);
+      }
+    }
+
     const inbound: IInboundMessage = {
       channel: channelName,
-      userId: openId ?? chatId,
+      userId: resolvedUserId,
       text: text || '',
       attachments,
       timestamp: new Date(),
-      metadata: { chatId, messageId, openId },
+      metadata: { chatId, messageId, openId, resolvedUserId },
     };
 
     try {
@@ -241,6 +256,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     fileKey: string,
     fileName: string | undefined,
     fileType: 'image' | 'file',
+    userId?: string,
   ): Promise<IAttachment | null> {
     try {
       const { existsSync: fsExists, mkdirSync, writeFileSync } = await import('node:fs');
@@ -248,7 +264,8 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       const { homedir } = await import('node:os');
 
       const root = fileReceiveRoot ?? join(homedir(), 'Polarisor', 'macbook');
-      const inboxDir = join(root, '_feishu_inbox');
+      const userDir = userId || 'unresolved';
+      const inboxDir = join(root, '_feishu_inbox', userDir);
       if (!fsExists(inboxDir)) mkdirSync(inboxDir, { recursive: true });
 
       const safeName = fileName?.replace(/[/\\:*?"<>|]/g, '_') ?? `${fileKey}.dat`;
@@ -410,7 +427,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
         const fileName = parsed && typeof parsed.file_name === 'string' ? parsed.file_name : undefined;
         if (!fileKey) return;
 
-        const attachment = await downloadFeishuFile(messageId, fileKey, fileName, 'file');
+        const attachment = await downloadFeishuFile(messageId, fileKey, fileName, 'file', openId);
         const label = fileName ? `[文件] ${fileName}` : '[文件]';
         enqueueMessage(chatId, messageId, openId, label, createTime,
           attachment ? [attachment] : undefined);
@@ -423,7 +440,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
         const imageKey = parsed && typeof parsed.image_key === 'string' ? parsed.image_key : '';
         if (!imageKey) return;
 
-        const attachment = await downloadFeishuFile(messageId, imageKey, `${imageKey}.png`, 'image');
+        const attachment = await downloadFeishuFile(messageId, imageKey, `${imageKey}.png`, 'image', openId);
         enqueueMessage(chatId, messageId, openId, '[图片]', createTime,
           attachment ? [attachment] : undefined);
         return;

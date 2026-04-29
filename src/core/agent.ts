@@ -140,10 +140,10 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       }
     }
 
-    // FTS 搜索相关记忆
+    // FTS 搜索相关记忆（按 userId 隔离）
     const query = queryText.trim().slice(0, 120);
     if (query.length >= 2) {
-      const result = memory.search(query, { limit: 5 });
+      const result = memory.search(query, { limit: 5, userId });
       if (result.entries.length > 0) {
         lines.push('**相关记忆**');
         for (const entry of result.entries) {

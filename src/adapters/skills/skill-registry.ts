@@ -145,6 +145,7 @@ export function createSkillRegistry(
 
         const entries = readdirSync(dir);
         for (const entry of entries) {
+          if (entry === '_meta') continue;
           const skillDir = join(dir, entry);
           if (!statSync(skillDir).isDirectory()) continue;
           if (!existsSync(join(skillDir, 'SKILL.md'))) continue;

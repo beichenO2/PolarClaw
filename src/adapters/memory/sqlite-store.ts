@@ -14,9 +14,12 @@ CREATE TABLE IF NOT EXISTS memories (
   content TEXT NOT NULL DEFAULT '',
   metadata TEXT,
   tags TEXT,
+  user_id TEXT NOT NULL DEFAULT 'admin',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id);
 
 CREATE TABLE IF NOT EXISTS user_profiles (
   user_id TEXT NOT NULL,
@@ -49,17 +52,30 @@ CREATE TRIGGER IF NOT EXISTS memories_au AFTER UPDATE ON memories BEGIN
 END;
 `;
 
+const MIGRATION_USER_ID = `
+  ALTER TABLE memories ADD COLUMN user_id TEXT NOT NULL DEFAULT 'admin';
+`;
+
+function runMigrations(db: Database.Database): void {
+  const cols = db.pragma('table_info(memories)') as Array<{ name: string }>;
+  if (!cols.some(c => c.name === 'user_id')) {
+    db.exec(MIGRATION_USER_ID);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id)');
+  }
+}
+
 export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.exec(SCHEMA);
+  runMigrations(db);
 
   const insertMemory = db.prepare(`
-    INSERT INTO memories (type, content, metadata, tags, created_at, updated_at)
-    VALUES (@type, @content, @metadata, @tags, @createdAt, @updatedAt)
+    INSERT INTO memories (type, content, metadata, tags, user_id, created_at, updated_at)
+    VALUES (@type, @content, @metadata, @tags, @userId, @createdAt, @updatedAt)
   `);
 
-  const searchFts = db.prepare(`
+  const searchFtsGlobal = db.prepare(`
     SELECT m.* FROM memories m
     JOIN memories_fts fts ON fts.rowid = m.id
     WHERE memories_fts MATCH @query
@@ -67,8 +83,22 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
     LIMIT @limit
   `);
 
-  const countFts = db.prepare(`
+  const searchFtsByUser = db.prepare(`
+    SELECT m.* FROM memories m
+    JOIN memories_fts fts ON fts.rowid = m.id
+    WHERE memories_fts MATCH @query AND m.user_id = @userId
+    ORDER BY rank
+    LIMIT @limit
+  `);
+
+  const countFtsGlobal = db.prepare(`
     SELECT count(*) as total FROM memories_fts WHERE memories_fts MATCH @query
+  `);
+
+  const countFtsByUser = db.prepare(`
+    SELECT count(*) as total FROM memories m
+    JOIN memories_fts fts ON fts.rowid = m.id
+    WHERE memories_fts MATCH @query AND m.user_id = @userId
   `);
 
   const upsertProfile = db.prepare(`
@@ -93,6 +123,7 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
         content: entry.content,
         metadata: entry.metadata ?? null,
         tags: entry.tags ?? null,
+        userId: entry.userId ?? 'admin',
         createdAt: now,
         updatedAt: now,
       });
@@ -102,6 +133,7 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
         content: entry.content,
         tags: entry.tags,
         metadata: entry.metadata,
+        userId: entry.userId ?? 'admin',
         createdAt: new Date(now),
         updatedAt: new Date(now),
       };
@@ -109,6 +141,7 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
 
     search(query, options = {}) {
       const limit = options.limit ?? 10;
+      const userId = options.userId;
       let safeQuery = query.replace(/['"]/g, '');
       if (!safeQuery.trim()) return { entries: [], total: 0 };
 
@@ -121,11 +154,21 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
       }
 
       try {
-        const rows = searchFts.all({ query: safeQuery, limit }) as Array<{
+        type MemRow = {
           id: number; type: string; content: string; metadata: string | null;
-          tags: string | null; created_at: string; updated_at: string;
-        }>;
-        const countRow = countFts.get({ query: safeQuery }) as { total: number } | undefined;
+          tags: string | null; user_id: string; created_at: string; updated_at: string;
+        };
+
+        let rows: MemRow[];
+        let countRow: { total: number } | undefined;
+
+        if (userId) {
+          rows = searchFtsByUser.all({ query: safeQuery, limit, userId }) as MemRow[];
+          countRow = countFtsByUser.get({ query: safeQuery, userId }) as { total: number } | undefined;
+        } else {
+          rows = searchFtsGlobal.all({ query: safeQuery, limit }) as MemRow[];
+          countRow = countFtsGlobal.get({ query: safeQuery }) as { total: number } | undefined;
+        }
 
         return {
           entries: rows.map(r => ({
@@ -134,6 +177,7 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
             content: r.content,
             tags: r.tags ?? undefined,
             metadata: r.metadata ?? undefined,
+            userId: r.user_id,
             createdAt: new Date(r.created_at),
             updatedAt: new Date(r.updated_at),
           })),
