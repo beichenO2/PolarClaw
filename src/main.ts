@@ -357,14 +357,46 @@ async function main() {
   );
 
   // 纠正信号检测：当用户消息包含纠正意图时，注入提示让 Agent 记录反馈
+  // 纠正信号预过滤（低成本正则，只决定是否启动后台 LLM 分析）
   const CORRECTION_PATTERNS = [
     /不[是对]/, /错了/, /我[要想]的是/, /不是这样/, /你[搞弄]错/,
     /重[新来做]/, /我说的是/, /别这样/, /不要这样/,
     /应该是/, /改[成为]/, /换[个一]种/, /不够好/, /太[差烂]/,
   ];
 
-  function detectCorrection(text: string): boolean {
+  function maybeCorrecting(text: string): boolean {
     return CORRECTION_PATTERNS.some(p => p.test(text));
+  }
+
+  /** 后台 LLM 分析：独立链路判断纠正并自动记录反馈（不污染主对话） */
+  async function analyzeCorrection(userId: string, userText: string, lastAssistantText: string) {
+    try {
+      const res = await llm.chat([
+        { role: 'system', content: `你是一个行为分析器。判断用户消息是否在纠正 AI 助手的行为。
+如果是纠正，返回 JSON: {"correction": true, "original": "AI做了什么", "expected": "用户期望什么", "rule": "一句话偏好规则"}
+如果不是纠正，返回 JSON: {"correction": false}
+只返回 JSON，不要解释。` },
+        { role: 'user', content: `AI 上一条回复：${lastAssistantText.slice(0, 500)}\n\n用户消息：${userText}` },
+      ], { temperature: 0, maxTokens: 200 });
+
+      const content = res.content?.trim() ?? '';
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) return;
+
+      const result = JSON.parse(jsonMatch[0]);
+      if (result.correction) {
+        learningStore.recordFeedback({
+          userId,
+          type: 'correction',
+          original: String(result.original ?? ''),
+          expected: String(result.expected ?? ''),
+          rule: result.rule ? String(result.rule) : undefined,
+        });
+        console.error(`[SelfEvolution] 后台检测到纠正 → 已记录: ${result.rule ?? '(无规则)'}`);
+      }
+    } catch {
+      // 后台分析失败不影响主流程
+    }
   }
 
   // 定期模式扫描：每 SCAN_INTERVAL 次工具调用后触发
@@ -390,21 +422,17 @@ async function main() {
 
   // 消息队列：同一用户的消息串行处理，避免对话历史竞争
   const userLocks = new Map<string, Promise<unknown>>();
+  const lastAssistantReply = new Map<string, string>();
 
   async function handleChannelMessage(msg: { channel: string; userId: string; text: string }) {
     const convId = `${msg.channel}:${msg.userId}`;
-
-    // 纠正信号检测：注入提示让 Agent 使用 learning_record_feedback
-    let processedText = msg.text;
-    if (detectCorrection(msg.text)) {
-      processedText = `[系统提示：用户的消息可能包含对你之前行为的纠正。请仔细理解用户期望，并使用 learning_record_feedback 记录这次纠正。]\n\n${msg.text}`;
-      console.error(`[SelfEvolution] 检测到纠正信号: ${msg.text.slice(0, 60)}`);
-    }
+    const possibleCorrection = maybeCorrecting(msg.text);
+    const prevReply = lastAssistantReply.get(convId) ?? '';
 
     const prev = userLocks.get(convId) ?? Promise.resolve();
     const current = prev.then(async () => {
       tools.setContext(msg.userId, convId);
-      return agent.handleMessage(msg.channel, msg.userId, processedText, convId);
+      return agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
     }).catch((err) => {
       console.error(`[MyClaw] handleChannelMessage error for ${convId}:`, err);
       return { text: '抱歉，处理消息时出错了，请稍后再试。' };
@@ -416,6 +444,13 @@ async function main() {
     });
 
     const result = await current;
+    lastAssistantReply.set(convId, result.text);
+
+    // 后台纠正分析（异步，不阻塞响应返回、不污染主对话）
+    if (possibleCorrection && prevReply) {
+      analyzeCorrection(msg.userId, msg.text, prevReply).catch(() => {});
+    }
+
     return result.text;
   }
 
