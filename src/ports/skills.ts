@@ -72,8 +72,8 @@ export interface ISkillSearchResult {
 
 /** 技能注册表 — 运行时管理所有技能的生命周期 */
 export interface ISkillRegistry {
-  /** 首次启动：扫描 + 注册所有技能 */
-  init(scanDirs: string[]): Promise<void>;
+  /** 首次启动：扫描 + 注册技能。loadTools=false 时仅注册目录不加载工具。 */
+  init(scanDirs: string[], options?: { loadTools?: boolean }): Promise<void>;
 
   /** 开启文件监听，变更时自动热加载 */
   watch(): void;

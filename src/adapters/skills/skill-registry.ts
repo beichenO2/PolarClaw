@@ -137,8 +137,14 @@ export function createSkillRegistry(
   }
 
   return {
-    async init(scanDirs) {
+    async init(scanDirs, options?: { loadTools?: boolean }) {
       watchDirs = scanDirs;
+      const shouldLoad = options?.loadTools ?? true;
+
+      if (!shouldLoad) {
+        console.error(`[SkillRegistry] 初始化完成 (仅扫描模式): 工具按需通过 skill_activate 加载`);
+        return;
+      }
 
       for (const dir of scanDirs) {
         if (!existsSync(dir)) continue;

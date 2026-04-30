@@ -161,21 +161,18 @@ async function main() {
   const metaIndex = createMetaIndex();
   metaIndex.scan(config.skills.scanDirs);
   const skillRegistry = createSkillRegistry(tools);
+  await skillRegistry.init(config.skills.scanDirs, { loadTools: false });
 
-  const SKILL_INIT_TIMEOUT = 30000;
-  try {
-    await Promise.race([
-      skillRegistry.init(config.skills.scanDirs),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('技能加载超时 (30s)')), SKILL_INIT_TIMEOUT)
-      ),
-    ]);
-  } catch (err) {
-    console.error(`[feishu-simulate] 技能加载: ${err instanceof Error ? err.message : String(err)}，继续运行（部分技能可能不可用）`);
-  }
-
-  for (const skill of skillRegistry.listSkills()) {
-    metaIndex.markActivated(skill.name, skill.toolNames ?? []);
+  // 注册技能发现工具（让 Agent 能按需搜索和加载技能）
+  const { createSkillDiscoveryTools } = await import('../skills/skill-discovery.js');
+  const discoveryTools = createSkillDiscoveryTools({
+    metaIndex,
+    skillRegistry,
+    polarisorRoot: join(config.projectRoot, '..'),
+    localSkillDirs: config.skills.scanDirs,
+  });
+  for (const dt of discoveryTools) {
+    tools.register(dt);
   }
 
   const skillCatalog = metaIndex.toPromptCatalog();

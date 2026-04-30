@@ -120,15 +120,10 @@ async function main() {
   metaIndex.scan(config.skills.scanDirs);
   console.error(`[MyClaw] 元技能索引: ${metaIndex.all().length} 技能, ${metaIndex.allMetaSkills().length} 元技能已索引`);
 
-  // 技能注册表（按需加载技能工具）
+  // 技能注册表（按需加载模式：只扫描目录，工具通过 skill_activate 按需加载）
   const skillRegistry = createSkillRegistry(tools);
-  await skillRegistry.init(config.skills.scanDirs);
+  await skillRegistry.init(config.skills.scanDirs, { loadTools: false });
   skillRegistry.watch();
-
-  // 标记已加载技能为已激活
-  for (const skill of skillRegistry.listSkills()) {
-    metaIndex.markActivated(skill.name, skill.toolNames ?? []);
-  }
 
   // 学习子系统
   const patternDetector = createPatternDetector(learningStore);
