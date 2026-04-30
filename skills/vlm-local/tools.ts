@@ -1,6 +1,12 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { extname } from 'node:path';
-import type { IToolHandler } from '../../src/ports/tools.js';
+
+interface IToolHandler {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+}
 
 const MIME_MAP: Record<string, string> = {
   '.png': 'image/png',

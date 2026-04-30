@@ -103,10 +103,11 @@ export function createSkillLoader(): ISkillLoader {
     },
 
     async registerTools(skills, register) {
+      const SKILL_IMPORT_TIMEOUT = 10000;
+
       for (const skill of skills) {
         const skillDir = join(skill.path, '..');
 
-        // 优先 .js（预编译），回退 .ts（需 tsx loader）
         const jsPath = join(skillDir, 'tools.js');
         const tsPath = join(skillDir, 'tools.ts');
         const toolsPath = existsSync(jsPath) ? jsPath : tsPath;
@@ -120,12 +121,14 @@ export function createSkillLoader(): ISkillLoader {
           if (toolsPath.endsWith('.ts')) {
             await ensureTsxLoader();
           }
-          const mod = await import(pathToFileURL(toolsPath).href);
 
-          // 寻找 IToolHandler[] 导出：
-          // 1. 默认导出（default）
-          // 2. 以 Tools 结尾的命名导出（如 clockTools）
-          // 3. 名为 tools 的导出
+          const mod = await Promise.race([
+            import(pathToFileURL(toolsPath).href),
+            new Promise<never>((_, reject) =>
+              setTimeout(() => reject(new Error(`import 超时 (${SKILL_IMPORT_TIMEOUT}ms)`)), SKILL_IMPORT_TIMEOUT)
+            ),
+          ]);
+
           let handlers: IToolHandler[] = [];
 
           if (Array.isArray(mod.default)) {
@@ -156,7 +159,8 @@ export function createSkillLoader(): ISkillLoader {
             console.error(`[SkillLoader] ${skill.name}: tools.ts 未导出有效的工具数组`);
           }
         } catch (err) {
-          console.error(`[SkillLoader] ${skill.name} 加载失败:`, err);
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[SkillLoader] ${skill.name} 加载失败: ${msg}`);
         }
       }
     },

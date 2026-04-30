@@ -1,5 +1,11 @@
 import { execSync } from 'node:child_process';
-import type { IToolHandler } from '../../src/ports/tools.js';
+
+interface IToolHandler {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+}
 
 function runOfficecli(args: string, timeoutMs = 30000): string {
   try {

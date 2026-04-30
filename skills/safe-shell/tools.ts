@@ -2,7 +2,13 @@ import { execSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { homedir } from 'node:os';
-import type { IToolHandler } from '../../src/ports/tools.js';
+
+interface IToolHandler {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+}
 
 const POLARISOR_ROOT = resolve(homedir(), 'Polarisor');
 const MAX_OUTPUT = 50 * 1024;
