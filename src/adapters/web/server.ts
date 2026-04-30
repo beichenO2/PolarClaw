@@ -150,7 +150,7 @@ export function createWebServer(config: WebServerConfig) {
   }
 
   // ── Static: serve Web SPA ──────────────────────────────
-  const distDir = config.webDistDir ?? join(__dirname, '..', '..', '..', 'web', 'dist');
+  const distDir = config.webDistDir ?? '';
   if (existsSync(distDir)) {
     app.use('/mc', express.static(distDir));
     app.get(/^\/mc\/.*/, (_req, res) => {
