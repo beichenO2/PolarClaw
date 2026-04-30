@@ -156,7 +156,19 @@ async function main() {
   const metaIndex = createMetaIndex();
   metaIndex.scan(config.skills.scanDirs);
   const skillRegistry = createSkillRegistry(tools);
-  await skillRegistry.init(config.skills.scanDirs);
+
+  // 技能加载带超时保护，避免某个 tools.ts 的动态导入卡住整个进程
+  const SKILL_INIT_TIMEOUT = 30000;
+  try {
+    await Promise.race([
+      skillRegistry.init(config.skills.scanDirs),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('技能加载超时 (30s)')), SKILL_INIT_TIMEOUT)
+      ),
+    ]);
+  } catch (err) {
+    console.error(`[feishu-simulate] 技能加载: ${err instanceof Error ? err.message : String(err)}，继续运行（部分技能可能不可用）`);
+  }
 
   for (const skill of skillRegistry.listSkills()) {
     metaIndex.markActivated(skill.name, skill.toolNames ?? []);
