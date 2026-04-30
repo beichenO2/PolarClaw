@@ -148,16 +148,20 @@ async function main() {
   });
 
   let soulPrompt = 'You are PolarClaw, a helpful AI assistant.';
-  const soulPath = join(config.projectRoot, 'SOUL.md');
-  if (existsSync(soulPath)) {
-    soulPrompt = readFileSync(soulPath, 'utf8');
+  const soulEcosystemPath = join(config.projectRoot, 'skills', 'SOUL.md');
+  const soulRootPath = join(config.projectRoot, 'SOUL.md');
+  if (existsSync(soulEcosystemPath)) {
+    const ecosystem = readFileSync(soulEcosystemPath, 'utf8');
+    const identity = existsSync(soulRootPath) ? readFileSync(soulRootPath, 'utf8') : '';
+    soulPrompt = identity ? `${identity}\n\n${ecosystem}` : ecosystem;
+  } else if (existsSync(soulRootPath)) {
+    soulPrompt = readFileSync(soulRootPath, 'utf8');
   }
 
   const metaIndex = createMetaIndex();
   metaIndex.scan(config.skills.scanDirs);
   const skillRegistry = createSkillRegistry(tools);
 
-  // 技能加载带超时保护，避免某个 tools.ts 的动态导入卡住整个进程
   const SKILL_INIT_TIMEOUT = 30000;
   try {
     await Promise.race([
@@ -179,6 +183,37 @@ async function main() {
     ? `${soulPrompt}\n\n${skillCatalog}`
     : soulPrompt;
 
+  // Persona resolver（与 main.ts 共享逻辑）
+  const personaDir = join(config.projectRoot, 'personas');
+  function resolvePersona(userId: string): string {
+    const candidates = [
+      join(personaDir, `${userId}.md`),
+      join(personaDir, 'default.md'),
+    ];
+    for (const p of candidates) {
+      try {
+        if (!existsSync(p)) continue;
+        let raw = readFileSync(p, 'utf8');
+        if (raw.includes('{{llm_model}}')) {
+          raw = raw.replace(/\{\{llm_model\}\}/g, config.llm.models.general ?? 'qwen3.6-plus');
+        }
+        if (raw.includes('{{capabilities}}')) {
+          const caps = [
+            'ReAct 工具调用 + 多通道交互（飞书/CLI/Web）',
+            '主动关怀与日程驱动调度',
+            'YOLO 自主执行模式',
+            'Web 控制台与文档审阅',
+            '生态技能集成（AutoOffice/KnowLever/digist/ComputerUse 等 ' + tools.list().length + ' 个工具）',
+            '元技能架构 + 自学习能力',
+          ];
+          raw = raw.replace(/\{\{capabilities\}\}/g, caps.map(c => `> - ${c}`).join('\n'));
+        }
+        return raw;
+      } catch { /* try next */ }
+    }
+    return '';
+  }
+
   const compressor = createContextCompressor({
     triggerRatio: 0.7,
     toolOutputMaxLen: 2000,
@@ -196,6 +231,7 @@ async function main() {
   const agent = createAgent(
     {
       systemPrompt: fullSystemPrompt,
+      personaResolver: resolvePersona,
       maxToolRounds: config.llm.maxToolRounds,
       temperature: config.llm.temperature,
       maxTokens: config.llm.maxTokens,

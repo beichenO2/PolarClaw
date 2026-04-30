@@ -287,6 +287,19 @@
           ]
         },
         {
+          "name": "差异化提示词",
+          "description": "按 userId 加载不同 persona，实现多用户差异化交互风格",
+          "status": "done",
+          "behavior": [
+            "personas/{userId}.md 匹配具体用户，fallback 到 personas/default.md",
+            "Admin persona：专业高效，自述时包含 LLM 模型名和 R1-R6 能力列表",
+            "Default persona：轻松有趣，穿插对 Admin 设计的赞赏",
+            "persona 与 SOUL.md 合并注入，SOUL 是生态地图，persona 是人格风格",
+            "支持模板变量 {{llm_model}} 和 {{capabilities}} 动态替换",
+            "文件级缓存，persona 修改后自动热更新"
+          ]
+        },
+        {
           "name": "Meta-Skills",
           "description": "任务类型元认知：实验+报告等思维框架",
           "status": "done",
@@ -325,7 +338,7 @@
     "Clock"
   ],
   "contacts": {
-    "last_updated": "2026-04-29",
-    "updated_by": "solo-web-052dbfd3"
+    "last_updated": "2026-04-30",
+    "updated_by": "solo-web-3d72f173"
   }
 }

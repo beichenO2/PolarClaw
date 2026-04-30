@@ -307,10 +307,53 @@ async function main() {
     ? `${soulPrompt}\n\n${skillCatalog}`
     : soulPrompt;
 
+  // Persona resolver：按 userId 加载差异化人格（personas/{userId}.md → personas/default.md）
+  const personaDir = join(config.projectRoot, 'personas');
+  const personaCache = new Map<string, { content: string; mtime: number }>();
+
+  function resolvePersona(userId: string): string {
+    const candidates = [
+      join(personaDir, `${userId}.md`),
+      join(personaDir, 'default.md'),
+    ];
+    for (const p of candidates) {
+      try {
+        const stat = require('node:fs').statSync(p);
+        const mtime = stat.mtimeMs;
+        const cached = personaCache.get(p);
+        if (cached && cached.mtime === mtime) return cached.content;
+
+        let raw = readFileSync(p, 'utf8');
+
+        // 模板变量替换
+        if (raw.includes('{{llm_model}}')) {
+          const modelName = config.llm.models.general ?? 'qwen3.6-plus';
+          raw = raw.replace(/\{\{llm_model\}\}/g, modelName);
+        }
+        if (raw.includes('{{capabilities}}')) {
+          const caps = [
+            'ReAct 工具调用 + 多通道交互（飞书/CLI/Web）',
+            '主动关怀与日程驱动调度',
+            'YOLO 自主执行模式',
+            'Web 控制台与文档审阅',
+            '生态技能集成（AutoOffice/KnowLever/digist/ComputerUse 等 ' + tools.list().length + ' 个工具）',
+            '元技能架构 + 自学习能力',
+          ];
+          raw = raw.replace(/\{\{capabilities\}\}/g, caps.map(c => `> - ${c}`).join('\n'));
+        }
+
+        personaCache.set(p, { content: raw, mtime });
+        return raw;
+      } catch { /* file not found, try next */ }
+    }
+    return '';
+  }
+
   // 创建 Agent
   const agent = createAgent(
     {
       systemPrompt: fullSystemPrompt,
+      personaResolver: resolvePersona,
       maxToolRounds: config.llm.maxToolRounds,
       temperature: config.llm.temperature,
       maxTokens: config.llm.maxTokens,

@@ -19,8 +19,10 @@ import type { IContextCompressor } from '../ports/compression.js';
 export interface IAgentConfig {
   /** 工具调用安全上限（0 = 无限制，由压缩器管理上下文） */
   maxToolRounds: number;
-  /** system prompt */
+  /** system prompt（基础部分，persona 会追加到末尾） */
   systemPrompt: string;
+  /** 按 userId 返回 persona 内容；不提供则所有用户共享同一 systemPrompt */
+  personaResolver?: (userId: string) => string;
   /** 温度 */
   temperature?: number;
   /** 最大输出 token */
@@ -106,7 +108,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
     const existingHistory = conversations.getHistory(convId);
     const isOngoing = existingHistory.length > 2;
-    const result = await runLoop(convId, isOngoing);
+    const result = await runLoop(convId, userId, isOngoing);
 
     // 6. 隐私网关出站还原
     const restoredText = privacy.desanitize(userId, result.text);
@@ -162,11 +164,17 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   }
 
   /** Agent 主循环：system + 历史消息 → LLM → 工具调用 → 观察 → 重复 */
-  async function runLoop(convId: string, isOngoing = false): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
+  async function runLoop(convId: string, userId: string, isOngoing = false): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
 
     // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
     const compressionBudget = (config.maxTokens ?? 4096) * 12;
+
+    // 按 userId 解析 persona 并合并到 system prompt
+    const persona = config.personaResolver?.(userId) ?? '';
+    const basePrompt = persona
+      ? `${config.systemPrompt}\n\n${persona}`
+      : config.systemPrompt;
 
     const maxRounds = config.maxToolRounds > 0 ? config.maxToolRounds : Infinity;
     for (let round = 0; round < maxRounds; round++) {
@@ -186,8 +194,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       }
 
       const systemContent = isOngoing
-        ? config.systemPrompt + '\n\n[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]'
-        : config.systemPrompt;
+        ? basePrompt + '\n\n[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]'
+        : basePrompt;
 
       const messages: IChatMessage[] = [
         { role: 'system', content: systemContent },
