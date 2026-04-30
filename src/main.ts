@@ -356,16 +356,55 @@ async function main() {
     { llm, memory, conversations, tools, privacy, compressor },
   );
 
+  // 纠正信号检测：当用户消息包含纠正意图时，注入提示让 Agent 记录反馈
+  const CORRECTION_PATTERNS = [
+    /不[是对]/, /错了/, /我[要想]的是/, /不是这样/, /你[搞弄]错/,
+    /重[新来做]/, /我说的是/, /别这样/, /不要这样/,
+    /应该是/, /改[成为]/, /换[个一]种/, /不够好/, /太[差烂]/,
+  ];
+
+  function detectCorrection(text: string): boolean {
+    return CORRECTION_PATTERNS.some(p => p.test(text));
+  }
+
+  // 定期模式扫描：每 SCAN_INTERVAL 次工具调用后触发
+  const PATTERN_SCAN_INTERVAL = 20;
+  let toolCallsSinceLastScan = 0;
+
+  const originalExecute = tools.execute.bind(tools);
+  const wrappedExecute: typeof tools.execute = async (name, args) => {
+    const result = await originalExecute(name, args);
+    toolCallsSinceLastScan++;
+    if (toolCallsSinceLastScan >= PATTERN_SCAN_INTERVAL) {
+      toolCallsSinceLastScan = 0;
+      try {
+        const patterns = patternDetector.detect('admin');
+        if (patterns.length > 0) {
+          console.error(`[SelfEvolution] 新模式发现: ${patterns.map(p => p.name).join(', ')}`);
+        }
+      } catch { /* non-critical */ }
+    }
+    return result;
+  };
+  Object.defineProperty(tools, 'execute', { value: wrappedExecute, writable: true });
+
   // 消息队列：同一用户的消息串行处理，避免对话历史竞争
   const userLocks = new Map<string, Promise<unknown>>();
 
   async function handleChannelMessage(msg: { channel: string; userId: string; text: string }) {
     const convId = `${msg.channel}:${msg.userId}`;
 
+    // 纠正信号检测：注入提示让 Agent 使用 learning_record_feedback
+    let processedText = msg.text;
+    if (detectCorrection(msg.text)) {
+      processedText = `[系统提示：用户的消息可能包含对你之前行为的纠正。请仔细理解用户期望，并使用 learning_record_feedback 记录这次纠正。]\n\n${msg.text}`;
+      console.error(`[SelfEvolution] 检测到纠正信号: ${msg.text.slice(0, 60)}`);
+    }
+
     const prev = userLocks.get(convId) ?? Promise.resolve();
     const current = prev.then(async () => {
       tools.setContext(msg.userId, convId);
-      return agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
+      return agent.handleMessage(msg.channel, msg.userId, processedText, convId);
     }).catch((err) => {
       console.error(`[MyClaw] handleChannelMessage error for ${convId}:`, err);
       return { text: '抱歉，处理消息时出错了，请稍后再试。' };
