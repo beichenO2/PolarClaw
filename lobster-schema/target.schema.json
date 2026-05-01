@@ -1,0 +1,139 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://polarisor.dev/lobster/target.schema.json",
+  "title": "LobsterTarget",
+  "description": "靶子树节点 — Pilot Runtime 的运行时工作内存单元。叶子节点必须挂可执行测试。",
+  "type": "object",
+  "required": [
+    "id",
+    "type",
+    "title",
+    "description",
+    "parent_id",
+    "children_ids",
+    "status",
+    "stop_conditions",
+    "arrow_logs",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "description": "唯一 ID，格式：<project>-<type_abbr>-<seq>，如 knowlever-root-001"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["root_target", "test_target"]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "description": {
+      "type": "string"
+    },
+    "parent_id": {
+      "type": ["string", "null"]
+    },
+    "children_ids": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "active",
+        "completed",
+        "route_broken",
+        "paused_for_data",
+        "paused_for_human",
+        "dead"
+      ]
+    },
+    "stop_conditions": {
+      "type": "object",
+      "required": [
+        "route_broken",
+        "data_missing",
+        "human_intervention",
+        "unreachable",
+        "completed"
+      ],
+      "properties": {
+        "route_broken": {
+          "type": "object",
+          "required": ["n_failed_shots", "current"],
+          "properties": {
+            "n_failed_shots": { "type": "integer", "minimum": 1 },
+            "current": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "data_missing": {
+          "type": "object",
+          "required": ["depends_on"],
+          "properties": {
+            "depends_on": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "human_intervention": {
+          "type": "object",
+          "required": ["irreversible_actions", "auth_needed"],
+          "properties": {
+            "irreversible_actions": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "auth_needed": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "unreachable": {
+          "type": "object",
+          "required": ["m_total_shots", "current", "moveboard_count"],
+          "properties": {
+            "m_total_shots": { "type": "integer", "minimum": 1 },
+            "current": { "type": "integer", "minimum": 0 },
+            "moveboard_count": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "completed": {
+          "type": "object",
+          "properties": {
+            "leaf_test": {
+              "type": "string",
+              "description": "叶子节点的可执行测试命令（pnpm test / pytest / curl + jq / etc.）"
+            }
+          }
+        }
+      }
+    },
+    "polaris_feature_ref": {
+      "type": ["string", "null"],
+      "description": "单向引用 polaris.json features，如 R3.f1"
+    },
+    "arrow_logs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ts", "outcome", "delta", "next_action"],
+        "properties": {
+          "ts": { "type": "string", "format": "date-time" },
+          "outcome": { "type": "string", "enum": ["miss", "hit"] },
+          "delta": { "type": "string" },
+          "next_action": { "type": "string", "enum": ["shoot", "moveboard", "escalate"] }
+        }
+      }
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}

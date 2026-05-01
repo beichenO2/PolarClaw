@@ -27,6 +27,12 @@ export interface ICareEngineConfig {
   minCareIntervalMs?: number;
   /** 用户不活跃多久后触发关怀 ms（默认 4 小时） */
   inactivityThresholdMs?: number;
+  /** 空闲多久后触发话题 ms（默认 30 分钟） */
+  idleTopicThresholdMs?: number;
+  /** 连续工作多久后触发话题 ms（默认 3 小时） */
+  longWorkTopicThresholdMs?: number;
+  /** KnowLever API URL（可选，用于获取新知识作为话题素材） */
+  knowLeverUrl?: string;
 }
 
 export interface ICareEngineDeps {
@@ -164,6 +170,8 @@ export function createCareEngine(
   const pollInterval = config.pollIntervalMs ?? 60000;
   const minCareInterval = config.minCareIntervalMs ?? 2 * 3600000;
   const inactivityThreshold = config.inactivityThresholdMs ?? 4 * 3600000;
+  const idleTopicThreshold = config.idleTopicThresholdMs ?? 30 * 60000;
+  const longWorkTopicThreshold = config.longWorkTopicThresholdMs ?? 3 * 3600000;
 
   const rules: Map<string, IScheduleRule> = new Map();
   const lastCareTime: Map<string, number> = new Map();
@@ -174,8 +182,21 @@ export function createCareEngine(
     { inactivityThresholdMs: inactivityThreshold },
   );
 
-  const LONG_WORK_THRESHOLD_MS = 3 * 3600000; // 3h continuous work → topic trigger
   const lastTopicTime: Map<string, number> = new Map();
+
+  async function fetchKnowLeverTopic(): Promise<{ topic: string; source: string } | null> {
+    if (!config.knowLeverUrl) return null;
+    try {
+      const res = await fetch(`${config.knowLeverUrl}/api/search?q=*&limit=1&sort=created_desc`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json() as { results?: { title?: string; source?: string }[] };
+      const top = data.results?.[0];
+      if (top?.title) return { topic: top.title, source: top.source ?? 'KnowLever' };
+    } catch { /* KnowLever not available */ }
+    return null;
+  }
 
   async function checkRules() {
     const now = Date.now();
@@ -210,25 +231,49 @@ export function createCareEngine(
       }
     }
 
-    // Topic initiative: after extended work sessions
+    // Topic initiative: idle or extended work sessions
+    const checkedUsers = new Set<string>();
     for (const rule of rules.values()) {
       if (!rule.enabled) continue;
       const uid = rule.userId;
+      if (checkedUsers.has(uid)) continue;
+      checkedUsers.add(uid);
+
       const lastActive = deps.memory.getProfile(uid, 'lastActiveAt');
       if (!lastActive) continue;
 
       const activeSince = new Date(lastActive).getTime();
-      const sessionLength = now - activeSince;
-      if (sessionLength > LONG_WORK_THRESHOLD_MS) {
-        const lt = lastTopicTime.get(uid) ?? 0;
-        if (now - lt < LONG_WORK_THRESHOLD_MS) continue;
-        const lastCare = lastCareTime.get(uid) ?? 0;
-        if (now - lastCare < minCareInterval) continue;
+      const elapsed = now - activeSince;
+      const lt = lastTopicTime.get(uid) ?? 0;
+      const lastCare = lastCareTime.get(uid) ?? 0;
 
+      // Skip if recently sent a topic or care message
+      const topicCooldown = Math.min(idleTopicThreshold, longWorkTopicThreshold);
+      if (now - lt < topicCooldown) continue;
+      if (now - lastCare < minCareInterval) continue;
+
+      let shouldTrigger = false;
+      let context: Record<string, unknown> = {};
+
+      if (elapsed >= longWorkTopicThreshold) {
+        shouldTrigger = true;
+        context = { reason: 'long_work', sessionMinutes: Math.round(elapsed / 60000) };
+      } else if (elapsed >= idleTopicThreshold && elapsed < inactivityThreshold) {
+        shouldTrigger = true;
+        const klTopic = await fetchKnowLeverTopic();
+        if (klTopic) {
+          context = { topic: klTopic.topic, source: klTopic.source, reason: 'idle_knowledge' };
+        } else {
+          context = { reason: 'idle' };
+        }
+      }
+
+      if (shouldTrigger) {
         const trigger: IProactiveTrigger = {
           type: 'condition',
           userId: uid,
           reason: 'topic',
+          context,
         };
         const message = await policy.evaluate(trigger);
         if (message) {

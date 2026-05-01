@@ -120,6 +120,36 @@ describe('createCarePolicy', () => {
     expect(msg).not.toBeNull();
     expect(msg!.prompt).toBe('定制关怀消息');
   });
+
+  it('generates topic message with knowledge source', async () => {
+    const policy = createCarePolicy(
+      { memory: makeMemory(), tools: makeTools() },
+      { inactivityThresholdMs: 4 * 3600000 },
+    );
+
+    const msg = await policy.evaluate({
+      type: 'condition', userId: 'u1', reason: 'topic',
+      context: { topic: 'RAG 混合检索优化', source: 'KnowLever' },
+    });
+    expect(msg).not.toBeNull();
+    expect(msg!.tag).toBe('topic-initiative');
+    expect(msg!.prompt).toContain('RAG 混合检索优化');
+    expect(msg!.prompt).toContain('KnowLever');
+  });
+
+  it('generates topic message without specific topic', async () => {
+    const policy = createCarePolicy(
+      { memory: makeMemory(), tools: makeTools() },
+      { inactivityThresholdMs: 4 * 3600000 },
+    );
+
+    const msg = await policy.evaluate({
+      type: 'condition', userId: 'u1', reason: 'topic',
+    });
+    expect(msg).not.toBeNull();
+    expect(msg!.tag).toBe('topic-initiative');
+    expect(msg!.prompt).toContain('系统提示');
+  });
 });
 
 describe('createCareEngine', () => {

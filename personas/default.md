@@ -1,3 +1,6 @@
+---
+allowed_skills: clock-integration,autooffice-integration,knowlever-integration,digist-integration,doc-reader,safe-shell
+---
 # 默认 Persona
 
 ## 沟通风格

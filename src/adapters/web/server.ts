@@ -27,6 +27,8 @@ export interface WebServerConfig {
     cancel(sessionId: string): void;
     getSession(sessionId: string): YoloSessionData | null;
   };
+  /** PolarClaw SDK instance (provides /api/sdk/* routes) */
+  sdk?: import('../../sdk/index.js').PolarClawSDK;
 }
 
 export interface AgentStatusData {
@@ -523,6 +525,154 @@ export function createWebServer(config: WebServerConfig) {
         );
         res.json(result);
       } catch (err: any) { res.status(400).json({ error: err.message }); }
+    });
+  }
+
+  // ── SDK API routes (/api/sdk/*) ──────────────────────────
+  if (config.sdk) {
+    const sdk = config.sdk;
+
+    app.get('/api/sdk/version', (_req, res) => {
+      res.json({ version: sdk.version });
+    });
+
+    // Users
+    app.get('/api/sdk/users/:id', (req, res) => {
+      try {
+        const result = sdk.users.resolve(req.params.id);
+        res.json(result);
+      } catch (err: any) {
+        res.status(err.code === 'user_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.get('/api/sdk/users', (_req, res) => {
+      res.json({
+        humans: sdk.users.listHumans(),
+        projects: sdk.users.listProjects(),
+      });
+    });
+
+    // Events
+    app.post('/api/sdk/events', async (req, res) => {
+      try {
+        const result = await sdk.events.emit(req.body);
+        res.status(result.accepted ? 201 : 200).json(result);
+      } catch (err: any) {
+        const status = err.code === 'invalid_event' || err.code === 'validation_error' ? 400 : 502;
+        res.status(status).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.get('/api/sdk/events', (req, res) => {
+      const project = req.query.project as string | undefined;
+      const since = req.query.since as string | undefined;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+      res.json(sdk.events.queryLocal({ project, since, limit }));
+    });
+
+    // Lobsters
+    app.get('/api/sdk/lobsters/:projectId/status', (req, res) => {
+      try {
+        res.json(sdk.lobsters.status(req.params.projectId));
+      } catch (err: any) {
+        res.status(err.code === 'project_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.get('/api/sdk/lobsters', (_req, res) => {
+      res.json(sdk.lobsters.statusAll());
+    });
+
+    // Targets
+    app.get('/api/sdk/targets/:projectId', (req, res) => {
+      res.json(sdk.targets.list(req.params.projectId));
+    });
+
+    app.get('/api/sdk/targets/:projectId/:targetId', (req, res) => {
+      try {
+        res.json(sdk.targets.get(req.params.projectId, req.params.targetId));
+      } catch (err: any) {
+        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/targets/:projectId', (req, res) => {
+      try {
+        const target = sdk.targets.create(req.params.projectId, req.body);
+        res.status(201).json(target);
+      } catch (err: any) {
+        const status = err.code === 'project_not_found' ? 404 : 400;
+        res.status(status).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.put('/api/sdk/targets/:projectId/:targetId', (req, res) => {
+      try {
+        const target = sdk.targets.update(req.params.projectId, req.params.targetId, req.body);
+        res.json(target);
+      } catch (err: any) {
+        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/targets/:projectId/:targetId/arrow', (req, res) => {
+      try {
+        const target = sdk.targets.appendArrowLog(req.params.projectId, req.params.targetId, req.body);
+        res.json(target);
+      } catch (err: any) {
+        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/targets/:projectId/:targetId/test', async (req, res) => {
+      try {
+        const result = await sdk.targets.runTest(req.params.projectId, req.params.targetId);
+        res.json(result);
+      } catch (err: any) {
+        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    // Approvals
+    app.post('/api/sdk/approvals', (req, res) => {
+      try {
+        const approval = sdk.approvals.request(req.body);
+        res.status(201).json(approval);
+      } catch (err: any) {
+        res.status(400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.get('/api/sdk/approvals/pending', (_req, res) => {
+      res.json(sdk.approvals.listPending());
+    });
+
+    app.get('/api/sdk/approvals/:id', (req, res) => {
+      try {
+        res.json(sdk.approvals.get(req.params.id));
+      } catch (err: any) {
+        res.status(404).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/approvals/:id/callback', (req, res) => {
+      try {
+        const resolved = sdk.approvals.callback(
+          { approval_id: req.params.id, ...req.body },
+          req.body.resolved_by ?? 'api',
+        );
+        res.json(resolved);
+      } catch (err: any) {
+        res.status(400).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    /** @deprecated Alias for backward compatibility */
+    app.use('/api/myclaw-sdk', (req, res) => {
+      console.warn(`[deprecated] /api/myclaw-sdk${req.path} — use /api/sdk${req.path}`);
+      req.url = req.url.replace('/api/myclaw-sdk', '/api/sdk');
+      app.handle(req, res);
     });
   }
 

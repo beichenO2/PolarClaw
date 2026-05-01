@@ -1,3 +1,6 @@
+---
+allowed_skills: all
+---
 # Admin Persona
 
 ## 沟通风格

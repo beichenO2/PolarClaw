@@ -297,11 +297,8 @@ async function main() {
     },
   });
 
-  // 注入技能目录到 system prompt
+  // 技能目录（独立传入 agent，可按 persona 过滤）
   const skillCatalog = metaIndex.toPromptCatalog();
-  const fullSystemPrompt = skillCatalog
-    ? `${soulPrompt}\n\n${skillCatalog}`
-    : soulPrompt;
 
   // PolarUser registry: 统一身份模型（human/project 分组、persona/memory/scope 隔离）
   const polarUsers = createPolarUserRegistry();
@@ -309,9 +306,26 @@ async function main() {
 
   // Persona resolver：按 PolarUser 身份加载差异化人格
   const personaDir = join(config.projectRoot, 'personas');
-  const personaCache = new Map<string, { content: string; mtime: number }>();
+  const personaCache = new Map<string, { content: string; allowedSkills?: string[]; mtime: number }>();
 
-  function resolvePersona(userId: string): string {
+  function parsePersonaFrontmatter(raw: string): { body: string; allowedSkills?: string[] } {
+    const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (!fmMatch) return { body: raw };
+    const fmBlock = fmMatch[1]!;
+    const body = fmMatch[2]!;
+    let allowedSkills: string[] | undefined;
+    for (const line of fmBlock.split('\n')) {
+      const kv = line.match(/^allowed_skills:\s*(.*)/);
+      if (kv) {
+        const val = kv[1]!.trim();
+        if (val === 'all' || val === '*') break;
+        allowedSkills = val.split(',').map(s => s.trim()).filter(Boolean);
+      }
+    }
+    return { body, allowedSkills };
+  }
+
+  function resolvePersona(userId: string): { content: string; allowedSkills?: string[] } {
     const polarUser = polarUsers.resolve(userId);
     const personaName = polarUser.persona;
     const candidates = [
@@ -323,9 +337,11 @@ async function main() {
         const stat = require('node:fs').statSync(p);
         const mtime = stat.mtimeMs;
         const cached = personaCache.get(p);
-        if (cached && cached.mtime === mtime) return cached.content;
+        if (cached && cached.mtime === mtime) return { content: cached.content, allowedSkills: cached.allowedSkills };
 
         let raw = readFileSync(p, 'utf8');
+        const { body, allowedSkills } = parsePersonaFrontmatter(raw);
+        raw = body;
 
         // 模板变量替换
         if (raw.includes('{{llm_model}}')) {
@@ -344,17 +360,18 @@ async function main() {
           raw = raw.replace(/\{\{capabilities\}\}/g, caps.map(c => `> - ${c}`).join('\n'));
         }
 
-        personaCache.set(p, { content: raw, mtime });
-        return raw;
+        personaCache.set(p, { content: raw, allowedSkills, mtime });
+        return { content: raw, allowedSkills };
       } catch { /* file not found, try next */ }
     }
-    return '';
+    return { content: '' };
   }
 
   // 创建 Agent
   const agent = createAgent(
     {
-      systemPrompt: fullSystemPrompt,
+      systemPrompt: soulPrompt,
+      skillCatalog,
       personaResolver: resolvePersona,
       maxToolRounds: config.llm.maxToolRounds,
       temperature: config.llm.temperature,
