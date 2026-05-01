@@ -10,6 +10,9 @@
  * Channel → PrivacyGateway.sanitize → AgentLoop → PrivacyGateway.desanitize → Channel
  */
 
+import { appendFileSync, mkdirSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { homedir } from 'node:os';
 import type { IPrivacyGateway } from '../ports/privacy.js';
 import type { IMemoryStore, IConversationHistory, IChatMessage } from '../ports/memory.js';
 import type { ILLMRouter, ILLMResponse } from '../ports/llm.js';
@@ -109,6 +112,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     const existingHistory = conversations.getHistory(convId);
     const isOngoing = existingHistory.length > 2;
     const result = await runLoop(convId, userId, isOngoing);
+
+    // 5a. 持久化 LLM token usage 到日志
+    if (result.usage) {
+      persistUsage(userId, channel, result.usage);
+    }
 
     // 6. 隐私网关出站还原
     const restoredText = privacy.desanitize(userId, result.text);
@@ -279,6 +287,29 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     }
 
     return { text: '已达到工具调用轮数上限，请简化任务或分步提问。', usage: totalUsage };
+  }
+
+  const USAGE_LOG_PATH = join(homedir(), '.polarcop', 'logs', 'llm-usage.jsonl');
+  let usageLogDirCreated = false;
+
+  function persistUsage(userId: string, channel: string, usage: NonNullable<ILLMResponse['usage']>) {
+    try {
+      if (!usageLogDirCreated) {
+        mkdirSync(dirname(USAGE_LOG_PATH), { recursive: true });
+        usageLogDirCreated = true;
+      }
+      const entry = {
+        ts: new Date().toISOString(),
+        user_id: userId,
+        channel,
+        prompt_tokens: usage.promptTokens,
+        completion_tokens: usage.completionTokens,
+        total_tokens: usage.totalTokens,
+      };
+      appendFileSync(USAGE_LOG_PATH, JSON.stringify(entry) + '\n');
+    } catch {
+      // non-fatal: don't break agent flow if logging fails
+    }
   }
 
   return {

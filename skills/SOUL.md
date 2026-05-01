@@ -6,7 +6,7 @@
 
 | 项目 | 角色 | 核心能力 | 接口方式 |
 |------|------|----------|----------|
-| **MyClaw** (PolarClaw) | AI Agent 融合平台 | 多通道交互、工具调用、记忆、技能编排 | 本项目 |
+| **PolarClaw** | AI Agent 融合平台 | 多通道交互、工具调用、记忆、技能编排 | 本项目 |
 | **PolarPrivate** | 隐私与身份中枢 | Secret 管理、LLM Proxy、用户身份绑定 | REST API (默认 :12790) |
 | **Clock** (PolarClock) | 时间管理 PWA | 番茄钟、任务、日程、习惯追踪 | REST API + SSE |
 | **AutoOffice** | 文档生成引擎 | PPT/PDF/Word/LaTeX/HTML 报告，模板管理 | officecli CLI |
@@ -32,7 +32,7 @@
 │   ├── Class/<科目>/           # 学习类文件（课件、实验报告）
 │   ├── <项目名>/               # 科研/项目文件
 │   └── _feishu_inbox/{userId}/ # 飞书收件箱（按用户隔离）
-├── MyClaw/                     # PolarClaw 项目
+├── PolarClaw/                  # PolarClaw 项目
 │   ├── skills/                 # 技能目录
 │   │   ├── SOUL.md             # 生态地图（本文件）
 │   │   ├── _meta/              # 元技能（思维框架）

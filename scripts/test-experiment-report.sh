@@ -4,11 +4,11 @@
 # 模拟用户通过飞书发送实验报告任务给 PolarClaw。
 # 验证 Agent 能否：
 # 1. 识别这是实验报告任务（匹配元技能）
-# 2. 发现并加载所需技能（doc-reader, autooffice, lab-report, radar-ranging-mat 等）
-# 3. 正确规划工作流（不硬编码步骤）
+# 2. 发现并加载通用能力（doc-reader, safe-shell, lab-report 等）
+# 3. 正确规划工作流（不依赖预置领域专用 skill）
 #
 # 用法：bash scripts/test-experiment-report.sh
-# 需要：MyClaw 各项依赖可用（PolarPrivate、officecli、MATLAB）
+# 需要：MyClaw 各项依赖可用（PolarPrivate、officecli、Python/CLI 工具链）
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -30,7 +30,7 @@ check() {
 
 check "officecli" "officecli --version"
 check "PolarPrivate" "curl -sf http://127.0.0.1:12790/health"
-check "MATLAB R2026a" "ls /Applications/MATLAB_R2026a.app/bin/matlab"
+check "Python" "python3 --version"
 check "Node.js" "node --version"
 
 echo ""
@@ -44,7 +44,6 @@ REQUIRED_SKILLS=(
   "safe-shell"
   "lab-report"
   "autooffice-integration"
-  "radar-ranging-mat"
 )
 for skill in "${REQUIRED_SKILLS[@]}"; do
   if [ -f "$SKILLS_DIR/$skill/SKILL.md" ]; then
@@ -109,12 +108,12 @@ npm run feishu:simulate -- \
 PROMPT
 
 echo ""
-echo "预期 Agent 行为（由元技能 experiment-report 引导，非硬编码）："
+echo "预期 Agent 行为（由元技能 experiment-report 引导，使用通用能力，不依赖雷达专用 skill）："
 echo "  1. 匹配 experiment-report 元技能 → 获得思维框架"
 echo "  2. skill_search 找到 doc-reader → skill_activate 加载"
 echo "  3. doc_read 阅读 PPT → 理解实验目的和方法"
 echo "  4. doc_read 阅读参数记录表 → 理解数据采集场景"
-echo "  5. skill_search 找到 safe-shell 或 radar-ranging-mat → 处理数据"
+echo "  5. skill_search 找到 safe-shell → 用可用 CLI/Python/MATLAB 工具处理数据"
 echo "  6. 如需要，向用户澄清不明确的信息"
 echo "  7. skill_search 找到 lab-report → 生成实验报告"
 echo "  8. vlm_analyze 评估报告质量 → 优化循环"

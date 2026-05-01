@@ -1,6 +1,6 @@
 {
-  "name": "MyClaw",
-  "description": "个人 AI Agent 融合平台（端口-适配器架构）：多通道交互、LLM 工具调用、隐私网关、YOLO 自主模式。产品名 PolarClaw，项目名 MyClaw。",
+  "name": "PolarClaw",
+  "description": "PolarClaw — 个人 AI Agent 融合平台（端口-适配器架构）：多通道交互、LLM 工具调用、隐私网关、YOLO 自主模式。",
   "tier": "app",
   "status": "active",
   "version": "0.1.0",
@@ -216,23 +216,24 @@
           ]
         },
         {
-          "name": "雷达测距 MATLAB 报告链路",
-          "description": "radar-ranging-mat skill 支持 MATLAB R2026a 数据处理与实验报告生成",
+          "name": "实验报告基准测试链路",
+          "description": "以雷达测距实验作为 benchmark，验证通用实验报告编排能力，而不是依赖预置领域专用 skill",
           "status": "done",
           "tech": [
-            "MATLAB R2026a",
-            "matlab.engine 26.1",
-            "officecli 1.0.60"
+            "doc-reader",
+            "safe-shell",
+            "lab-report",
+            "officecli"
           ],
           "interfaces": [
-            "npx tsx ../macbook/Class/雷达实验/雷达测距和距离分辨率/code_mat/run_mat.ts health",
-            "npx tsx ../macbook/Class/雷达实验/雷达测距和距离分辨率/code_mat/run_mat.ts report"
+            "npm run feishu:simulate -- --user admin --text <experiment-report benchmark prompt>",
+            "bash scripts/test-experiment-report.sh"
           ],
           "behavior": [
-            "自动识别 /Applications/MATLAB_R2026a.app 或 R2025b 的 MATLAB binary",
-            "venv_mat 中 matlab.engine 可导入并连接 MATLAB 路线",
-            "读取 code_mat/output_mat/results_mat.json 与测距图表，调用 lab-report 生成 report_mat/实验报告_雷达测距_mat.docx",
-            "2026-04-28 已验证生成 7 个章节、22 张图，officecli validate 通过"
+            "默认不加载领域专用 skill；Agent 通过 experiment-report 元技能理解任务类型",
+            "通过 doc-reader 阅读 PPT、参数记录和报告模板，通过 safe-shell 调用用户可用的 CLI/Python/MATLAB 工具处理数据",
+            "通过 lab-report 生成 Word 报告，并将雷达实验仅作为回归基准用例",
+            "雷达专用 radar-ranging / radar-ranging-mat skills 已归档，避免把 benchmark 误表述为预置硬编码方案"
           ]
         },
         {

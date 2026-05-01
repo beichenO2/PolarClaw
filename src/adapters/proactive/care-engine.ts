@@ -119,6 +119,20 @@ export function createCarePolicy(
           };
         }
 
+        case 'topic': {
+          const topic = trigger.context?.topic as string | undefined;
+          const source = trigger.context?.source as string | undefined;
+          const basePrompt = topic
+            ? `[系统提示：你发现了一个有趣的话题——${topic}${source ? `（来源：${source}）` : ''}。以自然的方式和用户分享，引发讨论。不要显得机械。]`
+            : `[系统提示：用户已经连续工作很久了。主动发起一个有趣的话题，比如讨论一个技术方向、分享一个发现、或者聊聊对未来的想法。话题应该有实质内容，不是空洞的寒暄。]`;
+          return {
+            userId: trigger.userId,
+            prompt: basePrompt,
+            priority: 'low',
+            tag: 'topic-initiative',
+          };
+        }
+
         default:
           return null;
       }
@@ -160,6 +174,9 @@ export function createCareEngine(
     { inactivityThresholdMs: inactivityThreshold },
   );
 
+  const LONG_WORK_THRESHOLD_MS = 3 * 3600000; // 3h continuous work → topic trigger
+  const lastTopicTime: Map<string, number> = new Map();
+
   async function checkRules() {
     const now = Date.now();
 
@@ -190,6 +207,40 @@ export function createCareEngine(
         } catch (err) {
           console.error(`[CareEngine] 发送关怀消息失败 (${rule.userId}):`, err);
         }
+      }
+    }
+
+    // Topic initiative: after extended work sessions
+    for (const rule of rules.values()) {
+      if (!rule.enabled) continue;
+      const uid = rule.userId;
+      const lastActive = deps.memory.getProfile(uid, 'lastActiveAt');
+      if (!lastActive) continue;
+
+      const activeSince = new Date(lastActive).getTime();
+      const sessionLength = now - activeSince;
+      if (sessionLength > LONG_WORK_THRESHOLD_MS) {
+        const lt = lastTopicTime.get(uid) ?? 0;
+        if (now - lt < LONG_WORK_THRESHOLD_MS) continue;
+        const lastCare = lastCareTime.get(uid) ?? 0;
+        if (now - lastCare < minCareInterval) continue;
+
+        const trigger: IProactiveTrigger = {
+          type: 'condition',
+          userId: uid,
+          reason: 'topic',
+        };
+        const message = await policy.evaluate(trigger);
+        if (message) {
+          lastTopicTime.set(uid, now);
+          lastCareTime.set(uid, now);
+          try {
+            await deps.onCareMessage(message);
+          } catch (err) {
+            console.error(`[CareEngine] 话题触发失败 (${uid}):`, err);
+          }
+        }
+        break; // one topic per cycle
       }
     }
   }
