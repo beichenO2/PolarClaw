@@ -182,7 +182,7 @@ async function main() {
 
   // Persona resolver（与 main.ts 共享逻辑）
   const personaDir = join(config.projectRoot, 'personas');
-  function resolvePersona(userId: string): string {
+  function resolvePersona(userId: string): { content: string } {
     const candidates = [
       join(personaDir, `${userId}.md`),
       join(personaDir, 'default.md'),
@@ -205,10 +205,10 @@ async function main() {
           ];
           raw = raw.replace(/\{\{capabilities\}\}/g, caps.map(c => `> - ${c}`).join('\n'));
         }
-        return raw;
+        return { content: raw };
       } catch { /* try next */ }
     }
-    return '';
+    return { content: '' };
   }
 
   const compressor = createContextCompressor({

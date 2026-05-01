@@ -37,6 +37,7 @@ import { createWebServer } from './adapters/web/server.js';
 import { createPilotStore } from './adapters/pilot/store.js';
 import { createPilotEngine } from './adapters/pilot/engine.js';
 import { createPolarUserRegistry } from './core/polar-user.js';
+import { createPolarClawSDK } from './sdk/index.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -601,6 +602,18 @@ async function main() {
     console.error('[PolarClaw] port-sdk 不可用，Web 服务器无法启动:', err);
     process.exit(1);
   }
+  // PolarClaw SDK — unified API for Hub, external projects, and polarclaw-project-sdk
+  const polarisorRoot = join(config.projectRoot, '..');
+  const polarClawSDK = createPolarClawSDK({
+    userRegistry: polarUsers,
+    pilotStore,
+    pilotDb,
+    sotAgentUrl: process.env.SOTAGENT_URL?.trim() || undefined,
+    localEventsPath: join(polarisorRoot, 'SOTAgent', 'data', 'lobster-events.jsonl'),
+    polarisorRoot,
+  });
+  console.error(`[PolarClaw] SDK v${polarClawSDK.version} initialized`);
+
   const webServer = createWebServer({
     port: webPort,
     dataDir: join(config.projectRoot, 'data'),
@@ -623,6 +636,7 @@ async function main() {
     yoloEngine,
     pilotStore,
     pilotEngine,
+    sdk: polarClawSDK,
   });
   await webServer.start();
 
