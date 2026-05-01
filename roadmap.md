@@ -19,6 +19,8 @@
 | R4 | Web 控制台与文档审阅 | 100% | 全部 done |
 | R5 | 生态技能集成 | 100% | 全部 done |
 | R6 | 元技能架构 + 生态地图 | 100% | 全部 done |
+| R7 | PolarUser 统一身份模型 | 100% | 全部 done |
+| R8 | PolarClaw SDK/API | 100% | users/events/lobsters/targets/approvals + HTTP API + project-sdk |
 
 ## 已知阻塞项
 
@@ -26,11 +28,13 @@
 
 ## 下一步
 
-1. 版本号推进到 1.0.0（所有 requirement 已 done）。
-2. 继续用雷达实验作为基准测试验证通用实验报告编排链路；不得把该 benchmark 固化为领域专用 skill。
+1. PilotRuntime 实现（依赖 R7 + R8）。
+2. SOTAgent 事件 API 上线后切换 events.emit 主通道。
+3. 各项目接入 polarclaw-project-sdk。
 
 ## 更新记录
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-05-01 | R7 PolarUser + R8 SDK/API 完成 |
 | 2026-04-29 | 初始创建：从 polaris.json 提取进度信息 |

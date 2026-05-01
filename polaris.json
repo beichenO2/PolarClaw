@@ -511,6 +511,62 @@
         }
       ],
       "blockers": []
+    },
+    {
+      "id": "R7",
+      "need": "Pilot Runtime — 项目龙虾自治服务",
+      "approach": "事件驱动 + 定时兜底的守护进程，按 PolarUser.project 身份启动项目龙虾运行实例，「找目标→画靶子→射箭→挪靶子」循环状态机",
+      "features": [
+        {
+          "name": "靶子树",
+          "description": "lobster/targets/ 文件存储，JSON + MD 双格式，JSON Schema 校验",
+          "status": "done",
+          "behavior": [
+            "lobster_target_create/get/list/update_status/append_arrow_log/move_board 六个工具",
+            "JSON Schema 校验拒绝非法写入",
+            "叶子节点必须挂可执行测试命令（leaf_test）",
+            "中间节点 completed 由所有子节点 completed 自动推出",
+            "靶子树通过 polaris_feature_ref 单向引用 polaris features"
+          ],
+          "evidence": [
+            "2026-05-01: src/pilot/targets.ts + target-validator.ts + target-tools.ts 实现，13 测试通过"
+          ]
+        },
+        {
+          "name": "状态机循环",
+          "description": "FindTarget → DrawBoard → Shoot → MoveBoard + 5 类停止条件 flag",
+          "status": "done",
+          "behavior": [
+            "FindTarget：分析项目现状推出根本目标",
+            "DrawBoard：递归分解为可测试驱动的子目标",
+            "Shoot：执行叶子目标的测试并记录 arrow_log",
+            "MoveBoard：根据落点更新测试目标",
+            "route_broken / data_missing / human_intervention / unreachable / completed 五类停止 flag",
+            "允许从任一步骤跳到任一步骤"
+          ],
+          "evidence": [
+            "2026-05-01: src/pilot/state-machine.ts 实现，8 测试通过"
+          ]
+        },
+        {
+          "name": "守护进程",
+          "description": "watch lobster-events.jsonl + 定时健康扫描 + spawn 项目龙虾",
+          "status": "done",
+          "behavior": [
+            "事件主、定时副双轨上线",
+            "同一 dedup_key 10 分钟内多次只激活一次",
+            "唤醒后执行 5 步对齐：git 状态、polaris.json、lobster memory、24h 事件、active 靶子树",
+            "lobster_start --project <name> CLI 入口"
+          ],
+          "evidence": [
+            "2026-05-01: src/pilot/daemon.ts + runtime.ts + align.ts + dedup.ts + lobster-start.ts 实现，8 测试通过"
+          ]
+        }
+      ],
+      "blockers": [
+        "PolarUser.project 身份体系完整实现 → PolarClaw_PolarUser.md",
+        "SOTAgent lobster-events.jsonl 写入/查询 API → SOTAgent_LobsterEvents.md"
+      ]
     }
   ],
   "tech": {
@@ -519,7 +575,7 @@
     },
     "backend": "Express + better-sqlite3",
     "frontend": "React 18 + Vite + Tailwind + pdfjs-dist",
-    "test": "Vitest（11 测试文件）"
+    "test": "Vitest（13 测试文件）"
   },
   "depends_on": [
     "SOTAgent/sdk-port",

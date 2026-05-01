@@ -102,6 +102,61 @@
       "idempotent": true,
       "side_effects": false,
       "timeout_ms": 10000
+    },
+    {
+      "id": "polarclaw.sdk.users.resolve",
+      "service_name": "polarclaw-web",
+      "description": "解析 PolarUser 身份（human/project），返回脱敏用户信息",
+      "transport": "http",
+      "endpoint": "/api/sdk/users/:id",
+      "method": "GET",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "polarclaw.sdk.events.emit",
+      "service_name": "polarclaw-web",
+      "description": "发射龙虾事件到 SOTAgent 事件总线",
+      "transport": "http",
+      "endpoint": "/api/sdk/events",
+      "method": "POST",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 10000
+    },
+    {
+      "id": "polarclaw.sdk.lobsters.status",
+      "service_name": "polarclaw-web",
+      "description": "查询项目龙虾状态摘要",
+      "transport": "http",
+      "endpoint": "/api/sdk/lobsters/:projectId/status",
+      "method": "GET",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 5000
+    },
+    {
+      "id": "polarclaw.sdk.targets.crud",
+      "service_name": "polarclaw-web",
+      "description": "授权靶子 CRUD（read/write/runTest）",
+      "transport": "http",
+      "endpoint": "/api/sdk/targets/:projectId",
+      "method": "GET",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 10000
+    },
+    {
+      "id": "polarclaw.sdk.approvals",
+      "service_name": "polarclaw-web",
+      "description": "审批请求与回调",
+      "transport": "http",
+      "endpoint": "/api/sdk/approvals",
+      "method": "POST",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 5000
     }
   ]
 }

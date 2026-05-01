@@ -669,10 +669,9 @@ export function createWebServer(config: WebServerConfig) {
     });
 
     /** @deprecated Alias for backward compatibility */
-    app.use('/api/myclaw-sdk', (req, res) => {
+    app.use('/api/myclaw-sdk', (req, res, next) => {
       console.warn(`[deprecated] /api/myclaw-sdk${req.path} — use /api/sdk${req.path}`);
-      req.url = req.url.replace('/api/myclaw-sdk', '/api/sdk');
-      app.handle(req, res);
+      res.redirect(308, `/api/sdk${req.path}`);
     });
   }
 
