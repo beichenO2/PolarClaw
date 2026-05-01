@@ -1,7 +1,8 @@
 /**
- * MyClaw 配置加载器
+ * PolarClaw 配置加载器
  *
  * 从环境变量加载配置，支持 .env 文件。
+ * 环境变量优先读 POLARCLAW_* 前缀，fallback 到旧 MYCLAW_*（兼容期保留，打 deprecation warn）。
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,7 +23,7 @@ export interface IProviderEntry {
   };
 }
 
-export interface IMyclawConfig {
+export interface IPolarClawConfig {
   projectRoot: string;
   llm: {
     baseUrl: string;
@@ -36,11 +37,8 @@ export interface IMyclawConfig {
     temperature: number;
     maxTokens: number;
     maxToolRounds: number;
-    /** 备用 Provider 列表 */
     fallbackProviders: IProviderEntry[];
-    /** 单次 LLM 请求超时 ms */
     requestTimeoutMs: number;
-    /** 最大并发 LLM 请求数 */
     concurrencyLimit: number;
   };
   memory: {
@@ -60,6 +58,9 @@ export interface IMyclawConfig {
     scanDirs: string[];
   };
 }
+
+/** @deprecated Use IPolarClawConfig */
+export type IMyclawConfig = IPolarClawConfig;
 
 /** 最简 .env 解析器 */
 function loadEnvFile(filePath: string): void {
@@ -92,67 +93,85 @@ function env(key: string, fallback = ''): string {
   return process.env[key]?.trim() ?? fallback;
 }
 
-export function loadConfig(): IMyclawConfig {
+const _warnedDeprecated = new Set<string>();
+
+/** Read POLARCLAW_* first, fallback to MYCLAW_* with deprecation warning */
+function pcEnv(suffix: string, fallback = ''): string {
+  const newKey = `POLARCLAW_${suffix}`;
+  const oldKey = `MYCLAW_${suffix}`;
+  const newVal = process.env[newKey]?.trim();
+  if (newVal) return newVal;
+  const oldVal = process.env[oldKey]?.trim();
+  if (oldVal) {
+    if (!_warnedDeprecated.has(oldKey)) {
+      console.warn(`[deprecated] ${oldKey} is deprecated, use ${newKey}`);
+      _warnedDeprecated.add(oldKey);
+    }
+    return oldVal;
+  }
+  return fallback;
+}
+
+export function loadConfig(): IPolarClawConfig {
   loadEnvFile(join(ROOT, '.env'));
 
   const ppUrl = env('POLARPRIVATE_URL', 'http://127.0.0.1:12790');
   const defaultV1Url = `${ppUrl}/v1`;
-  const apiKey = env('MYCLAW_LLM_API_KEY') || env('DASHSCOPE_API_KEY') || 'proxy-managed';
-  if (apiKey === 'proxy-managed' && env('MYCLAW_LLM_BASE_URL')) {
+  const apiKey = pcEnv('LLM_API_KEY') || env('DASHSCOPE_API_KEY') || 'proxy-managed';
+  if (apiKey === 'proxy-managed' && pcEnv('LLM_BASE_URL')) {
     // Custom base URL with proxy-managed key — valid proxy override
   } else if (apiKey === 'proxy-managed') {
     console.log('[Config] No API key found, defaulting to PolarPrivate /v1 gateway');
   }
 
-  // 解析备用 Provider（环境变量格式：MYCLAW_FALLBACK_1_URL, MYCLAW_FALLBACK_1_KEY, ...）
   const fallbackProviders: IProviderEntry[] = [];
   for (let i = 1; i <= 5; i++) {
-    const fbUrl = env(`MYCLAW_FALLBACK_${i}_URL`);
-    const fbKey = env(`MYCLAW_FALLBACK_${i}_KEY`);
+    const fbUrl = pcEnv(`FALLBACK_${i}_URL`);
+    const fbKey = pcEnv(`FALLBACK_${i}_KEY`);
     if (fbUrl && fbKey) {
       fallbackProviders.push({
         baseUrl: fbUrl,
         apiKey: fbKey,
         models: {
-          coding: env(`MYCLAW_FALLBACK_${i}_MODEL_CODING`, env('MYCLAW_MODEL_CODING', 'qwen3-coder-plus')),
-          research: env(`MYCLAW_FALLBACK_${i}_MODEL_RESEARCH`, env('MYCLAW_MODEL_RESEARCH', 'qwen3.6-plus')),
-          vision: env(`MYCLAW_FALLBACK_${i}_MODEL_VISION`, env('MYCLAW_MODEL_VISION', 'qwen3.6-plus')),
-          general: env(`MYCLAW_FALLBACK_${i}_MODEL_GENERAL`, env('MYCLAW_MODEL_GENERAL', 'qwen3.6-plus')),
+          coding: pcEnv(`FALLBACK_${i}_MODEL_CODING`, pcEnv('MODEL_CODING', 'qwen3-coder-plus')),
+          research: pcEnv(`FALLBACK_${i}_MODEL_RESEARCH`, pcEnv('MODEL_RESEARCH', 'qwen3.6-plus')),
+          vision: pcEnv(`FALLBACK_${i}_MODEL_VISION`, pcEnv('MODEL_VISION', 'qwen3.6-plus')),
+          general: pcEnv(`FALLBACK_${i}_MODEL_GENERAL`, pcEnv('MODEL_GENERAL', 'qwen3.6-plus')),
         },
       });
     }
   }
 
-  const config: IMyclawConfig = {
+  const config: IPolarClawConfig = {
     projectRoot: ROOT,
     llm: {
-      baseUrl: env('MYCLAW_LLM_BASE_URL', defaultV1Url),
+      baseUrl: pcEnv('LLM_BASE_URL', defaultV1Url),
       apiKey,
       models: {
-        coding: env('MYCLAW_MODEL_CODING', 'qwen3-coder-plus'),
-        research: env('MYCLAW_MODEL_RESEARCH', 'qwen3.6-plus'),
-        vision: env('MYCLAW_MODEL_VISION', 'qwen3.6-plus'),
-        general: env('MYCLAW_MODEL_GENERAL', 'qwen3.6-plus'),
+        coding: pcEnv('MODEL_CODING', 'qwen3-coder-plus'),
+        research: pcEnv('MODEL_RESEARCH', 'qwen3.6-plus'),
+        vision: pcEnv('MODEL_VISION', 'qwen3.6-plus'),
+        general: pcEnv('MODEL_GENERAL', 'qwen3.6-plus'),
       },
-      temperature: Number(env('MYCLAW_TEMPERATURE', '0.7')),
-      maxTokens: Number(env('MYCLAW_MAX_TOKENS', '4096')),
-      maxToolRounds: Number(env('MYCLAW_MAX_TOOL_ROUNDS', '0')),
+      temperature: Number(pcEnv('TEMPERATURE', '0.7')),
+      maxTokens: Number(pcEnv('MAX_TOKENS', '4096')),
+      maxToolRounds: Number(pcEnv('MAX_TOOL_ROUNDS', '0')),
       fallbackProviders,
-      requestTimeoutMs: Number(env('MYCLAW_LLM_TIMEOUT_MS', '120000')),
-      concurrencyLimit: Number(env('MYCLAW_LLM_CONCURRENCY', '5')),
+      requestTimeoutMs: Number(pcEnv('LLM_TIMEOUT_MS', '120000')),
+      concurrencyLimit: Number(pcEnv('LLM_CONCURRENCY', '5')),
     },
     memory: {
-      dbPath: env('MYCLAW_DB_PATH', join(ROOT, '.data', 'myclaw.db')),
-      maxMessages: Number(env('MYCLAW_MAX_MESSAGES', '100')),
-      maxTokens: Number(env('MYCLAW_CONVERSATION_MAX_TOKENS', '60000')),
+      dbPath: pcEnv('DB_PATH', join(ROOT, '.data', 'polarclaw.db')),
+      maxMessages: Number(pcEnv('MAX_MESSAGES', '100')),
+      maxTokens: Number(pcEnv('CONVERSATION_MAX_TOKENS', '60000')),
     },
     privacy: {
       polarPrivateUrl: env('POLARPRIVATE_URL', 'http://127.0.0.1:12790'),
-      enableSecretInterception: env('MYCLAW_SECRET_INTERCEPTION', 'true') === 'true',
+      enableSecretInterception: pcEnv('SECRET_INTERCEPTION', 'true') === 'true',
     },
     channels: {
-      feishu: env('MYCLAW_FEISHU', '0') === '1',
-      cli: env('MYCLAW_CLI', '0') === '1',
+      feishu: pcEnv('FEISHU', '0') === '1',
+      cli: pcEnv('CLI', '0') === '1',
     },
     skills: {
       scanDirs: [join(ROOT, 'skills')],

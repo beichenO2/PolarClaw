@@ -1,10 +1,10 @@
 {
-  "project": "MyClaw",
+  "project": "PolarClaw",
   "version": "0.2.0",
   "capabilities": [
     {
-      "id": "myclaw.feishu.webhook",
-      "service_name": "myclaw-feishu-default",
+      "id": "polarclaw.feishu.webhook",
+      "service_name": "polarclaw-feishu-default",
       "description": "飞书消息 Webhook 接收器，桥接消息到 Agent 核心",
       "transport": "http",
       "endpoint": "/feishu/events",
@@ -14,8 +14,8 @@
       "timeout_ms": 10000
     },
     {
-      "id": "myclaw.ecosystem.status",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.ecosystem.status",
+      "service_name": "polarclaw-agent",
       "description": "生态系统健康检查 — 检查 digist + KnowLever + 端口注册状态",
       "transport": "skill",
       "tool_name": "ecosystem_status",
@@ -24,8 +24,8 @@
       "timeout_ms": 15000
     },
     {
-      "id": "myclaw.ecosystem.sync_digest",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.ecosystem.sync_digest",
+      "service_name": "polarclaw-agent",
       "description": "触发 digist → KnowLever 内容同步管道",
       "transport": "skill",
       "tool_name": "ecosystem_sync_digest",
@@ -34,8 +34,8 @@
       "timeout_ms": 60000
     },
     {
-      "id": "myclaw.ecosystem.discover_and_learn",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.ecosystem.discover_and_learn",
+      "service_name": "polarclaw-agent",
       "description": "完整流水线：爬取新信息 → 同步知识库 → 编译结构化知识",
       "transport": "skill",
       "tool_name": "ecosystem_discover_and_learn",
@@ -44,8 +44,8 @@
       "timeout_ms": 300000
     },
     {
-      "id": "myclaw.ecosystem.unified_search",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.ecosystem.unified_search",
+      "service_name": "polarclaw-agent",
       "description": "统一搜索 — 同时查询 digist 原始数据 + KnowLever 结构化知识",
       "transport": "skill",
       "tool_name": "ecosystem_unified_search",
@@ -54,8 +54,8 @@
       "timeout_ms": 20000
     },
     {
-      "id": "myclaw.skill.knowlever",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.skill.knowlever",
+      "service_name": "polarclaw-agent",
       "description": "KnowLever 知识检索与编译技能（RAG 查询、Topic 管理、代码摄入）",
       "transport": "skill",
       "tool_name": "knowlever_query",
@@ -64,8 +64,8 @@
       "timeout_ms": 15000
     },
     {
-      "id": "myclaw.skill.digist",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.skill.digist",
+      "service_name": "polarclaw-agent",
       "description": "digist 信息采集技能（爬取触发、数据搜索、推荐）",
       "transport": "skill",
       "tool_name": "digist_crawl",
@@ -74,8 +74,8 @@
       "timeout_ms": 60000
     },
     {
-      "id": "myclaw.skill.lab_report",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.skill.lab_report",
+      "service_name": "polarclaw-agent",
       "description": "实验报告自动生成 — LLM 驱动内容生成 + officecli 文档构建",
       "transport": "skill",
       "tool_name": "lab_report_generate",
@@ -84,8 +84,8 @@
       "timeout_ms": 300000
     },
     {
-      "id": "myclaw.skill.lab_report_preview",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.skill.lab_report_preview",
+      "service_name": "polarclaw-agent",
       "description": "实验报告内容预览 — 仅 LLM 生成各章节文本，不构建文档",
       "transport": "skill",
       "tool_name": "lab_report_preview",
@@ -94,8 +94,8 @@
       "timeout_ms": 180000
     },
     {
-      "id": "myclaw.skill.lab_report_health",
-      "service_name": "myclaw-agent",
+      "id": "polarclaw.skill.lab_report_health",
+      "service_name": "polarclaw-agent",
       "description": "实验报告 Skill 健康检查（officecli + LLM Proxy 连通性）",
       "transport": "skill",
       "tool_name": "lab_report_health",

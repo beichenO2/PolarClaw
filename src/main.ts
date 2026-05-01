@@ -1,5 +1,5 @@
 /**
- * MyClaw — 主入口
+ * PolarClaw — 主入口
  *
  * 组装端口-适配器架构的所有组件并启动 Agent。
  */
@@ -58,7 +58,7 @@ async function main() {
   // 从 PolarPrivate Vault 补充 .env 中缺失的 secrets
   await loadSecretsToEnv({
     baseUrl: process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:12790',
-    projectName: 'MyClaw',
+    projectName: 'PolarClaw',
   });
 
   const config = loadConfig();
@@ -90,7 +90,7 @@ async function main() {
   const learningStore = createLearningStore(config.memory.dbPath);
   const tools = createTrackedToolExecutor(rawTools, learningStore);
 
-  // Pilot: MyClaw 的自主项目执行系统
+  // Pilot: PolarClaw 的自主项目执行系统
   const pilotDb = (await import('better-sqlite3')).default(join(dataDir, 'pilot.db'));
   pilotDb.pragma('journal_mode = WAL');
   const pilotStore = createPilotStore(pilotDb);
@@ -118,7 +118,7 @@ async function main() {
   // 元技能索引（轻量扫描，不加载工具实现）
   const metaIndex = createMetaIndex();
   metaIndex.scan(config.skills.scanDirs);
-  console.error(`[MyClaw] 元技能索引: ${metaIndex.all().length} 技能, ${metaIndex.allMetaSkills().length} 元技能已索引`);
+  console.error(`[PolarClaw] 元技能索引: ${metaIndex.all().length} 技能, ${metaIndex.allMetaSkills().length} 元技能已索引`);
 
   // 技能注册表（按需加载模式：只扫描目录，工具通过 skill_activate 按需加载）
   const skillRegistry = createSkillRegistry(tools);
@@ -146,7 +146,7 @@ async function main() {
   // 连接自进化晋升系统
   tools.setSkillRegistry(skillRegistry);
   tools.onPromotion((skillName, useCount) => {
-    console.error(`[MyClaw] 技能晋升: ${skillName} → verified (${useCount} 次成功使用)`);
+    console.error(`[PolarClaw] 技能晋升: ${skillName} → verified (${useCount} 次成功使用)`);
   });
 
   // 注册学习系统工具（让 Agent 能调用反馈/生成/组合能力）
@@ -434,7 +434,7 @@ async function main() {
       tools.setContext(msg.userId, convId);
       return agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
     }).catch((err) => {
-      console.error(`[MyClaw] handleChannelMessage error for ${convId}:`, err);
+      console.error(`[PolarClaw] handleChannelMessage error for ${convId}:`, err);
       return { text: '抱歉，处理消息时出错了，请稍后再试。' };
     });
 
@@ -559,9 +559,9 @@ async function main() {
     },
   });
 
-  console.error('[MyClaw] Agent 已启动');
-  console.error('[MyClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
-  console.error(`[MyClaw] 学习系统: ${learningTools.length} 工具已注册`);
+  console.error('[PolarClaw] Agent 已启动');
+  console.error('[PolarClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
+  console.error(`[PolarClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
   // Web 服务器（Review API + SPA + YOLO API）— 端口通过 port-sdk 申请
   let webPort = 3910;
@@ -571,9 +571,10 @@ async function main() {
     const _req = createRequire(import.meta.url);
     const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
     const { claimPort } = _req(sdkPath);
-    webPort = await claimPort({ service: 'myclaw-web', project: 'MyClaw', preferred: 3910 });
+    webPort = await claimPort({ service: 'polarclaw-web', project: 'PolarClaw', preferred: 3910 });
+    try { claimPort({ service: 'myclaw-web', project: 'PolarClaw', preferred: webPort }); } catch {}
   } catch (err) {
-    console.error('[MyClaw] port-sdk 不可用，Web 服务器无法启动:', err);
+    console.error('[PolarClaw] port-sdk 不可用，Web 服务器无法启动:', err);
     process.exit(1);
   }
   const webServer = createWebServer({
@@ -632,12 +633,12 @@ async function main() {
       feishuAdmin.onMessage(async (msg) => handleChannelMessage(msg));
       await feishuAdmin.start();
       channels.push(feishuAdmin);
-      console.error('[MyClaw] 飞书管理员 Bot 已连接');
+      console.error('[PolarClaw] 飞书管理员 Bot 已连接');
 
       feishuAdmin.catchUp?.().catch((err: unknown) =>
-        console.error('[MyClaw] 管理员 Bot 补漏失败:', err));
+        console.error('[PolarClaw] 管理员 Bot 补漏失败:', err));
     } catch (err) {
-      console.error('[MyClaw] 飞书管理员 Bot 启动失败:', err);
+      console.error('[PolarClaw] 飞书管理员 Bot 启动失败:', err);
     }
 
     if (process.env.FEISHU_GIRLFRIEND_APP_ID) {
@@ -656,12 +657,12 @@ async function main() {
         feishuGf.onMessage(async (msg) => handleChannelMessage(msg));
         await feishuGf.start();
         channels.push(feishuGf);
-        console.error('[MyClaw] 飞书女友 Bot 已连接');
+        console.error('[PolarClaw] 飞书女友 Bot 已连接');
 
         feishuGf.catchUp?.().catch((err: unknown) =>
-          console.error('[MyClaw] 女友 Bot 补漏失败:', err));
+          console.error('[PolarClaw] 女友 Bot 补漏失败:', err));
       } catch (err) {
-        console.error('[MyClaw] 飞书女友 Bot 启动失败:', err);
+        console.error('[PolarClaw] 飞书女友 Bot 启动失败:', err);
       }
     }
   }
@@ -671,22 +672,22 @@ async function main() {
     cli.onMessage(async (msg) => handleChannelMessage(msg));
     await cli.start();
     channels.push(cli);
-    console.error('[MyClaw] CLI 通道已启动');
+    console.error('[PolarClaw] CLI 通道已启动');
   } else if (config.channels.cli) {
-    console.error('[MyClaw] CLI 已配置但非 TTY 环境，跳过');
+    console.error('[PolarClaw] CLI 已配置但非 TTY 环境，跳过');
   }
 
   if (channels.length === 0) {
-    console.error('[MyClaw] 未启用任何通道，等待通道连接...');
+    console.error('[PolarClaw] 未启用任何通道，等待通道连接...');
   }
 
   // 启动主动关怀引擎
   let clockSseBridge: ReturnType<typeof createClockSseBridge> | null = null;
   let scheduleBridge: ReturnType<typeof createScheduleBridge> | null = null;
 
-  if (process.env.MYCLAW_PROACTIVE === '1') {
+  if ((process.env.POLARCLAW_PROACTIVE ?? process.env.MYCLAW_PROACTIVE) === '1') {
     careEngine.start();
-    console.error('[MyClaw] 主动关怀引擎已启动');
+    console.error('[PolarClaw] 主动关怀引擎已启动');
 
     const clockUrl = process.env.CLOCK_API_URL?.trim();
     const clockUser = process.env.CLOCK_DEFAULT_USERNAME?.trim();
@@ -700,7 +701,7 @@ async function main() {
         careEngine,
       );
       clockSseBridge.start();
-      console.error('[MyClaw] Clock SSE 桥接已启动');
+      console.error('[PolarClaw] Clock SSE 桥接已启动');
 
       scheduleBridge = createScheduleBridge(
         {
@@ -711,13 +712,13 @@ async function main() {
         careEngine,
       );
       scheduleBridge.start();
-      console.error('[MyClaw] 日程关怀桥接已启动');
+      console.error('[PolarClaw] 日程关怀桥接已启动');
     }
   }
 
   // 优雅退出
   const shutdown = async () => {
-    console.error('[MyClaw] 正在关闭...');
+    console.error('[PolarClaw] 正在关闭...');
     webServer.stop();
     scheduleBridge?.stop();
     clockSseBridge?.stop();
@@ -737,6 +738,6 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error('[MyClaw] Fatal:', err);
+  console.error('[PolarClaw] Fatal:', err);
   process.exit(1);
 });
