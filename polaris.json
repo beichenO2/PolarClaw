@@ -480,7 +480,7 @@
         },
         {
           "name": "HTTP API 端点",
-          "description": "/api/sdk/* 路由 + 旧 /api/myclaw-sdk deprecated alias",
+          "description": "/api/sdk/* 路由",
           "status": "done",
           "behavior": [
             "GET /api/sdk/users/:id — 用户解析",
@@ -488,8 +488,7 @@
             "GET /api/sdk/lobsters/:projectId/status — 龙虾状态",
             "GET/POST/PUT /api/sdk/targets/:projectId/* — 靶子操作",
             "POST /api/sdk/approvals — 审批请求",
-            "POST /api/sdk/approvals/:id/callback — 审批回调",
-            "/api/myclaw-sdk/* → 308 redirect（deprecated）"
+            "POST /api/sdk/approvals/:id/callback — 审批回调"
           ],
           "evidence": [
             "2026-05-01: adapters/web/server.ts SDK routes added"
@@ -502,8 +501,7 @@
           "behavior": [
             "createPolarClawClient({ baseUrl, projectId }) → typed SDK client",
             "所有 API 方法 1:1 映射 HTTP 端点",
-            "X-PolarClaw-Project header 携带调用方身份",
-            "createMyClawClient deprecated alias"
+            "X-PolarClaw-Project header 携带调用方身份"
           ],
           "evidence": [
             "2026-05-01: packages/polarclaw-project-sdk/ 包创建"
