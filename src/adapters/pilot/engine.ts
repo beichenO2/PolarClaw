@@ -1,8 +1,7 @@
 /**
- * PilotEngine — PolarClaw's autonomous project execution system.
- *
- * "IO is All": user defines requirements, engine decomposes into phases
- * and drives execution via LLM Proxy with local memory management.
+ * @deprecated Legacy "打手系统" engine. Superseded by
+ * src/pilot/state-machine.ts + src/pilot/runtime.ts (Pilot Runtime).
+ * Kept for backward compatibility of /api/pilot/projects REST API.
  */
 
 import type { PilotStore, PilotPhase } from './store.js';

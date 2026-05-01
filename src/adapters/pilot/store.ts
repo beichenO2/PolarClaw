@@ -1,8 +1,7 @@
 /**
- * Pilot project persistence — SQLite storage for Pilot projects within PolarClaw.
- *
- * Pilot is PolarClaw's "打手系统": an autonomous project execution system
- * driven by LLM Proxy, with local memory management and full architectural autonomy.
+ * @deprecated Legacy "打手系统" project management. Superseded by
+ * src/pilot/ (Pilot Runtime: 找目标→画靶子→射箭→挪靶子 cycle).
+ * Kept for backward compatibility of /api/pilot/projects REST API.
  */
 
 import Database from 'better-sqlite3';

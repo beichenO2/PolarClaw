@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "feishu:simulate": "tsx src/adapters/channel/feishu-simulate.ts",
+    "lobster:start": "tsx src/pilot/lobster-start.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
