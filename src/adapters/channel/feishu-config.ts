@@ -4,7 +4,7 @@
  * 从环境变量加载飞书应用凭证。
  * 凭证通常由 PolarPrivate secrets-loader 注入到 process.env。
  *
- * 环境变量名沿用旧版 MyClaw 的 SECRET_TO_ENV 映射：
+ * 环境变量名沿用旧版的 SECRET_TO_ENV 映射：
  *   feishu.admin.app_id → FEISHU_ADMIN_APP_ID
  *   等等
  */

@@ -14,7 +14,7 @@ import { existsSync, rmSync } from 'node:fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
-const DB_PATH = join(ROOT, '.data', 'myclaw.db');
+const DB_PATH = join(ROOT, '.data', 'polarclaw.db');
 
 async function main() {
   console.log('=== 自进化系统冷启动验证 ===\n');

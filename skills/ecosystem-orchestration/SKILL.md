@@ -1,6 +1,6 @@
 ---
 name: ecosystem-orchestration
-description: 生态融合编排 — 统一 digist（信息采集）+ KnowLever（知识编译）+ MyClaw（Agent 交互）的跨项目工作流
+description: 生态融合编排 — 统一 digist（信息采集）+ KnowLever（知识编译）+ PolarClaw（Agent 交互）的跨项目工作流
 version: 1.0.0
 requires:
   digist-api: "http://127.0.0.1:3800"

@@ -1,5 +1,5 @@
 /**
- * PilotEngine — MyClaw's autonomous project execution system.
+ * PilotEngine — PolarClaw's autonomous project execution system.
  *
  * "IO is All": user defines requirements, engine decomposes into phases
  * and drives execution via LLM Proxy with local memory management.

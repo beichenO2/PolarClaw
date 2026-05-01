@@ -37,4 +37,4 @@ requires:
 ## 依赖
 
 AutoOffice API 服务需运行在端口 3900（`node dist/cli.js serve -p 3900` 或通过 SOTAgent 托管）。
-KnowLever RAG 增强功能通过 AutoOffice 内部集成自动调用，不需要 MyClaw 单独配置。
+KnowLever RAG 增强功能通过 AutoOffice 内部集成自动调用，不需要 PolarClaw 单独配置。

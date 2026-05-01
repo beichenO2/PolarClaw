@@ -1,5 +1,5 @@
 /**
- * MyClaw Web Server — serves the Web SPA and provides REST APIs
+ * PolarClaw Web Server — serves the Web SPA and provides REST APIs
  * for review items (PDF annotations, PPT diffs) and agent status.
  */
 
@@ -168,7 +168,7 @@ export function createWebServer(config: WebServerConfig) {
       res.json(config.getStatus());
     } else {
       res.json({
-        name: 'MyClaw',
+        name: 'PolarClaw',
         version: '0.1.0',
         channels: [],
         uptime: process.uptime(),
@@ -214,7 +214,7 @@ export function createWebServer(config: WebServerConfig) {
       });
       res.json({ content: reply, conversation_id: channel });
     } catch (err) {
-      console.error('[MyClaw] /api/agent/chat error:', err);
+      console.error('[PolarClaw] /api/agent/chat error:', err);
       res.status(500).json({ error: String(err) });
     }
   });
@@ -264,7 +264,7 @@ export function createWebServer(config: WebServerConfig) {
         model: resolvedModel,
       });
     } catch (err) {
-      console.error('[MyClaw] /api/chat error:', err);
+      console.error('[PolarClaw] /api/chat error:', err);
       res.status(500).json({ error: String(err) });
     }
   });
@@ -532,7 +532,7 @@ export function createWebServer(config: WebServerConfig) {
     start() {
       return new Promise<void>((resolve) => {
         server = app.listen(config.port, '127.0.0.1', () => {
-          console.error(`[MyClaw Web] Listening on http://127.0.0.1:${config.port}/mc/`);
+          console.error(`[PolarClaw Web] Listening on http://127.0.0.1:${config.port}/mc/`);
           resolve();
         });
       });

@@ -1,5 +1,5 @@
 /**
- * Shared port discovery for MyClaw skills.
+ * Shared port discovery for PolarClaw skills.
  *
  * Uses SOTAgent port-sdk to discover service ports dynamically.
  * Includes CircuitBreaker for resilient external service calls.

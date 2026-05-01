@@ -72,9 +72,9 @@ var tools = [
         throw new Error(`\u56FE\u7247\u6587\u4EF6\u4E0D\u5B58\u5728: ${imagePath}`);
       }
       const base64Url = imageToBase64Url(imagePath);
-      const baseUrl = process.env.MYCLAW_LLM_BASE_URL || `${process.env.POLARPRIVATE_URL || "http://127.0.0.1:12790"}/v1`;
-      const apiKey = process.env.MYCLAW_LLM_API_KEY || process.env.DASHSCOPE_API_KEY || "proxy-managed";
-      const model = process.env.MYCLAW_MODEL_VISION || "qwen3.6-plus";
+      const baseUrl = process.env.POLARCLAW_LLM_BASE_URL || `${process.env.POLARPRIVATE_URL || "http://127.0.0.1:12790"}/v1`;
+      const apiKey = process.env.POLARCLAW_LLM_API_KEY || process.env.DASHSCOPE_API_KEY || "proxy-managed";
+      const model = process.env.POLARCLAW_MODEL_VISION || "qwen3.6-plus";
       const analysis = await callVisionLLM(base64Url, query, baseUrl, apiKey, model);
       return {
         image: imagePath,

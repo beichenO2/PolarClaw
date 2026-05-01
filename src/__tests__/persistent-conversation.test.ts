@@ -10,7 +10,7 @@ describe('createPersistentConversation', () => {
   let conv: ReturnType<typeof createPersistentConversation>;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'myclaw-conv-test-'));
+    tempDir = mkdtempSync(join(tmpdir(), 'polarclaw-conv-test-'));
     dbPath = join(tempDir, 'test.db');
     conv = createPersistentConversation({ dbPath, maxMessages: 10, maxTokens: 5000 });
   });

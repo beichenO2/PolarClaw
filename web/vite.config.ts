@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const myClawPort = process.env.MYCLAW_WEB_PORT || '3910'
+const polarClawPort = process.env.POLARCLAW_WEB_PORT || '3910'
 
 export default defineConfig(({ command }) => ({
   base: command === 'build' ? '/mc/' : '/',
@@ -17,7 +17,7 @@ export default defineConfig(({ command }) => ({
     strictPort: true,
     proxy: {
       '/api': {
-        target: `http://127.0.0.1:${myClawPort}`,
+        target: `http://127.0.0.1:${polarClawPort}`,
         changeOrigin: true,
       },
     },

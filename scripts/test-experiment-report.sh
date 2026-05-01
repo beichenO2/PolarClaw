@@ -8,7 +8,7 @@
 # 3. 正确规划工作流（不依赖预置领域专用 skill）
 #
 # 用法：bash scripts/test-experiment-report.sh
-# 需要：MyClaw 各项依赖可用（PolarPrivate、officecli、Python/CLI 工具链）
+# 需要：PolarClaw 各项依赖可用（PolarPrivate、officecli、Python/CLI 工具链）
 
 set -euo pipefail
 cd "$(dirname "$0")/.."

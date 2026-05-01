@@ -3,7 +3,7 @@
     "id": "test-pdf-001",
     "type": "pdf",
     "filename": "test-report.pdf",
-    "filepath": "/Users/mac/Polarisor/MyClaw/data/uploads/test-report.pdf",
+    "filepath": "/Users/mac/Polarisor/PolarClaw/data/uploads/test-report.pdf",
     "status": "pending",
     "agent_id": "solo-web-86cee5fb",
     "annotations": [],

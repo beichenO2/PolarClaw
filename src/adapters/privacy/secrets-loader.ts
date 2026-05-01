@@ -1,7 +1,7 @@
 /**
  * PolarPrivate Secrets → process.env 加载器
  *
- * 启动时从 PolarPrivate Vault 读取 MyClaw 项目的所有 Secret，
+ * 启动时从 PolarPrivate Vault 读取 PolarClaw 项目的所有 Secret，
  * 将 dot-notation key 转为 UPPER_SNAKE_CASE 环境变量注入 process.env。
  *
  * 映射规则：feishu.admin.app_id → FEISHU_ADMIN_APP_ID

@@ -1,5 +1,5 @@
 #!/bin/bash
-# MyClaw — PolarPrivate 飞书凭证初始化脚本
+# PolarClaw — PolarPrivate 飞书凭证初始化脚本
 #
 # 前提：
 #   1. PolarPrivate 后端已运行（端口 12790）
@@ -9,7 +9,7 @@
 #   bash scripts/setup-polarprivate.sh
 #
 # 功能：
-#   - 确保 MyClaw 项目存在
+#   - 确保 PolarClaw 项目存在
 #   - 创建飞书管理员 Bot 和女友 Bot 的 Secret 占位符
 #   - 创建 DashScope API Key Secret 占位符
 #   - 所有 Secret 初始值为 PLACEHOLDER，需要在 PolarPrivate UI 中替换为真实值
@@ -36,22 +36,22 @@ fi
 
 log "✅ PolarPrivate 已连接，Vault 已解锁"
 
-# ── 确保 MyClaw 项目存在 ────────────────────────────
+# ── 确保 PolarClaw 项目存在 ───────────────────────────
 PROJECT_ID=$(curl -sf "$PP/api/projects" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 items = data.get('items', data) if isinstance(data, dict) else data
 for p in items:
-    if p['name'] == 'MyClaw':
+    if p['name'] == 'PolarClaw':
         print(p['id'])
         break
 " 2>/dev/null)
 
 if [ -z "$PROJECT_ID" ]; then
-  log "创建 MyClaw 项目..."
+  log "创建 PolarClaw 项目..."
   PROJECT_ID=$(curl -sf -X POST "$PP/api/projects" \
     -H "Content-Type: application/json" \
-    -d '{"name": "MyClaw", "description": "AI Agent 融合平台 — 飞书通道凭证"}' | \
+    -d '{"name": "PolarClaw", "description": "AI Agent 融合平台 — 飞书通道凭证"}' | \
     python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
   log "✅ 项目已创建: $PROJECT_ID"
 else
@@ -146,9 +146,9 @@ create_secret "dashscope.api_key"  "llm"
 # ── 飞书应用信息（Identity，非敏感）────────────────
 log ""
 log "━━━ 飞书应用信息（Identity）━━━"
-create_identity "feishu.admin.app_name"       "MyClaw 管理员 Bot"   "feishu"
+create_identity "feishu.admin.app_name"       "PolarClaw 管理员 Bot"   "feishu"
 create_identity "feishu.admin.webhook_path"   "/webhook/feishu/admin"  "feishu"
-create_identity "feishu.girlfriend.app_name"  "MyClaw 女友 Bot"    "feishu"
+create_identity "feishu.girlfriend.app_name"  "PolarClaw 女友 Bot"    "feishu"
 create_identity "feishu.girlfriend.webhook_path" "/webhook/feishu/girlfriend" "feishu"
 
 # ── 完成 ────────────────────────────────────────────

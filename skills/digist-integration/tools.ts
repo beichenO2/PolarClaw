@@ -1,5 +1,5 @@
 /**
- * DiGist Integration — MyClaw 技能工具
+ * DiGist Integration — PolarClaw 技能工具
  *
  * 通过 SOTAgent 网关或 port-sdk 动态发现端口，调用 digist API。
  * 遵循 port-sdk-mandatory 规则，无硬编码端口。

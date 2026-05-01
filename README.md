@@ -1,4 +1,4 @@
-# MyClaw — AI Agent 融合平台
+# PolarClaw — AI Agent 融合平台
 
 端口-适配器（六边形）架构，TypeScript + Node.js。
 

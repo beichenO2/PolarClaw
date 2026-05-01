@@ -1,4 +1,4 @@
-# MyClaw Roadmap
+# PolarClaw Roadmap
 
 > 进度视图：当前阶段、完成情况、下一步。事实源是 `polaris.json`，本文件只做进度摘要。
 

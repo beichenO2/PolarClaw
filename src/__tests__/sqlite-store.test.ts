@@ -10,7 +10,7 @@ describe('createSqliteMemoryStore', () => {
   let store: ReturnType<typeof createSqliteMemoryStore>;
 
   beforeEach(() => {
-    tempDir = mkdtempSync(join(tmpdir(), 'myclaw-test-'));
+    tempDir = mkdtempSync(join(tmpdir(), 'polarclaw-test-'));
     dbPath = join(tempDir, 'test.db');
     store = createSqliteMemoryStore(dbPath);
   });

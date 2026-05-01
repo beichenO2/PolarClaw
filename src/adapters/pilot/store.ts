@@ -1,7 +1,7 @@
 /**
- * Pilot project persistence — SQLite storage for Pilot projects within MyClaw.
+ * Pilot project persistence — SQLite storage for Pilot projects within PolarClaw.
  *
- * Pilot is MyClaw's "打手系统": an autonomous project execution system
+ * Pilot is PolarClaw's "打手系统": an autonomous project execution system
  * driven by LLM Proxy, with local memory management and full architectural autonomy.
  */
 

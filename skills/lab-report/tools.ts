@@ -1,5 +1,5 @@
 /**
- * Lab Report Generator — MyClaw Skill
+ * Lab Report Generator — PolarClaw Skill
  *
  * Workflow: LLM generates section content → officecli assembles .docx from template.
  * Generalised from the original 实验报告/generate_report.py prototype.
@@ -13,11 +13,11 @@ import type { IToolHandler } from '../../src/ports/tools.js';
 
 const execFileAsync = promisify(execFile);
 
-// ─── LLM Proxy (reuses MyClaw config convention) ───────────────────────
+// ─── LLM Proxy (reuses PolarClaw config convention) ────────────────────
 
 const PP_URL = process.env.POLARPRIVATE_URL ?? 'http://127.0.0.1:12790';
-const LLM_BASE = process.env.MYCLAW_LLM_BASE_URL ?? `${PP_URL}/v1`;
-const LLM_MODEL = process.env.LAB_REPORT_MODEL ?? process.env.MYCLAW_MODEL_GENERAL ?? 'qwen3.6-plus';
+const LLM_BASE = process.env.POLARCLAW_LLM_BASE_URL ?? `${PP_URL}/v1`;
+const LLM_MODEL = process.env.LAB_REPORT_MODEL ?? process.env.POLARCLAW_MODEL_GENERAL ?? 'qwen3.6-plus';
 const LLM_TIMEOUT_MS = 120_000;
 
 interface LLMMessage {

@@ -1,5 +1,5 @@
 /**
- * Hub Alignment Client — bridges MyClaw YOLO engine to PolarCopilot Hub's
+ * Hub Alignment Client — bridges PolarClaw YOLO engine to PolarCopilot Hub's
  * structured alignment and review workflow.
  *
  * Falls back to the original heuristic+LLM-as-Judge flow when Hub is unreachable.

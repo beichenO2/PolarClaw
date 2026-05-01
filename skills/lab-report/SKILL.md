@@ -30,5 +30,5 @@ requires:
 
 ## 依赖
 
-- PolarPrivate LLM Proxy（通过 MyClaw config 中的 llm.baseUrl 自动获取）
+- PolarPrivate LLM Proxy（通过 PolarClaw config 中的 llm.baseUrl 自动获取）
 - officecli CLI 工具（需在 PATH 中可用）

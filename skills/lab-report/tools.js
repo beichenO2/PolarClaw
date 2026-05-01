@@ -5,8 +5,8 @@ import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 var execFileAsync = promisify(execFile);
 var PP_URL = process.env.POLARPRIVATE_URL ?? "http://127.0.0.1:12790";
-var LLM_BASE = process.env.MYCLAW_LLM_BASE_URL ?? `${PP_URL}/v1`;
-var LLM_MODEL = process.env.LAB_REPORT_MODEL ?? process.env.MYCLAW_MODEL_GENERAL ?? "qwen3.6-plus";
+var LLM_BASE = process.env.POLARCLAW_LLM_BASE_URL ?? `${PP_URL}/v1`;
+var LLM_MODEL = process.env.LAB_REPORT_MODEL ?? process.env.POLARCLAW_MODEL_GENERAL ?? "qwen3.6-plus";
 var LLM_TIMEOUT_MS = 12e4;
 async function callLLM(messages, maxTokens = 3e3) {
   const url = `${LLM_BASE}/chat/completions`;

@@ -19,15 +19,15 @@ async function probe(name, url) {
 }
 
 const pp = (process.env.POLARPRIVATE_URL || 'http://127.0.0.1:12790').replace(/\/$/, '');
-const myclaw = process.env.MYCLAW_WEB_BASE; // e.g. http://127.0.0.1:8080 由 MyClaw web 实际端口决定
+const polarclaw = process.env.POLARCLAW_WEB_BASE; // e.g. http://127.0.0.1:8080 由 PolarClaw web 实际端口决定
 
 const checks = [
   ['PolarPrivate', `${pp}/health`],
   ['SOTAgent', 'http://127.0.0.1:4800/api/status'],
   ['AutoOffice', 'http://127.0.0.1:3900/health'],
 ];
-if (myclaw) {
-  checks.push(['MyClaw Web', `${myclaw.replace(/\/$/, '')}/api/status`]);
+if (polarclaw) {
+  checks.push(['PolarClaw Web', `${polarclaw.replace(/\/$/, '')}/api/status`]);
 }
 
 async function main() {

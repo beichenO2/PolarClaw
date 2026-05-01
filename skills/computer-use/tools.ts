@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { execSync } from 'node:child_process';
 
-const SCREENSHOT_DIR = resolve(process.env.HOME ?? '/tmp', 'Polarisor/MyClaw/data/screenshots');
+const SCREENSHOT_DIR = resolve(process.env.HOME ?? '/tmp', 'Polarisor/PolarClaw/data/screenshots');
 
 function ensureScreenshotDir(): void {
   if (!existsSync(SCREENSHOT_DIR)) {

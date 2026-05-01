@@ -1,5 +1,5 @@
 /**
- * Ecosystem Orchestration — digist + KnowLever + MyClaw 跨项目工作流
+ * Ecosystem Orchestration — digist + KnowLever + PolarClaw 跨项目工作流
  *
  * 通过 SOTAgent 网关/port-sdk 动态发现服务端口。
  * 遵循 port-sdk-mandatory 规则，无硬编码端口。

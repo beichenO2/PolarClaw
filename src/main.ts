@@ -36,6 +36,7 @@ import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import { createWebServer } from './adapters/web/server.js';
 import { createPilotStore } from './adapters/pilot/store.js';
 import { createPilotEngine } from './adapters/pilot/engine.js';
+import { createPolarUserRegistry } from './core/polar-user.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -302,13 +303,19 @@ async function main() {
     ? `${soulPrompt}\n\n${skillCatalog}`
     : soulPrompt;
 
-  // Persona resolver：按 userId 加载差异化人格（personas/{userId}.md → personas/default.md）
+  // PolarUser registry: 统一身份模型（human/project 分组、persona/memory/scope 隔离）
+  const polarUsers = createPolarUserRegistry();
+  console.error(`[PolarClaw] PolarUser registry: ${polarUsers.listHumans().length} humans, ${polarUsers.listProjects().length} projects`);
+
+  // Persona resolver：按 PolarUser 身份加载差异化人格
   const personaDir = join(config.projectRoot, 'personas');
   const personaCache = new Map<string, { content: string; mtime: number }>();
 
   function resolvePersona(userId: string): string {
+    const polarUser = polarUsers.resolve(userId);
+    const personaName = polarUser.persona;
     const candidates = [
-      join(personaDir, `${userId}.md`),
+      join(personaDir, `${personaName}.md`),
       join(personaDir, 'default.md'),
     ];
     for (const p of candidates) {

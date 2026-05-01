@@ -1,7 +1,7 @@
 /**
  * SQLite + FTS5 记忆存储适配器
  *
- * 实现 IMemoryStore 接口，复用旧 MyClaw 的 schema 设计。
+ * 实现 IMemoryStore 接口，复用旧版的 schema 设计。
  */
 
 import Database from 'better-sqlite3';

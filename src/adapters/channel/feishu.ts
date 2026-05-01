@@ -530,10 +530,10 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     const _req = createRequire(import.meta.url);
     const sdkPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
     const { claimPort, registerCapabilities } = _req(sdkPath);
-    const port = await claimPort({ service: `myclaw-feishu-${channelName}`, project: 'MyClaw', preferred: config.webhookPort });
+    const port = await claimPort({ service: `polarclaw-feishu-${channelName}`, project: 'PolarClaw', preferred: config.webhookPort });
 
-    const capPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'MyClaw', 'capabilities.json');
-    registerCapabilities(capPath).catch((e: unknown) => console.warn('[MyClaw] capability registration failed (non-fatal):', e));
+    const capPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'PolarClaw', 'capabilities.json');
+    registerCapabilities(capPath).catch((e: unknown) => console.warn('[PolarClaw] capability registration failed (non-fatal):', e));
 
     await new Promise<void>((resolve, reject) => {
       server.listen(port, config.webhookHost, () => resolve());

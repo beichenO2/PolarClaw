@@ -1,5 +1,5 @@
 /**
- * MyClaw Agent Core — 核心 Agent 循环
+ * PolarClaw Agent Core — 核心 Agent 循环
  *
  * 端口-适配器架构的核心层：
  * - 只依赖 ports/ 中的接口

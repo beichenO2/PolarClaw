@@ -104,7 +104,7 @@
             "订阅 Clock /api/sync/events SSE 端点",
             "监听 timer_change/session_complete 事件",
             "指数退避重连（1s→30s 上限）",
-            "MYCLAW_PROACTIVE=1 + CLOCK_API_URL + CLOCK_DEFAULT_USERNAME 启用"
+            "POLARCLAW_PROACTIVE=1 + CLOCK_API_URL + CLOCK_DEFAULT_USERNAME 启用"
           ]
         },
         {
@@ -328,6 +328,31 @@
             "skill-registry 初始化时跳过 _meta 目录（元技能不注册工具）",
             "meta-index 区分元技能（思维框架）和工具技能（含 tools.ts）",
             "Agent 通过 skill_search + skill_activate 按需加载 Tool-Skills"
+          ]
+        }
+      ],
+      "blockers": []
+    },
+    {
+      "id": "R7",
+      "need": "PolarUser 统一身份模型",
+      "approach": "PolarUser.human / PolarUser.project 分组，project lobster identity + persona/memory/tool scopes 隔离",
+      "features": [
+        {
+          "name": "PolarUser 身份注册与解析",
+          "description": "统一用户身份模型，区分 human（admin/normal）和 project（每个被托管项目一个身份）",
+          "status": "done",
+          "behavior": [
+            "PolarUser.human 组：admin、普通用户",
+            "PolarUser.project 组：project:knowlever、project:autooffice 等 7 个项目身份",
+            "project 用户与 human 用户平级，共享 user_id/memory/persona 机制",
+            "project 用户额外拥有 tool_scopes 和 sdk_scopes 权限控制",
+            "persona 解析按 PolarUser 身份路由：project:knowlever → lobster-knowlever.md"
+          ],
+          "evidence": [
+            "2026-05-01: src/core/polar-user.ts PolarUser registry 实现",
+            "2026-05-01: personas/lobster-knowlever.md, personas/lobster-autooffice.md 项目龙虾人格",
+            "2026-05-01: main.ts 集成 PolarUser registry 到 persona resolver"
           ]
         }
       ],

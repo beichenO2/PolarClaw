@@ -81,7 +81,7 @@ async function main() {
   const { loadSecretsToEnv } = await import('../privacy/secrets-loader.js');
   await loadSecretsToEnv({
     baseUrl: process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:12790',
-    projectName: 'MyClaw',
+    projectName: 'PolarClaw',
   });
 
   const { loadConfig } = await import('../../config.js');
