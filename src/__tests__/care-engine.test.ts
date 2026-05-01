@@ -231,4 +231,24 @@ describe('createCareEngine', () => {
     engine.start();
     engine.stop();
   });
+
+  it('manual trigger sends topic message', async () => {
+    const onCareMessage = vi.fn();
+    const engine = createCareEngine(
+      { pollIntervalMs: 999999, minCareIntervalMs: 0 },
+      {
+        memory: makeMemory(),
+        tools: makeTools(),
+        onCareMessage,
+      },
+    );
+
+    const msg = await engine.trigger({
+      type: 'condition', userId: 'u1', reason: 'topic',
+      context: { topic: '新架构方向', source: 'manual' },
+    });
+    expect(msg).not.toBeNull();
+    expect(msg!.tag).toBe('topic-initiative');
+    expect(onCareMessage).toHaveBeenCalledOnce();
+  });
 });

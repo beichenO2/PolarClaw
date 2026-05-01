@@ -66,6 +66,17 @@ export interface IAgentResponse {
   };
 }
 
+function filterSkillCatalog(catalog: string | undefined, allowedSkills: string[] | undefined): string {
+  if (!catalog) return '';
+  if (!allowedSkills) return catalog;
+  const allowed = new Set(allowedSkills.map(s => s.toLowerCase()));
+  return catalog.split('\n').filter(line => {
+    const skillMatch = line.match(/^- (?:[✅📝⏸️] )?(?:\*\*)?([^*:]+?)(?:\*\*)?:\s/);
+    if (!skillMatch) return true;
+    return allowed.has(skillMatch[1]!.trim().toLowerCase());
+  }).join('\n');
+}
+
 export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   const { llm, memory, conversations, tools, privacy, compressor } = deps;
   const maxToolOutputLen = config.maxToolOutputLength ?? 12000;
@@ -122,7 +133,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
     // 5a. 持久化 LLM token usage 到日志
     if (result.usage) {
-      persistUsage(userId, channel, result.usage);
+      persistUsage(userId, channel, result.usage, result.model, convId);
     }
 
     // 6. 隐私网关出站还原
@@ -179,19 +190,17 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   }
 
   /** Agent 主循环：system + 历史消息 → LLM → 工具调用 → 观察 → 重复 */
-  async function runLoop(convId: string, userId: string, isOngoing = false): Promise<{ text: string; usage?: ILLMResponse['usage'] }> {
+  async function runLoop(convId: string, userId: string, isOngoing = false): Promise<{ text: string; usage?: ILLMResponse['usage']; model?: string }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
+    let lastModel = '';
 
     // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
     const compressionBudget = (config.maxTokens ?? 4096) * 12;
 
     const personaResult = config.personaResolver?.(userId);
     const personaText = personaResult?.content ?? '';
-    const catalog = config.skillCatalog ?? '';
-    const promptParts = [config.systemPrompt];
-    if (catalog) promptParts.push(catalog);
-    if (personaText) promptParts.push(personaText);
-    const basePrompt = promptParts.join('\n\n');
+    const catalog = filterSkillCatalog(config.skillCatalog, personaResult?.allowedSkills);
+    const basePrompt = [config.systemPrompt, catalog, personaText].filter(Boolean).join('\n\n');
 
     const maxRounds = config.maxToolRounds > 0 ? config.maxToolRounds : Infinity;
     for (let round = 0; round < maxRounds; round++) {
@@ -227,6 +236,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       });
 
       // 累计 token
+      lastModel = response.model || lastModel;
       if (response.usage) {
         if (!totalUsage) {
           totalUsage = { ...response.usage };
@@ -247,7 +257,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       // 无工具调用 → 返回文本
       if (response.toolCalls.length === 0) {
         const text = response.content?.trim();
-        return { text: text || '（暂无文本回复）', usage: totalUsage };
+        return { text: text || '（暂无文本回复）', usage: totalUsage, model: lastModel };
       }
 
       // 并发执行所有工具调用（Promise.allSettled 保证全部完成，不因单个失败终止）
@@ -295,25 +305,65 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       }
     }
 
-    return { text: '已达到工具调用轮数上限，请简化任务或分步提问。', usage: totalUsage };
+    return { text: '已达到工具调用轮数上限，请简化任务或分步提问。', usage: totalUsage, model: lastModel };
   }
 
-  const USAGE_LOG_PATH = join(homedir(), '.polarcop', 'logs', 'llm-usage.jsonl');
+  const USAGE_LOG_DIR = join(homedir(), '.polarcop', 'logs');
+  const USAGE_LOG_PATH = join(USAGE_LOG_DIR, 'llm-usage.jsonl');
+  const USAGE_RETENTION_DAYS = 30;
   let usageLogDirCreated = false;
 
-  function persistUsage(userId: string, channel: string, usage: NonNullable<ILLMResponse['usage']>) {
+  const MODEL_PRICING: Record<string, { prompt: number; completion: number }> = {
+    'qwen3.6-plus':     { prompt: 0.80,  completion: 2.00 },
+    'qwen3-coder-plus': { prompt: 1.00,  completion: 3.00 },
+    'qwen-plus':        { prompt: 0.80,  completion: 2.00 },
+    'qwen-turbo':       { prompt: 0.30,  completion: 0.60 },
+    'gpt-4o':           { prompt: 2.50,  completion: 10.00 },
+    'gpt-4o-mini':      { prompt: 0.15,  completion: 0.60 },
+    'claude-sonnet-4':  { prompt: 3.00,  completion: 15.00 },
+    'claude-haiku':     { prompt: 0.80,  completion: 4.00 },
+    'deepseek-chat':    { prompt: 0.14,  completion: 0.28 },
+    'deepseek-reasoner':{ prompt: 0.55,  completion: 2.19 },
+  };
+
+  function estimateCost(model: string, usage: NonNullable<ILLMResponse['usage']>): number {
+    const pricing = MODEL_PRICING[model];
+    if (!pricing) return 0;
+    return (usage.promptTokens * pricing.prompt + usage.completionTokens * pricing.completion) / 1_000_000;
+  }
+
+  function rotateUsageLogs() {
+    try {
+      const { readdirSync, unlinkSync, statSync } = require('node:fs') as typeof import('node:fs');
+      const cutoff = Date.now() - USAGE_RETENTION_DAYS * 86400000;
+      for (const f of readdirSync(USAGE_LOG_DIR)) {
+        if (!f.startsWith('llm-usage') || !f.endsWith('.jsonl')) continue;
+        const fp = join(USAGE_LOG_DIR, f);
+        if (statSync(fp).mtimeMs < cutoff) unlinkSync(fp);
+      }
+    } catch { /* non-critical */ }
+  }
+
+  function persistUsage(
+    userId: string, channel: string,
+    usage: NonNullable<ILLMResponse['usage']>,
+    model?: string, task?: string,
+  ) {
     try {
       if (!usageLogDirCreated) {
         mkdirSync(dirname(USAGE_LOG_PATH), { recursive: true });
         usageLogDirCreated = true;
+        rotateUsageLogs();
       }
+      const m = model || 'unknown';
       const entry = {
-        ts: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
         user_id: userId,
-        channel,
+        model: m,
         prompt_tokens: usage.promptTokens,
         completion_tokens: usage.completionTokens,
-        total_tokens: usage.totalTokens,
+        estimated_cost_usd: Math.round(estimateCost(m, usage) * 1e6) / 1e6,
+        task: task || channel,
       };
       appendFileSync(USAGE_LOG_PATH, JSON.stringify(entry) + '\n');
     } catch {
