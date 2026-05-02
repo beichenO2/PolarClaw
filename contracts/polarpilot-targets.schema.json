@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PolarPilot Targets Contract",
+  "description": "Contract for target CRUD operations via PolarPilot",
+  "definitions": {
+    "TargetStatus": {
+      "type": "string",
+      "enum": ["active", "hit", "moved", "archived"]
+    },
+    "TargetBoard": {
+      "type": "string",
+      "enum": ["backlog", "sprint", "done", "archived"]
+    },
+    "ArrowLogEntry": {
+      "type": "object",
+      "required": ["ts", "action", "outcome"],
+      "properties": {
+        "ts": { "type": "string", "format": "date-time" },
+        "action": { "type": "string" },
+        "outcome": { "type": "string" },
+        "evidence": { "type": "string" }
+      }
+    },
+    "PilotTarget": {
+      "type": "object",
+      "required": ["id", "project_id", "name", "description", "status", "board", "arrow_log", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "project_id": { "type": "string" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string" },
+        "status": { "$ref": "#/definitions/TargetStatus" },
+        "board": { "$ref": "#/definitions/TargetBoard" },
+        "polaris_feature_ref": { "type": "string" },
+        "arrow_log": { "type": "array", "items": { "$ref": "#/definitions/ArrowLogEntry" } },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    },
+    "TargetCreateRequest": {
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "description": { "type": "string" },
+        "board": { "$ref": "#/definitions/TargetBoard" },
+        "polaris_feature_ref": { "type": "string" }
+      }
+    },
+    "RunTestResponse": {
+      "type": "object",
+      "required": ["target_id", "passed", "output", "duration_ms"],
+      "properties": {
+        "target_id": { "type": "string" },
+        "passed": { "type": "boolean" },
+        "output": { "type": "string" },
+        "duration_ms": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "examples": {
+    "create_request": {
+      "method": "POST",
+      "path": "/api/pilot/targets/knowlever",
+      "body": {
+        "name": "Fix compile pipeline timeout",
+        "description": "Compile pipeline times out on large topic sets (>50 topics)",
+        "board": "sprint",
+        "polaris_feature_ref": "R1/wiki-compile"
+      }
+    },
+    "create_response": {
+      "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "project_id": "knowlever",
+      "name": "Fix compile pipeline timeout",
+      "description": "Compile pipeline times out on large topic sets (>50 topics)",
+      "status": "active",
+      "board": "sprint",
+      "polaris_feature_ref": "R1/wiki-compile",
+      "arrow_log": [],
+      "created_at": "2026-05-03T01:00:00Z",
+      "updated_at": "2026-05-03T01:00:00Z"
+    }
+  }
+}

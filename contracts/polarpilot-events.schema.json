@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PolarPilot Events Contract",
+  "description": "Contract for event emit/query operations via PolarPilot",
+  "definitions": {
+    "EventType": {
+      "type": "string",
+      "enum": ["bug", "digist_report", "contract_red", "git_push_main", "scheduled_health_scan", "build_failure", "api_5xx", "cli_nonzero_exit", "custom"]
+    },
+    "EventSeverity": {
+      "type": "string",
+      "enum": ["info", "warning", "error", "critical"]
+    },
+    "PilotEvent": {
+      "type": "object",
+      "required": ["ts", "type", "source_project", "severity", "dedup_key", "payload"],
+      "properties": {
+        "ts": { "type": "string", "format": "date-time" },
+        "type": { "$ref": "#/definitions/EventType" },
+        "source_project": { "type": "string" },
+        "target_project": { "type": "string" },
+        "severity": { "$ref": "#/definitions/EventSeverity" },
+        "dedup_key": { "type": "string" },
+        "payload": { "type": "object" }
+      }
+    },
+    "EmitEventResponse": {
+      "type": "object",
+      "required": ["accepted", "event_id", "dedup_skipped"],
+      "properties": {
+        "accepted": { "type": "boolean" },
+        "event_id": { "type": "string" },
+        "dedup_skipped": { "type": "boolean" }
+      }
+    }
+  },
+  "examples": {
+    "emit_request": {
+      "method": "POST",
+      "path": "/api/pilot/events",
+      "body": {
+        "type": "build_failure",
+        "source_project": "knowlever",
+        "severity": "error",
+        "dedup_key": "knowlever-build-2026-05-03",
+        "payload": { "exit_code": 1, "command": "npm run build" }
+      }
+    },
+    "emit_response": {
+      "accepted": true,
+      "event_id": "evt-a1b2c3d4",
+      "dedup_skipped": false
+    }
+  }
+}

@@ -34,9 +34,6 @@ import { createScheduleBridge } from './adapters/proactive/schedule-bridge.js';
 import { createYoloEngine } from './adapters/yolo/engine.js';
 import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import { createWebServer } from './adapters/web/server.js';
-import { createPilotStore } from './adapters/pilot/store.js';
-import { createPilotEngine } from './adapters/pilot/engine.js';
-import { createTargetStore, createTargetTools } from './pilot/index.js';
 import { createPolarUserRegistry } from './core/polar-user.js';
 import { createPolarClawSDK } from './sdk/index.js';
 import type { IChannelAdapter } from './ports/channel.js';
@@ -92,12 +89,6 @@ async function main() {
   // 学习系统：包装工具执行器以追踪使用记录
   const learningStore = createLearningStore(config.memory.dbPath);
   const tools = createTrackedToolExecutor(rawTools, learningStore);
-
-  // Pilot: PolarClaw 的自主项目执行系统
-  const pilotDb = (await import('better-sqlite3')).default(join(dataDir, 'pilot.db'));
-  pilotDb.pragma('journal_mode = WAL');
-  const pilotStore = createPilotStore(pilotDb);
-  const pilotEngine = createPilotEngine({ store: pilotStore, llm });
 
   const privacy = createPrivacyGateway({
     polarPrivate: {
@@ -163,15 +154,6 @@ async function main() {
   for (const lt of learningTools) {
     tools.register(lt);
   }
-
-  // Pilot Runtime: 靶子树工具（lobster_target_*）
-  const pilotTargetsDir = join(config.projectRoot, 'lobster', 'targets');
-  const pilotTargetStore = createTargetStore({ targetsDir: pilotTargetsDir });
-  const targetTools = createTargetTools(pilotTargetStore);
-  for (const tt of targetTools) {
-    tools.register(tt);
-  }
-  console.error(`[PolarClaw] Pilot 靶子树工具: ${targetTools.length} 工具已注册`);
 
   // 注册内置工具 — 文件组织（将飞书收到的文件移到正确位置）
   tools.register({
@@ -607,20 +589,14 @@ async function main() {
     const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
     const { claimPort } = _req(sdkPath);
     webPort = await claimPort({ service: 'polarclaw-web', project: 'PolarClaw', preferred: 3910 });
-    try { claimPort({ service: 'myclaw-web', project: 'PolarClaw', preferred: webPort }); } catch {}
   } catch (err) {
     console.error('[PolarClaw] port-sdk 不可用，Web 服务器无法启动:', err);
     process.exit(1);
   }
-  // PolarClaw SDK — unified API for Hub, external projects, and polarclaw-project-sdk
-  const polarisorRoot = join(config.projectRoot, '..');
+  // PolarClaw SDK — thin adapters calling PolarPilot contract endpoints
   const polarClawSDK = createPolarClawSDK({
     userRegistry: polarUsers,
-    pilotStore,
-    pilotDb,
-    sotAgentUrl: process.env.SOTAGENT_URL?.trim() || undefined,
-    localEventsPath: join(polarisorRoot, 'SOTAgent', 'data', 'lobster-events.jsonl'),
-    polarisorRoot,
+    polarpilotUrl: process.env.POLARPILOT_URL?.trim() || 'http://127.0.0.1:4900',
   });
   console.error(`[PolarClaw] SDK v${polarClawSDK.version} initialized`);
 
@@ -644,8 +620,6 @@ async function main() {
     memoryStore: memory,
     agentHandler: handleChannelMessage,
     yoloEngine,
-    pilotStore,
-    pilotEngine,
     sdk: polarClawSDK,
   });
   await webServer.start();
@@ -733,7 +707,7 @@ async function main() {
   let clockSseBridge: ReturnType<typeof createClockSseBridge> | null = null;
   let scheduleBridge: ReturnType<typeof createScheduleBridge> | null = null;
 
-  if ((process.env.POLARCLAW_PROACTIVE ?? process.env.MYCLAW_PROACTIVE) === '1') {
+  if (process.env.POLARCLAW_PROACTIVE === '1') {
     careEngine.start();
     console.error('[PolarClaw] 主动关怀引擎已启动');
 

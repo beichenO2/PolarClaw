@@ -1,14 +1,13 @@
 /**
  * PolarClaw SDK — server-side entry point
  *
- * Assembles all SDK modules into a single facade used by the
- * PolarClaw HTTP API layer and internal consumers. External projects
- * use the thin `polarclaw-project-sdk` HTTP client instead.
+ * Assembles all SDK modules into a single facade. SDK modules are thin
+ * adapters that call PolarPilot's HTTP contract — no internal stores.
+ * External projects use the `polarclaw-project-sdk` HTTP client instead.
  */
 
 import type { PolarUserRegistry } from '../core/polar-user.js';
-import type { PilotStore } from '../adapters/pilot/store.js';
-import type Database from 'better-sqlite3';
+import { PolarPilotClient } from '../contracts/polarpilot-client.js';
 import { createUsersModule } from './users.js';
 import { createEventsModule } from './events.js';
 import { createLobstersModule } from './lobsters.js';
@@ -18,33 +17,23 @@ import { SDK_VERSION } from './types.js';
 
 export interface PolarClawSDKConfig {
   userRegistry: PolarUserRegistry;
-  pilotStore: PilotStore;
-  pilotDb: Database.Database;
-  /** SOTAgent base URL */
-  sotAgentUrl?: string;
-  /** Path to lobster-events.jsonl (local fallback) */
-  localEventsPath: string;
-  /** Polarisor root directory (parent of project dirs) */
-  polarisorRoot: string;
+  /** PolarPilot base URL for contract calls (e.g. http://127.0.0.1:4900) */
+  polarpilotUrl: string;
+  /** HTTP request timeout in ms for PolarPilot calls (default 10_000) */
+  polarpilotTimeoutMs?: number;
 }
 
 export function createPolarClawSDK(config: PolarClawSDKConfig) {
+  const pilotClient = new PolarPilotClient({
+    baseUrl: config.polarpilotUrl,
+    timeoutMs: config.polarpilotTimeoutMs,
+  });
+
   const users = createUsersModule({ registry: config.userRegistry });
-
-  const targets = createTargetsModule({ polarisorRoot: config.polarisorRoot });
-
-  const events = createEventsModule({
-    sotAgentUrl: config.sotAgentUrl,
-    localEventsPath: config.localEventsPath,
-  });
-
-  const lobsters = createLobstersModule({
-    pilotStore: config.pilotStore,
-    events,
-    targets,
-  });
-
-  const approvals = createApprovalsModule({ db: config.pilotDb });
+  const events = createEventsModule({ pilotClient });
+  const lobsters = createLobstersModule({ pilotClient });
+  const targets = createTargetsModule({ pilotClient });
+  const approvals = createApprovalsModule({ pilotClient });
 
   return {
     version: SDK_VERSION,
@@ -58,7 +47,6 @@ export function createPolarClawSDK(config: PolarClawSDKConfig) {
 
 export type PolarClawSDK = ReturnType<typeof createPolarClawSDK>;
 
-// Re-export types for consumers
 export { SDK_VERSION, SDKError } from './types.js';
 export type {
   PolarUserInfo,
@@ -81,7 +69,3 @@ export type {
   SDKClientConfig,
 } from './types.js';
 
-/** @deprecated Use PolarClawSDK — alias kept for backward compatibility */
-export type MyClawSDK = PolarClawSDK;
-/** @deprecated Use createPolarClawSDK */
-export const createMyClawSDK = createPolarClawSDK;

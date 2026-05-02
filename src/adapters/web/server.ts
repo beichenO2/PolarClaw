@@ -15,8 +15,6 @@ export interface WebServerConfig {
   dataDir: string;
   webDistDir?: string;
   getStatus?: () => AgentStatusData;
-  pilotEngine?: import('../pilot/engine.js').PilotEngine;
-  pilotStore?: import('../pilot/store.js').PilotStore;
   llm?: import('../../ports/llm.js').ILLMRouter;
   memoryStore?: import('../../ports/memory.js').IMemoryStore;
   /** Full agent handler (ReAct loop + tools + memory + privacy) */
@@ -474,60 +472,6 @@ export function createWebServer(config: WebServerConfig) {
     res.json({ ok: true });
   });
 
-  // ── API: Pilot projects ────────────────────────────────
-  if (config.pilotStore && config.pilotEngine) {
-    const pStore = config.pilotStore;
-    const pEngine = config.pilotEngine;
-
-    app.get('/api/pilot/projects', (_req, res) => {
-      try { res.json({ items: pStore.list() }); }
-      catch (err: any) { res.status(500).json({ error: err.message }); }
-    });
-
-    app.get('/api/pilot/projects/:id', (req, res) => {
-      const p = pStore.get(req.params.id);
-      if (!p) { res.status(404).json({ error: 'not_found' }); return; }
-      res.json(p);
-    });
-
-    app.post('/api/pilot/projects', (req, res) => {
-      try {
-        const { name, description, input_spec, output_spec } = req.body;
-        if (!name || !input_spec) { res.status(400).json({ error: 'name and input_spec required' }); return; }
-        const p = pStore.create({ name, description, input_spec, output_spec });
-        res.json(p);
-      } catch (err: any) { res.status(400).json({ error: err.message }); }
-    });
-
-    app.post('/api/pilot/projects/:id/start', async (req, res) => {
-      try {
-        const result = await pEngine.start(req.params.id);
-        const p = pStore.get(req.params.id);
-        res.json({ ok: true, ...result, project: p });
-      } catch (err: any) { res.status(400).json({ error: err.message }); }
-    });
-
-    app.post('/api/pilot/projects/:id/cancel', (req, res) => {
-      try {
-        pEngine.cancel(req.params.id);
-        res.json({ ok: true });
-      } catch (err: any) { res.status(400).json({ error: err.message }); }
-    });
-
-    app.post('/api/pilot/projects/:id/phases/:idx/status', (req, res) => {
-      try {
-        const result = pEngine.updatePhaseStatus(
-          req.params.id,
-          parseInt(req.params.idx, 10),
-          req.body.status,
-          req.body.agent_id,
-          req.body.deliverables,
-        );
-        res.json(result);
-      } catch (err: any) { res.status(400).json({ error: err.message }); }
-    });
-  }
-
   // ── SDK API routes (/api/sdk/*) ──────────────────────────
   if (config.sdk) {
     const sdk = config.sdk;
@@ -564,64 +508,62 @@ export function createWebServer(config: WebServerConfig) {
       }
     });
 
-    app.get('/api/sdk/events', (req, res) => {
-      const project = req.query.project as string | undefined;
-      const since = req.query.since as string | undefined;
-      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
-      res.json(sdk.events.queryLocal({ project, since, limit }));
-    });
-
-    // Lobsters
-    app.get('/api/sdk/lobsters/:projectId/status', (req, res) => {
+    app.get('/api/sdk/events', async (req, res) => {
       try {
-        res.json(sdk.lobsters.status(req.params.projectId));
+        const project = req.query.project as string | undefined;
+        const since = req.query.since as string | undefined;
+        const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : undefined;
+        res.json(await sdk.events.query({ project, since, limit }));
       } catch (err: any) {
-        res.status(err.code === 'project_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+        res.status(502).json(err.toJSON?.() ?? { error: err.message });
       }
-    });
-
-    app.get('/api/sdk/lobsters', (_req, res) => {
-      res.json(sdk.lobsters.statusAll());
     });
 
     // Targets
-    app.get('/api/sdk/targets/:projectId', (req, res) => {
-      res.json(sdk.targets.list(req.params.projectId));
-    });
-
-    app.get('/api/sdk/targets/:projectId/:targetId', (req, res) => {
+    app.get('/api/sdk/targets/:projectId', async (req, res) => {
       try {
-        res.json(sdk.targets.get(req.params.projectId, req.params.targetId));
+        res.json(await sdk.targets.list(req.params.projectId));
       } catch (err: any) {
-        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+        res.status(502).json(err.toJSON?.() ?? { error: err.message });
       }
     });
 
-    app.post('/api/sdk/targets/:projectId', (req, res) => {
+    app.get('/api/sdk/targets/:projectId/:targetId', async (req, res) => {
       try {
-        const target = sdk.targets.create(req.params.projectId, req.body);
-        res.status(201).json(target);
+        res.json(await sdk.targets.get(req.params.projectId, req.params.targetId));
       } catch (err: any) {
-        const status = err.code === 'project_not_found' ? 404 : 400;
+        const status = err.code === 'target_not_found' || err.status === 404 ? 404 : 502;
         res.status(status).json(err.toJSON?.() ?? { error: err.message });
       }
     });
 
-    app.put('/api/sdk/targets/:projectId/:targetId', (req, res) => {
+    app.post('/api/sdk/targets/:projectId', async (req, res) => {
       try {
-        const target = sdk.targets.update(req.params.projectId, req.params.targetId, req.body);
-        res.json(target);
+        const target = await sdk.targets.create(req.params.projectId, req.body);
+        res.status(201).json(target);
       } catch (err: any) {
-        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+        const status = err.code === 'project_not_found' || err.status === 404 ? 404 : 502;
+        res.status(status).json(err.toJSON?.() ?? { error: err.message });
       }
     });
 
-    app.post('/api/sdk/targets/:projectId/:targetId/arrow', (req, res) => {
+    app.put('/api/sdk/targets/:projectId/:targetId', async (req, res) => {
       try {
-        const target = sdk.targets.appendArrowLog(req.params.projectId, req.params.targetId, req.body);
+        const target = await sdk.targets.update(req.params.projectId, req.params.targetId, req.body);
         res.json(target);
       } catch (err: any) {
-        res.status(err.code === 'target_not_found' ? 404 : 400).json(err.toJSON?.() ?? { error: err.message });
+        const status = err.code === 'target_not_found' || err.status === 404 ? 404 : 502;
+        res.status(status).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/targets/:projectId/:targetId/arrow', async (req, res) => {
+      try {
+        const target = await sdk.targets.appendArrowLog(req.params.projectId, req.params.targetId, req.body);
+        res.json(target);
+      } catch (err: any) {
+        const status = err.code === 'target_not_found' || err.status === 404 ? 404 : 502;
+        res.status(status).json(err.toJSON?.() ?? { error: err.message });
       }
     });
 
@@ -634,45 +576,6 @@ export function createWebServer(config: WebServerConfig) {
       }
     });
 
-    // Approvals
-    app.post('/api/sdk/approvals', (req, res) => {
-      try {
-        const approval = sdk.approvals.request(req.body);
-        res.status(201).json(approval);
-      } catch (err: any) {
-        res.status(400).json(err.toJSON?.() ?? { error: err.message });
-      }
-    });
-
-    app.get('/api/sdk/approvals/pending', (_req, res) => {
-      res.json(sdk.approvals.listPending());
-    });
-
-    app.get('/api/sdk/approvals/:id', (req, res) => {
-      try {
-        res.json(sdk.approvals.get(req.params.id));
-      } catch (err: any) {
-        res.status(404).json(err.toJSON?.() ?? { error: err.message });
-      }
-    });
-
-    app.post('/api/sdk/approvals/:id/callback', (req, res) => {
-      try {
-        const resolved = sdk.approvals.callback(
-          { approval_id: req.params.id, ...req.body },
-          req.body.resolved_by ?? 'api',
-        );
-        res.json(resolved);
-      } catch (err: any) {
-        res.status(400).json(err.toJSON?.() ?? { error: err.message });
-      }
-    });
-
-    /** @deprecated Alias for backward compatibility */
-    app.use('/api/myclaw-sdk', (req, res, next) => {
-      console.warn(`[deprecated] /api/myclaw-sdk${req.path} — use /api/sdk${req.path}`);
-      res.redirect(308, `/api/sdk${req.path}`);
-    });
   }
 
   let server: ReturnType<typeof app.listen> | null = null;
