@@ -115,48 +115,39 @@
       "timeout_ms": 5000
     },
     {
-      "id": "polarclaw.sdk.events.emit",
+      "id": "polarclaw.sdk.events.proxy",
       "service_name": "polarclaw-web",
-      "description": "发射龙虾事件到 SOTAgent 事件总线",
+      "description": "龙虾事件代理 — 通过 PolarPilot contract 转发事件（PolarClaw 不直接写入 SOTAgent）",
       "transport": "http",
       "endpoint": "/api/sdk/events",
       "method": "POST",
       "idempotent": false,
       "side_effects": true,
-      "timeout_ms": 10000
+      "timeout_ms": 10000,
+      "contract": "polarpilot-events"
     },
     {
-      "id": "polarclaw.sdk.lobsters.status",
+      "id": "polarclaw.sdk.targets.proxy",
       "service_name": "polarclaw-web",
-      "description": "查询项目龙虾状态摘要",
-      "transport": "http",
-      "endpoint": "/api/sdk/lobsters/:projectId/status",
-      "method": "GET",
-      "idempotent": true,
-      "side_effects": false,
-      "timeout_ms": 5000
-    },
-    {
-      "id": "polarclaw.sdk.targets.crud",
-      "service_name": "polarclaw-web",
-      "description": "授权靶子 CRUD（read/write/runTest）",
+      "description": "靶子查询代理 — 通过 PolarPilot contract 代理 CRUD（PolarClaw 不直接读写靶子文件）",
       "transport": "http",
       "endpoint": "/api/sdk/targets/:projectId",
       "method": "GET",
       "idempotent": true,
       "side_effects": false,
-      "timeout_ms": 10000
+      "timeout_ms": 10000,
+      "contract": "polarpilot-targets"
     },
     {
-      "id": "polarclaw.sdk.approvals",
+      "id": "polarclaw.pilot.query",
       "service_name": "polarclaw-web",
-      "description": "审批请求与回调",
-      "transport": "http",
-      "endpoint": "/api/sdk/approvals",
-      "method": "POST",
-      "idempotent": false,
-      "side_effects": true,
-      "timeout_ms": 5000
+      "description": "PolarPilot 状态查询 — 通过 contract 查询项目龙虾状态，PolarClaw 仅展示不执行",
+      "transport": "http-proxy",
+      "upstream": "POLARPILOT_URL/api/pilot/status/:projectId",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 5000,
+      "contract": "polarpilot-status"
     }
   ]
 }
