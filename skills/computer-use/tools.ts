@@ -3,14 +3,24 @@
  *
  * 使用 Stagehand（Playwright AI 层）实现自然语言驱动的浏览器操作。
  * 支持 Docker 隔离模式（COMPUTER_USE_DOCKER=1）。
+ *
+ * 该 skill 同时通过 PolarClaw SDK 以"沙箱外服务"形式暴露，
+ * 其他项目可经 `polarclaw-project-sdk` 远程调用同一组工具，
+ * 实现"龙虾们共享 ComputerUse 能力"的设计。
  */
 
-import type { IToolHandler } from '../../src/ports/tools.js';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import { execSync } from 'node:child_process';
+import { homedir } from 'node:os';
 
-const SCREENSHOT_DIR = resolve(process.env.HOME ?? '/tmp', 'Polarisor/PolarClaw/data/screenshots');
+interface IToolHandler {
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<unknown> | unknown;
+}
+
+const SCREENSHOT_DIR = resolve(homedir(), 'Polarisor/PolarClaw/data/screenshots');
 
 function ensureScreenshotDir(): void {
   if (!existsSync(SCREENSHOT_DIR)) {
@@ -18,38 +28,43 @@ function ensureScreenshotDir(): void {
   }
 }
 
+interface StagehandPage {
+  goto(url: string): Promise<void>;
+  screenshot(opts?: { path?: string; fullPage?: boolean }): Promise<Buffer>;
+  url(): string;
+  title(): Promise<string>;
+}
+
+interface StagehandInstance {
+  init(): Promise<void>;
+  page: StagehandPage;
+  act(action: string): Promise<{ success: boolean; message?: string }>;
+  observe(opts?: { instruction?: string }): Promise<Array<{ description: string; selector: string }>>;
+  close(): Promise<void>;
+}
+
+interface StagehandModule {
+  Stagehand: new (opts: Record<string, unknown>) => StagehandInstance;
+}
+
 /**
- * Lazy-load Stagehand to avoid import errors when not installed.
+ * Lazy-load Stagehand to avoid hard import errors when not installed.
+ * Returns null when the package is missing so callers can degrade gracefully.
  */
-async function getStagehand(): Promise<{
-  Stagehand: new (opts: Record<string, unknown>) => {
-    init(): Promise<void>;
-    page: {
-      goto(url: string): Promise<void>;
-      screenshot(opts?: { path?: string; fullPage?: boolean }): Promise<Buffer>;
-      url(): string;
-      title(): Promise<string>;
-    };
-    act(action: string): Promise<{ success: boolean; message?: string }>;
-    extract(opts: { instruction: string; schema?: unknown }): Promise<unknown>;
-    observe(opts?: { instruction?: string }): Promise<Array<{ description: string; selector: string }>>;
-    close(): Promise<void>;
-  };
-} | null> {
+async function getStagehand(): Promise<StagehandModule | null> {
   try {
-    return await import('@browserbasehq/stagehand') as any;
+    const mod = await import('@browserbasehq/stagehand');
+    return mod as unknown as StagehandModule;
   } catch {
     return null;
   }
 }
 
-async function withBrowser<T>(
-  fn: (stagehand: Awaited<NonNullable<Awaited<ReturnType<typeof getStagehand>>>>['Stagehand'] extends new (o: any) => infer I ? I : never) => Promise<T>,
-): Promise<T> {
+async function withBrowser<T>(fn: (instance: StagehandInstance) => Promise<T>): Promise<T> {
   const mod = await getStagehand();
   if (!mod) {
     throw new Error(
-      'Stagehand not installed. Run: npm install @browserbasehq/stagehand playwright',
+      'Stagehand 未安装。请在 PolarClaw 目录运行: npm install @browserbasehq/stagehand playwright',
     );
   }
 
@@ -61,13 +76,11 @@ async function withBrowser<T>(
 
   await instance.init();
   try {
-    return await fn(instance as any);
+    return await fn(instance);
   } finally {
-    await instance.close();
+    try { await instance.close(); } catch { /* swallow close errors */ }
   }
 }
-
-// ─── Tool 1: Browse and Act ────────────────────────────────
 
 export const browse_and_act: IToolHandler = {
   name: 'computer_use_browse',
@@ -82,15 +95,17 @@ export const browse_and_act: IToolHandler = {
     required: ['url', 'action'],
   },
 
-  async execute(args: Record<string, unknown>): Promise<string> {
+  async handler(args: Record<string, unknown>) {
     const url = String(args.url ?? '');
     const action = String(args.action ?? '');
     const takeScreenshot = args.screenshot !== false;
 
-    if (!url || !action) return JSON.stringify({ ok: false, error: 'url and action required' });
+    if (!url || !action) {
+      return { ok: false, error: 'url 和 action 都是必填' };
+    }
 
     try {
-      const result = await withBrowser(async (browser) => {
+      return await withBrowser(async (browser) => {
         await browser.page.goto(url);
         const actionResult = await browser.act(action);
 
@@ -110,15 +125,11 @@ export const browse_and_act: IToolHandler = {
           screenshot: screenshotPath,
         };
       });
-
-      return JSON.stringify(result);
     } catch (err) {
-      return JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   },
 };
-
-// ─── Tool 2: Screenshot and Analyze ────────────────────────
 
 export const screenshot_and_analyze: IToolHandler = {
   name: 'computer_use_screenshot',
@@ -133,15 +144,15 @@ export const screenshot_and_analyze: IToolHandler = {
     required: ['url'],
   },
 
-  async execute(args: Record<string, unknown>): Promise<string> {
+  async handler(args: Record<string, unknown>) {
     const url = String(args.url ?? '');
     const fullPage = Boolean(args.full_page);
     const doObserve = Boolean(args.observe);
 
-    if (!url) return JSON.stringify({ ok: false, error: 'url required' });
+    if (!url) return { ok: false, error: 'url 必填' };
 
     try {
-      const result = await withBrowser(async (browser) => {
+      return await withBrowser(async (browser) => {
         await browser.page.goto(url);
 
         ensureScreenshotDir();
@@ -162,19 +173,15 @@ export const screenshot_and_analyze: IToolHandler = {
           elements,
         };
       });
-
-      return JSON.stringify(result);
     } catch (err) {
-      return JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   },
 };
 
-// ─── Tool 3: Fill Form ─────────────────────────────────────
-
 export const fill_form: IToolHandler = {
   name: 'computer_use_fill_form',
-  description: '在指定页面上填写表单。接受字段名和值的映射，自动定位并填写。',
+  description: '在指定页面上填写表单。接受字段描述到值的映射，自动定位并填写。',
   parameters: {
     type: 'object',
     properties: {
@@ -189,15 +196,15 @@ export const fill_form: IToolHandler = {
     required: ['url', 'fields'],
   },
 
-  async execute(args: Record<string, unknown>): Promise<string> {
+  async handler(args: Record<string, unknown>) {
     const url = String(args.url ?? '');
     const fields = args.fields as Record<string, string> | undefined;
     const submit = Boolean(args.submit);
 
-    if (!url || !fields) return JSON.stringify({ ok: false, error: 'url and fields required' });
+    if (!url || !fields) return { ok: false, error: 'url 和 fields 都是必填' };
 
     try {
-      const result = await withBrowser(async (browser) => {
+      return await withBrowser(async (browser) => {
         await browser.page.goto(url);
 
         const results: Array<{ field: string; success: boolean; message?: string }> = [];
@@ -224,10 +231,8 @@ export const fill_form: IToolHandler = {
           screenshot: screenshotPath,
         };
       });
-
-      return JSON.stringify(result);
     } catch (err) {
-      return JSON.stringify({ ok: false, error: err instanceof Error ? err.message : String(err) });
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
   },
 };
