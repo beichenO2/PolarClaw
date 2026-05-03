@@ -339,7 +339,7 @@
         {
           "name": "ComputerUse 浏览器自动化",
           "description": "Stagehand（Playwright AI 层）驱动的浏览器操作；同时通过 PolarClaw SDK 以沙箱外服务形式暴露给其他 Polarisor 项目",
-          "status": "partial",
+          "status": "in-progress",
           "behavior": [
             "ReAct skill：computer_use_browse / computer_use_screenshot / computer_use_fill_form 通过 SkillLoader 按需加载（skills/computer-use/），实现统一委托给 src/sdk/computer-use.ts，避免双份 Stagehand 调用漂移",
             "SDK module：sdk.computerUse.{browse,screenshot,fillForm}（src/sdk/computer-use.ts），HTTP 路由 /api/sdk/computer-use/*",
