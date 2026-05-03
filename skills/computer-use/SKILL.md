@@ -30,13 +30,23 @@ requires:
 - Stagehand 需要 LLM API（默认走 OpenAI/Anthropic；本项目可通过 PolarPrivate 代理或显式 `OPENAI_API_KEY`）
 - Docker（可选）— 用于桌面隔离运行
 
-## 桌面隔离
+## 桌面隔离（推荐部署形态）
 
-设置 `COMPUTER_USE_DOCKER=1` 启用 Docker 隔离模式：
+使用 `Dockerfile.browser` 把整个 PolarClaw 跑在容器里，
+Chromium + Xvfb + Node 进程都在容器内，宿主桌面完全不受影响：
 
-- 使用 `Dockerfile.browser` 构建包含 Chromium + Xvfb 的容器
-- 浏览器操作在容器内完成，截图通过 volume 映射回宿主
-- 用户桌面不会被打扰
+```bash
+docker build -f Dockerfile.browser -t polarclaw-browser .
+docker run --rm -p 3910:3910 \
+  -v $(pwd)/data:/app/data \
+  -v $(pwd)/.env:/app/.env:ro \
+  polarclaw-browser
+```
+
+容器内 `COMPUTER_USE_DOCKER=1` 自动设置，作为"我已在隔离环境中运行"的标记，
+ComputerUse 工具直接走容器内 Stagehand，无需再跨容器调度。
+其他项目通过 `polarclaw-project-sdk` 调用时，请求会到容器内的
+`/api/sdk/computer-use/*` 路由，浏览器操作完全沙箱化。
 
 ## 沙箱外暴露
 
