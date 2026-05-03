@@ -348,13 +348,13 @@
             "截图持久化到 data/screenshots/，文件名带时间戳",
             "Stagehand v3 接口已适配（context.newPage/activePage、page.goto/screenshot、stagehand.act/observe 直接调用）",
             "@browserbasehq/stagehand + playwright 列为 optionalDependencies，缺失时优雅降级为 ok:false 错误",
-            "LLM 路由默认指向 PolarPrivate /v1：COMPUTER_USE_LLM_BASE_URL / COMPUTER_USE_LLM_API_KEY / COMPUTER_USE_MODEL_NAME 三级 env 覆盖，无需外部 OPENAI_API_KEY",
+            "LLM 路由默认指向 PolarPrivate /v1，并注入自定义 AISdkClient 强制走 chat-completions（非 responses）；COMPUTER_USE_LLM_BASE_URL / COMPUTER_USE_LLM_API_KEY / COMPUTER_USE_MODEL_NAME 三级 env 覆盖，无需外部 OPENAI_API_KEY",
             "Smoke test：本机 chromium 1217 已 install 并通过截图 smoke（example.com goto + screenshot 成功落盘），证明 stagehand v3 接口+optionalDependency+sandbox external 路径整体可用"
           ],
           "blockers": [
-            "Stagehand v3 默认 ai-sdk OpenAI provider 调用 /v1/responses 而非 /v1/chat/completions；当前 PolarPrivate 只暴露 /v1/chat/completions，导致 LLM 驱动的 act/observe smoke 报 'Method Not Allowed'。需要 PolarPrivate 加 /v1/responses 路由（或在 SDK 模块里注入自定义 LLMClient 走 chat-completions）才能端到端跑通 act()",
-            "PolarPrivate 当前 token 'proxy-managed' 在直连 /v1/chat/completions 时返回 401；需要从 PolarClaw secrets-loader 获取实际 token 并注入 COMPUTER_USE_LLM_API_KEY",
-            "未在 polarclaw-browser docker 镜像里做过 smoke build（dockerfile 已就绪，docker build 在主机跑会拉 ~600MB 基础镜像，留给后续）"
+            "虽然 SDK 已通过自定义 AISdkClient 强制走 /v1/chat/completions（规避了 /v1/responses 缺口），但 act() 仍被上游模型能力卡住：llm.aliyun.codingplan(qwen-plus) 对 response_format=json_schema 的兼容性要求包含 'json' 提示词，MiniMax-M2.7-highspeed 又会在结构化输出前注入 <think> 思维块，导致 Stagehand generateObject 解析失败（No object generated）",
+            "已注入 POLARPRIVATE_SERVICE_TOKEN（不再使用 proxy-managed）并确认认证链路可达，但需要选择/绑定一个真正支持严格 JSON schema 输出的模型服务，或在 ComputerUse 路径加一层更激进的后处理（例如工具调用优先或 schema 降级）",
+            "polarclaw-browser 镜像已在本机 build 成功（sha256:2079698...）；仍需一次容器内 runtime smoke（启动容器并通过 /api/sdk/computer-use/screenshot 走完整请求链）"
           ],
           "test_status": "not_tested"
         }

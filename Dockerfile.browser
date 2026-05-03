@@ -43,7 +43,7 @@ RUN npm ci --include=optional
 # Copy source, skills, contracts, schemas; everything PolarClaw needs
 # at runtime. .dockerignore should exclude data/, dist/, node_modules/
 # from the host context to keep the image small.
-COPY tsconfig.json eslint.config.js vitest.config.ts tsdown.config.ts ./
+COPY tsconfig.json eslint.config.js vitest.config.ts ./
 COPY src ./src
 COPY skills ./skills
 COPY personas ./personas
