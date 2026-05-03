@@ -1,17 +1,19 @@
 /**
  * ComputerUse — 浏览器自动化技能工具
  *
- * 使用 Stagehand（Playwright AI 层）实现自然语言驱动的浏览器操作。
- * 支持 Docker 隔离模式（COMPUTER_USE_DOCKER=1）。
+ * 真正的 Stagehand 调用集中在 src/sdk/computer-use.ts；本文件只是
+ * 把 SDK 函数包装成 ReAct ToolHandler 暴露给 PolarClaw 的 Agent 循环，
+ * 这样 ReAct 工具调用与外部项目通过 polarclaw-project-sdk 的远程
+ * 调用走完全相同的代码路径，行为不会漂移。
  *
- * 该 skill 同时通过 PolarClaw SDK 以"沙箱外服务"形式暴露，
- * 其他项目可经 `polarclaw-project-sdk` 远程调用同一组工具，
- * 实现"龙虾们共享 ComputerUse 能力"的设计。
+ * Skill loader 通过 tsx 动态加载本文件；动态 require src/sdk 让该 import
+ * 既能在 dev (npm run dev) 也能在 prod (node dist/main.js) 下解析到
+ * 工程内唯一的实现源（dist/sdk/computer-use.js 优先，fallback 到 src/）。
  */
 
-import { existsSync, mkdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { existsSync } from 'node:fs';
 
 interface IToolHandler {
   name: string;
@@ -20,66 +22,19 @@ interface IToolHandler {
   handler: (args: Record<string, unknown>) => Promise<unknown> | unknown;
 }
 
-const SCREENSHOT_DIR = resolve(homedir(), 'Polarisor/PolarClaw/data/screenshots');
+type ComputerUseModule = typeof import('../../src/sdk/computer-use.js');
 
-function ensureScreenshotDir(): void {
-  if (!existsSync(SCREENSHOT_DIR)) {
-    mkdirSync(SCREENSHOT_DIR, { recursive: true });
-  }
-}
+let cachedModule: ComputerUseModule | null = null;
 
-interface StagehandPage {
-  goto(url: string): Promise<void>;
-  screenshot(opts?: { path?: string; fullPage?: boolean }): Promise<Buffer>;
-  url(): string;
-  title(): Promise<string>;
-}
+async function loadModule(): Promise<ComputerUseModule> {
+  if (cachedModule) return cachedModule;
 
-interface StagehandInstance {
-  init(): Promise<void>;
-  page: StagehandPage;
-  act(action: string): Promise<{ success: boolean; message?: string }>;
-  observe(opts?: { instruction?: string }): Promise<Array<{ description: string; selector: string }>>;
-  close(): Promise<void>;
-}
-
-interface StagehandModule {
-  Stagehand: new (opts: Record<string, unknown>) => StagehandInstance;
-}
-
-/**
- * Lazy-load Stagehand to avoid hard import errors when not installed.
- * Returns null when the package is missing so callers can degrade gracefully.
- */
-async function getStagehand(): Promise<StagehandModule | null> {
-  try {
-    const mod = await import('@browserbasehq/stagehand');
-    return mod as unknown as StagehandModule;
-  } catch {
-    return null;
-  }
-}
-
-async function withBrowser<T>(fn: (instance: StagehandInstance) => Promise<T>): Promise<T> {
-  const mod = await getStagehand();
-  if (!mod) {
-    throw new Error(
-      'Stagehand 未安装。请在 PolarClaw 目录运行: npm install @browserbasehq/stagehand playwright',
-    );
-  }
-
-  const instance = new mod.Stagehand({
-    env: 'LOCAL',
-    headless: true,
-    enableCaching: true,
-  });
-
-  await instance.init();
-  try {
-    return await fn(instance);
-  } finally {
-    try { await instance.close(); } catch { /* swallow close errors */ }
-  }
+  const polarClawRoot = resolve(homedir(), 'Polarisor/PolarClaw');
+  const distPath = resolve(polarClawRoot, 'dist/sdk/computer-use.js');
+  const srcPath = resolve(polarClawRoot, 'src/sdk/computer-use.ts');
+  const target = existsSync(distPath) ? distPath : srcPath;
+  cachedModule = (await import(target)) as ComputerUseModule;
+  return cachedModule;
 }
 
 export const browse_and_act: IToolHandler = {
@@ -96,38 +51,12 @@ export const browse_and_act: IToolHandler = {
   },
 
   async handler(args: Record<string, unknown>) {
-    const url = String(args.url ?? '');
-    const action = String(args.action ?? '');
-    const takeScreenshot = args.screenshot !== false;
-
-    if (!url || !action) {
-      return { ok: false, error: 'url 和 action 都是必填' };
-    }
-
-    try {
-      return await withBrowser(async (browser) => {
-        await browser.page.goto(url);
-        const actionResult = await browser.act(action);
-
-        let screenshotPath: string | undefined;
-        if (takeScreenshot) {
-          ensureScreenshotDir();
-          const filename = `browse-${Date.now()}.png`;
-          screenshotPath = join(SCREENSHOT_DIR, filename);
-          await browser.page.screenshot({ path: screenshotPath });
-        }
-
-        return {
-          ok: true,
-          action_result: actionResult,
-          page_url: browser.page.url(),
-          page_title: await browser.page.title(),
-          screenshot: screenshotPath,
-        };
-      });
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
+    const mod = await loadModule();
+    return mod.browse({
+      url: String(args.url ?? ''),
+      action: String(args.action ?? ''),
+      screenshot: args.screenshot !== false,
+    });
   },
 };
 
@@ -145,37 +74,12 @@ export const screenshot_and_analyze: IToolHandler = {
   },
 
   async handler(args: Record<string, unknown>) {
-    const url = String(args.url ?? '');
-    const fullPage = Boolean(args.full_page);
-    const doObserve = Boolean(args.observe);
-
-    if (!url) return { ok: false, error: 'url 必填' };
-
-    try {
-      return await withBrowser(async (browser) => {
-        await browser.page.goto(url);
-
-        ensureScreenshotDir();
-        const filename = `screenshot-${Date.now()}.png`;
-        const screenshotPath = join(SCREENSHOT_DIR, filename);
-        await browser.page.screenshot({ path: screenshotPath, fullPage });
-
-        let elements: Array<{ description: string; selector: string }> | undefined;
-        if (doObserve) {
-          elements = await browser.observe({ instruction: '列出页面上所有可交互元素' });
-        }
-
-        return {
-          ok: true,
-          screenshot: screenshotPath,
-          page_url: browser.page.url(),
-          page_title: await browser.page.title(),
-          elements,
-        };
-      });
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
+    const mod = await loadModule();
+    return mod.screenshot({
+      url: String(args.url ?? ''),
+      full_page: Boolean(args.full_page),
+      observe: Boolean(args.observe),
+    });
   },
 };
 
@@ -197,43 +101,12 @@ export const fill_form: IToolHandler = {
   },
 
   async handler(args: Record<string, unknown>) {
-    const url = String(args.url ?? '');
-    const fields = args.fields as Record<string, string> | undefined;
-    const submit = Boolean(args.submit);
-
-    if (!url || !fields) return { ok: false, error: 'url 和 fields 都是必填' };
-
-    try {
-      return await withBrowser(async (browser) => {
-        await browser.page.goto(url);
-
-        const results: Array<{ field: string; success: boolean; message?: string }> = [];
-
-        for (const [fieldDesc, value] of Object.entries(fields)) {
-          const r = await browser.act(`在"${fieldDesc}"字段中输入"${value}"`);
-          results.push({ field: fieldDesc, success: r.success, message: r.message });
-        }
-
-        if (submit) {
-          const submitResult = await browser.act('点击提交按钮或确认按钮');
-          results.push({ field: '__submit__', success: submitResult.success, message: submitResult.message });
-        }
-
-        ensureScreenshotDir();
-        const filename = `form-${Date.now()}.png`;
-        const screenshotPath = join(SCREENSHOT_DIR, filename);
-        await browser.page.screenshot({ path: screenshotPath });
-
-        return {
-          ok: true,
-          results,
-          page_url: browser.page.url(),
-          screenshot: screenshotPath,
-        };
-      });
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) };
-    }
+    const mod = await loadModule();
+    return mod.fillForm({
+      url: String(args.url ?? ''),
+      fields: (args.fields as Record<string, string> | undefined) ?? {},
+      submit: Boolean(args.submit),
+    });
   },
 };
 

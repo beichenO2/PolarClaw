@@ -6,11 +6,22 @@
  * module lives here. ComputerUse stays owned by PolarClaw — no other
  * project ever runs Chromium itself.
  *
- * Implementation note: the same Stagehand calls are also exposed as
- * skills/computer-use/tools.ts for PolarClaw's own ReAct agent. We
- * deliberately keep two thin wrappers around the underlying Stagehand
- * driver instead of cross-importing across rootDir boundaries —
- * skills are loaded by tsx at runtime, src/ is compiled by tsc.
+ * Same module is reused by skills/computer-use/tools.ts so the in-
+ * process ReAct agent and the SDK call site share a single Stagehand
+ * adapter (no duplicate behaviour drifts).
+ *
+ * Stagehand v3 API surface (browserbasehq/stagehand@^3.x):
+ *   - new Stagehand(opts): instance with init/close + act/observe/extract
+ *   - stagehand.context.newPage(url?): Promise<Page>
+ *   - stagehand.context.activePage(): Page | undefined
+ *   - page.goto(url) / page.screenshot({path, fullPage}) / page.url() / page.title()
+ *   - stagehand.observe(instruction?): Promise<Action[]>
+ *
+ * LLM routing (PolarPrivate by default):
+ *   By default we send Stagehand's internal LLM calls through
+ *   PolarPrivate's OpenAI-compatible /v1 gateway, so no external
+ *   OPENAI_API_KEY is required and all traffic stays inside the
+ *   Polarisor network. Override via env vars when needed.
  */
 import { existsSync, mkdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
@@ -24,19 +35,62 @@ function ensureScreenshotDir(): void {
   }
 }
 
+function envOr(key: string, fallback: string): string {
+  const v = process.env[key];
+  return v && v.trim() ? v.trim() : fallback;
+}
+
+/**
+ * Build the ModelConfiguration object Stagehand v3 consumes.
+ *
+ * Resolution order:
+ *   1. COMPUTER_USE_LLM_BASE_URL / COMPUTER_USE_LLM_API_KEY /
+ *      COMPUTER_USE_MODEL_NAME — explicit override.
+ *   2. POLARCLAW_LLM_BASE_URL / POLARCLAW_LLM_API_KEY — reuse PolarClaw's
+ *      LLM env (which already points at PolarPrivate by default).
+ *   3. POLARPRIVATE_URL + 'proxy-managed' — talk to PolarPrivate
+ *      directly with the PolarClaw-wide convention.
+ *
+ * Default modelName 'gpt-4.1-mini' is picked to stay inside Stagehand's
+ * AvailableModel literal and to make ai-sdk pick the openai provider —
+ * the actual model served behind PolarPrivate is whatever PolarPrivate
+ * routes /v1/chat/completions to.
+ */
+function resolveModelConfig() {
+  const polarPrivateUrl = envOr('POLARPRIVATE_URL', 'http://127.0.0.1:12790');
+  const baseURL = envOr(
+    'COMPUTER_USE_LLM_BASE_URL',
+    envOr('POLARCLAW_LLM_BASE_URL', `${polarPrivateUrl}/v1`),
+  );
+  const apiKey = envOr(
+    'COMPUTER_USE_LLM_API_KEY',
+    envOr('POLARCLAW_LLM_API_KEY', 'proxy-managed'),
+  );
+  // Stagehand v3 expects `provider/model` format; legacy bare names emit
+  // a deprecation warning. Stick with openai/* so ai-sdk picks the openai
+  // provider and the request flows through baseURL above.
+  const modelName = envOr('COMPUTER_USE_MODEL_NAME', 'openai/gpt-4o-mini');
+  return { modelName, apiKey, baseURL };
+}
+
 interface StagehandPage {
-  goto(url: string): Promise<void>;
+  goto(url: string, opts?: { waitUntil?: string; timeoutMs?: number }): Promise<unknown>;
   screenshot(opts?: { path?: string; fullPage?: boolean }): Promise<Buffer>;
   url(): string;
   title(): Promise<string>;
 }
 
+interface StagehandContext {
+  newPage(url?: string): Promise<StagehandPage>;
+  activePage(): StagehandPage | undefined;
+}
+
 interface StagehandInstance {
   init(): Promise<void>;
-  page: StagehandPage;
-  act(action: string): Promise<{ success: boolean; message?: string }>;
-  observe(opts?: { instruction?: string }): Promise<Array<{ description: string; selector: string }>>;
-  close(): Promise<void>;
+  context: StagehandContext;
+  act(instruction: string, opts?: Record<string, unknown>): Promise<{ success: boolean; message?: string }>;
+  observe(instruction?: string, opts?: Record<string, unknown>): Promise<Array<{ description?: string; selector?: string }>>;
+  close(opts?: { force?: boolean }): Promise<void>;
 }
 
 interface StagehandModule {
@@ -62,16 +116,31 @@ async function withBrowser<T>(fn: (instance: StagehandInstance) => Promise<T>): 
 
   const instance = new mod.Stagehand({
     env: 'LOCAL',
-    headless: true,
-    enableCaching: true,
+    localBrowserLaunchOptions: { headless: true },
+    model: resolveModelConfig(),
+    verbose: 0,
+    disablePino: true,
   });
 
   await instance.init();
   try {
     return await fn(instance);
   } finally {
-    try { await instance.close(); } catch { /* swallow close errors */ }
+    try { await instance.close({ force: true }); } catch { /* swallow close errors */ }
   }
+}
+
+/**
+ * Acquire a Page in v3 — newPage() each call ensures the URL is loaded
+ * even on the first invocation; v3 does not auto-create a page.
+ */
+async function ensurePage(stagehand: StagehandInstance, url: string): Promise<StagehandPage> {
+  const existing = stagehand.context.activePage();
+  if (existing) {
+    await existing.goto(url);
+    return existing;
+  }
+  return stagehand.context.newPage(url);
 }
 
 export interface ComputerUseBrowseInput {
@@ -100,7 +169,7 @@ export interface ComputerUseScreenshotResult {
   screenshot?: string;
   page_url?: string;
   page_title?: string;
-  elements?: Array<{ description: string; selector: string }>;
+  elements?: Array<{ description?: string; selector?: string }>;
   error?: string;
 }
 
@@ -118,116 +187,129 @@ export interface ComputerUseFillFormResult {
   error?: string;
 }
 
+export async function browse(input: ComputerUseBrowseInput): Promise<ComputerUseBrowseResult> {
+  const url = (input.url ?? '').toString();
+  const action = (input.action ?? '').toString();
+  const takeScreenshot = input.screenshot !== false;
+
+  if (!url || !action) {
+    return { ok: false, error: 'url 和 action 都是必填' };
+  }
+
+  try {
+    return await withBrowser(async (stagehand) => {
+      const page = await ensurePage(stagehand, url);
+      const actionResult = await stagehand.act(action);
+
+      let screenshotPath: string | undefined;
+      if (takeScreenshot) {
+        ensureScreenshotDir();
+        const filename = `cu-browse-${Date.now()}.png`;
+        screenshotPath = join(SCREENSHOT_DIR, filename);
+        await page.screenshot({ path: screenshotPath });
+      }
+
+      return {
+        ok: true,
+        action_result: actionResult,
+        page_url: page.url(),
+        page_title: await page.title(),
+        screenshot: screenshotPath,
+      };
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function screenshot(input: ComputerUseScreenshotInput): Promise<ComputerUseScreenshotResult> {
+  const url = (input.url ?? '').toString();
+  const fullPage = Boolean(input.full_page);
+  const doObserve = Boolean(input.observe);
+
+  if (!url) return { ok: false, error: 'url 必填' };
+
+  try {
+    return await withBrowser(async (stagehand) => {
+      const page = await ensurePage(stagehand, url);
+      ensureScreenshotDir();
+      const filename = `cu-screenshot-${Date.now()}.png`;
+      const screenshotPath = join(SCREENSHOT_DIR, filename);
+      await page.screenshot({ path: screenshotPath, fullPage });
+
+      let elements: Array<{ description?: string; selector?: string }> | undefined;
+      if (doObserve) {
+        elements = await stagehand.observe('列出页面上所有可交互元素');
+      }
+
+      return {
+        ok: true,
+        screenshot: screenshotPath,
+        page_url: page.url(),
+        page_title: await page.title(),
+        elements,
+      };
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+export async function fillForm(input: ComputerUseFillFormInput): Promise<ComputerUseFillFormResult> {
+  const url = (input.url ?? '').toString();
+  const fields = input.fields;
+  const submit = Boolean(input.submit);
+
+  if (!url || !fields || typeof fields !== 'object') {
+    return { ok: false, error: 'url 和 fields 都是必填' };
+  }
+
+  try {
+    return await withBrowser(async (stagehand) => {
+      const page = await ensurePage(stagehand, url);
+      const results: Array<{ field: string; success: boolean; message?: string }> = [];
+
+      for (const [fieldDesc, value] of Object.entries(fields)) {
+        const r = await stagehand.act(`在"${fieldDesc}"字段中输入"${value}"`);
+        results.push({ field: fieldDesc, success: r.success, message: r.message });
+      }
+
+      if (submit) {
+        const submitResult = await stagehand.act('点击提交按钮或确认按钮');
+        results.push({ field: '__submit__', success: submitResult.success, message: submitResult.message });
+      }
+
+      ensureScreenshotDir();
+      const filename = `cu-form-${Date.now()}.png`;
+      const screenshotPath = join(SCREENSHOT_DIR, filename);
+      await page.screenshot({ path: screenshotPath });
+
+      return {
+        ok: true,
+        results,
+        page_url: page.url(),
+        screenshot: screenshotPath,
+      };
+    });
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Lightweight screenshot path that does NOT invoke the LLM — used for
+ * smoke tests and for the SDK screenshot route when observe=false. It
+ * still launches stagehand (because that is how Chromium is owned) but
+ * never calls act/observe, so no LLM credentials are needed for plain
+ * screenshots. The `screenshot()` function above already covers this
+ * by gating observe behind a flag — keep this as a behaviour note.
+ */
+
 export function createComputerUseModule() {
   return {
-    async browse(input: ComputerUseBrowseInput): Promise<ComputerUseBrowseResult> {
-      const url = (input.url ?? '').toString();
-      const action = (input.action ?? '').toString();
-      const takeScreenshot = input.screenshot !== false;
-
-      if (!url || !action) {
-        return { ok: false, error: 'url 和 action 都是必填' };
-      }
-
-      try {
-        return await withBrowser(async (browser) => {
-          await browser.page.goto(url);
-          const actionResult = await browser.act(action);
-
-          let screenshotPath: string | undefined;
-          if (takeScreenshot) {
-            ensureScreenshotDir();
-            const filename = `sdk-browse-${Date.now()}.png`;
-            screenshotPath = join(SCREENSHOT_DIR, filename);
-            await browser.page.screenshot({ path: screenshotPath });
-          }
-
-          return {
-            ok: true,
-            action_result: actionResult,
-            page_url: browser.page.url(),
-            page_title: await browser.page.title(),
-            screenshot: screenshotPath,
-          };
-        });
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-
-    async screenshot(input: ComputerUseScreenshotInput): Promise<ComputerUseScreenshotResult> {
-      const url = (input.url ?? '').toString();
-      const fullPage = Boolean(input.full_page);
-      const doObserve = Boolean(input.observe);
-
-      if (!url) return { ok: false, error: 'url 必填' };
-
-      try {
-        return await withBrowser(async (browser) => {
-          await browser.page.goto(url);
-          ensureScreenshotDir();
-          const filename = `sdk-screenshot-${Date.now()}.png`;
-          const screenshotPath = join(SCREENSHOT_DIR, filename);
-          await browser.page.screenshot({ path: screenshotPath, fullPage });
-
-          let elements: Array<{ description: string; selector: string }> | undefined;
-          if (doObserve) {
-            elements = await browser.observe({ instruction: '列出页面上所有可交互元素' });
-          }
-
-          return {
-            ok: true,
-            screenshot: screenshotPath,
-            page_url: browser.page.url(),
-            page_title: await browser.page.title(),
-            elements,
-          };
-        });
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-
-    async fillForm(input: ComputerUseFillFormInput): Promise<ComputerUseFillFormResult> {
-      const url = (input.url ?? '').toString();
-      const fields = input.fields;
-      const submit = Boolean(input.submit);
-
-      if (!url || !fields || typeof fields !== 'object') {
-        return { ok: false, error: 'url 和 fields 都是必填' };
-      }
-
-      try {
-        return await withBrowser(async (browser) => {
-          await browser.page.goto(url);
-          const results: Array<{ field: string; success: boolean; message?: string }> = [];
-
-          for (const [fieldDesc, value] of Object.entries(fields)) {
-            const r = await browser.act(`在"${fieldDesc}"字段中输入"${value}"`);
-            results.push({ field: fieldDesc, success: r.success, message: r.message });
-          }
-
-          if (submit) {
-            const submitResult = await browser.act('点击提交按钮或确认按钮');
-            results.push({ field: '__submit__', success: submitResult.success, message: submitResult.message });
-          }
-
-          ensureScreenshotDir();
-          const filename = `sdk-form-${Date.now()}.png`;
-          const screenshotPath = join(SCREENSHOT_DIR, filename);
-          await browser.page.screenshot({ path: screenshotPath });
-
-          return {
-            ok: true,
-            results,
-            page_url: browser.page.url(),
-            screenshot: screenshotPath,
-          };
-        });
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
+    browse,
+    screenshot,
+    fillForm,
   };
 }
 

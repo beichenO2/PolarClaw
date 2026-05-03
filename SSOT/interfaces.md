@@ -16,8 +16,12 @@ PolarClaw's sandbox contains two zones:
 
 | Zone | Contents | Examples |
 |------|----------|---------|
-| **Sandbox-internal** (interactive) | User-facing capabilities | Feishu adapter, CLI adapter, Web dashboard, ReAct agent, CareEngine, YOLO engine, Skill registry |
-| **Sandbox-external** (IO layer) | Contract-based proxies to external services | PolarPilot contract client, SOTAgent event bus (via PolarPilot), PolarPrivate LLM proxy |
+| **Sandbox-internal** (interactive) | User-facing capabilities | Feishu adapter, CLI adapter, Web dashboard, ReAct agent, CareEngine, YOLO engine, Skill registry, ComputerUse browser engine |
+| **Sandbox-external** (IO layer) | Contract-based proxies to external services | PolarPilot contract client, SOTAgent event bus (via PolarPilot), PolarPrivate LLM proxy, **ComputerUse SDK** (other projects request browser automation here) |
+
+ComputerUse intentionally lives on both sides of the boundary:
+- the internal browser engine runs Chromium inside PolarClaw's container
+- the external SDK surface (`/api/sdk/computer-use/*`) is the only entry point any other Polarisor project uses, so no other project ever ships a Chromium of its own.
 
 **Explicitly excluded** from PolarClaw sandbox:
 - Pilot Runtime state machine (FindTarget → DrawBoard → Shoot → MoveBoard)
@@ -39,6 +43,30 @@ Contract schemas are defined in `contracts/polarpilot-*.schema.json`.
 | Event emit/query | Forward to PolarPilot | Dual-channel (SOTAgent + local file) + dedup | `polarpilot-events` |
 | Approval lifecycle | Proxy via SDK API | SQLite persistence + expiry | `polarpilot-approvals` |
 | Health check | Display | Report uptime + monitored projects | `polarpilot-status` |
+| **ComputerUse** | **Own & serve** (Stagehand inside container) | n/a — not delegated to PolarPilot | `polarclaw-computer-use` (SDK-only) |
+
+### ComputerUse SDK contract
+
+ComputerUse is the one capability where PolarClaw is the *server* of the
+SDK contract for the rest of the ecosystem; PolarPilot is not involved.
+
+| HTTP route (POST) | Calling project header | Server-side method | Purpose |
+|-------------------|-----------------------|--------------------|---------|
+| `/api/sdk/computer-use/browse` | `X-PolarClaw-Project` | `sdk.computerUse.browse({url, action, screenshot?})` | Navigate + perform a natural-language action; returns action result, page url/title, optional screenshot path |
+| `/api/sdk/computer-use/screenshot` | `X-PolarClaw-Project` | `sdk.computerUse.screenshot({url, full_page?, observe?})` | Pure screenshot path (no LLM unless `observe=true`); useful for VLM pipelines |
+| `/api/sdk/computer-use/fill-form` | `X-PolarClaw-Project` | `sdk.computerUse.fillForm({url, fields, submit?})` | Fill form fields keyed by description, optionally submit |
+
+Calling projects use the `polarclaw-project-sdk` thin client:
+`sdk.computerUse.browse({...})` / `sdk.computerUse.screenshot({...})` /
+`sdk.computerUse.fillForm({...})`. Failure semantics: the response body
+always carries `{ ok: boolean, error?: string }`; HTTP 502 is returned
+when `ok` is false, HTTP 500 only on unexpected exceptions.
+
+LLM routing for the action / observe paths is configured via
+`COMPUTER_USE_LLM_BASE_URL` / `COMPUTER_USE_LLM_API_KEY` /
+`COMPUTER_USE_MODEL_NAME` env vars on the PolarClaw side. The default
+points at the PolarPrivate `/v1` gateway so no project ever sees an
+external LLM key.
 
 ### Configuration
 
