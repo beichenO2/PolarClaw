@@ -576,6 +576,38 @@ export function createWebServer(config: WebServerConfig) {
       }
     });
 
+    // ── ComputerUse (sandbox-external browser automation) ──
+    // Other Polarisor projects route their browser automation here so
+    // Chromium only ever runs inside PolarClaw's sandbox. The X-PolarClaw-Project
+    // header (set by polarclaw-project-sdk) is the calling project ID.
+
+    app.post('/api/sdk/computer-use/browse', async (req, res) => {
+      try {
+        const result = await sdk.computerUse.browse(req.body ?? {});
+        res.status(result.ok ? 200 : 502).json(result);
+      } catch (err: any) {
+        res.status(500).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/computer-use/screenshot', async (req, res) => {
+      try {
+        const result = await sdk.computerUse.screenshot(req.body ?? {});
+        res.status(result.ok ? 200 : 502).json(result);
+      } catch (err: any) {
+        res.status(500).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
+    app.post('/api/sdk/computer-use/fill-form', async (req, res) => {
+      try {
+        const result = await sdk.computerUse.fillForm(req.body ?? {});
+        res.status(result.ok ? 200 : 502).json(result);
+      } catch (err: any) {
+        res.status(500).json(err.toJSON?.() ?? { error: err.message });
+      }
+    });
+
   }
 
   let server: ReturnType<typeof app.listen> | null = null;

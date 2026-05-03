@@ -21,6 +21,12 @@ import type {
   ArrowLogEntry,
   RunTestResult,
   ApprovalRequest,
+  ComputerUseBrowseInput,
+  ComputerUseBrowseResult,
+  ComputerUseScreenshotInput,
+  ComputerUseScreenshotResult,
+  ComputerUseFillFormInput,
+  ComputerUseFillFormResult,
 } from './types.js';
 
 export type * from './types.js';
@@ -153,6 +159,20 @@ export function createPolarClawClient(config: SDKClientConfig) {
           comment,
           resolved_by: `project:${projectId}`,
         });
+      },
+    },
+
+    // PolarClaw-hosted browser automation. The host PolarClaw container
+    // owns Chromium; the calling project never installs Playwright.
+    computerUse: {
+      browse(input: ComputerUseBrowseInput) {
+        return request<ComputerUseBrowseResult>('POST', '/api/sdk/computer-use/browse', input);
+      },
+      screenshot(input: ComputerUseScreenshotInput) {
+        return request<ComputerUseScreenshotResult>('POST', '/api/sdk/computer-use/screenshot', input);
+      },
+      fillForm(input: ComputerUseFillFormInput) {
+        return request<ComputerUseFillFormResult>('POST', '/api/sdk/computer-use/fill-form', input);
       },
     },
   };

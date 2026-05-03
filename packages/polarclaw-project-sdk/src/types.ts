@@ -125,3 +125,52 @@ export interface SDKClientConfig {
   projectId: string;
   timeoutMs?: number;
 }
+
+// ─── ComputerUse (sandbox-external browser automation) ─────
+// PolarClaw owns the only Chromium in the ecosystem. Other projects
+// route browser automation through these calls so their own host
+// desktop is never touched and they need no playwright install.
+
+export interface ComputerUseBrowseInput {
+  url: string;
+  action: string;
+  screenshot?: boolean;
+}
+
+export interface ComputerUseBrowseResult {
+  ok: boolean;
+  action_result?: { success: boolean; message?: string };
+  page_url?: string;
+  page_title?: string;
+  screenshot?: string;
+  error?: string;
+}
+
+export interface ComputerUseScreenshotInput {
+  url: string;
+  full_page?: boolean;
+  observe?: boolean;
+}
+
+export interface ComputerUseScreenshotResult {
+  ok: boolean;
+  screenshot?: string;
+  page_url?: string;
+  page_title?: string;
+  elements?: Array<{ description: string; selector: string }>;
+  error?: string;
+}
+
+export interface ComputerUseFillFormInput {
+  url: string;
+  fields: Record<string, string>;
+  submit?: boolean;
+}
+
+export interface ComputerUseFillFormResult {
+  ok: boolean;
+  results?: Array<{ field: string; success: boolean; message?: string }>;
+  page_url?: string;
+  screenshot?: string;
+  error?: string;
+}

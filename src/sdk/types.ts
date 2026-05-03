@@ -143,6 +143,19 @@ export interface ApprovalCallbackPayload {
   comment?: string;
 }
 
+// ─── ComputerUse (sandbox-external service) ───────────────
+// Re-export from the implementation module so SDK consumers
+// have a single import surface.
+
+export type {
+  ComputerUseBrowseInput,
+  ComputerUseBrowseResult,
+  ComputerUseScreenshotInput,
+  ComputerUseScreenshotResult,
+  ComputerUseFillFormInput,
+  ComputerUseFillFormResult,
+} from './computer-use.js';
+
 // ─── SDK Errors ───────────────────────────────────────────
 
 export type SDKErrorCode =

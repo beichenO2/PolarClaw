@@ -13,6 +13,7 @@ import { createEventsModule } from './events.js';
 import { createLobstersModule } from './lobsters.js';
 import { createTargetsModule } from './targets.js';
 import { createApprovalsModule } from './approvals.js';
+import { createComputerUseModule } from './computer-use.js';
 import { SDK_VERSION } from './types.js';
 
 export interface PolarClawSDKConfig {
@@ -34,6 +35,7 @@ export function createPolarClawSDK(config: PolarClawSDKConfig) {
   const lobsters = createLobstersModule({ pilotClient });
   const targets = createTargetsModule({ pilotClient });
   const approvals = createApprovalsModule({ pilotClient });
+  const computerUse = createComputerUseModule();
 
   return {
     version: SDK_VERSION,
@@ -42,6 +44,7 @@ export function createPolarClawSDK(config: PolarClawSDKConfig) {
     lobsters,
     targets,
     approvals,
+    computerUse,
   };
 }
 
@@ -65,6 +68,12 @@ export type {
   ApprovalRequest,
   ApprovalCallbackPayload,
   ApprovalStatus,
+  ComputerUseBrowseInput,
+  ComputerUseBrowseResult,
+  ComputerUseScreenshotInput,
+  ComputerUseScreenshotResult,
+  ComputerUseFillFormInput,
+  ComputerUseFillFormResult,
   SDKErrorCode,
   SDKClientConfig,
 } from './types.js';
