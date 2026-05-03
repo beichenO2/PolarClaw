@@ -159,6 +159,3 @@ export function createPolarClawClient(config: SDKClientConfig) {
 }
 
 export type PolarClawClient = ReturnType<typeof createPolarClawClient>;
-
-/** @deprecated Use createPolarClawClient */
-export const createMyClawClient = createPolarClawClient;

@@ -16,7 +16,8 @@
           "status": "done",
           "behavior": [
             "ReAct 循环 + 工具注册 + 上下文压缩"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "飞书通道",
@@ -29,7 +30,8 @@
             "file_organize 工具：Agent 根据上下文将文件从收件箱移到正确位置",
             "file_inbox_list 工具：列出当前用户收件箱中待归档文件",
             "用户身份解析：通过 PolarPrivate resolveFeishuUser() 将飞书 openId 映射为 Polarisor userId"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "CLI 通道",
@@ -38,7 +40,8 @@
           "behavior": [
             "TTY 终端交互（后台模式跳过）",
             "支持 --user <userId> 参数指定用户身份（默认 admin）"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "飞书模拟 CLI",
@@ -49,7 +52,8 @@
             "支持管道输入：echo 'hello' | npm run feishu:simulate -- --user test",
             "复用 Agent 核心（记忆、工具、隐私网关），跳过飞书 SDK 签名验证",
             "自动通过 PolarPrivate resolveFeishuUser 解析用户身份"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "隐私网关",
@@ -57,7 +61,8 @@
           "status": "done",
           "behavior": [
             "PII 检测 + Secret 加载 + 输出脱敏"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "SQLite 记忆",
@@ -70,7 +75,8 @@
           ],
           "evidence": [
             "2026-04-28: git 531c537 实现用户隔离，memories 表 user_id 列已验证"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "LLM 路由",
@@ -78,7 +84,8 @@
           "status": "done",
           "behavior": [
             "多模型并发限制、回退链、PolarPrivate 代理"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "多用户人格差异化",
@@ -94,7 +101,8 @@
           "evidence": [
             "2026-04-29: git 9a4a817 per-user persona 实现",
             "2026-05-01: allowed_skills 字段支持 + 技能目录过滤"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -110,30 +118,39 @@
           "status": "done",
           "behavior": [
             "间隔规则（30m/2h 式）+ 不活跃触发"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "Clock SSE 桥接",
           "status": "done",
-          "tech": ["EventSource/fetch SSE", "AbortController"],
+          "tech": [
+            "EventSource/fetch SSE",
+            "AbortController"
+          ],
           "behavior": [
             "订阅 Clock /api/sync/events SSE 端点",
             "监听 timer_change/session_complete 事件",
             "指数退避重连（1s→30s 上限）",
             "POLARCLAW_PROACTIVE=1 + CLOCK_API_URL + CLOCK_DEFAULT_USERNAME 启用"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "日程驱动关怀",
           "status": "done",
-          "tech": ["fetch", "Clock /schedule/today API"],
+          "tech": [
+            "fetch",
+            "Clock /schedule/today API"
+          ],
           "behavior": [
             "定期拉取 Clock /schedule/today 获取日程和三餐时间",
             "日程块开始前 10 分钟触发预提醒",
             "日程块结束后触发结束关怀",
             "三餐时间窗口触发用餐提醒",
             "同日去重（同一日程只提醒一次）"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "主观能动性",
@@ -149,7 +166,8 @@
           ],
           "evidence": [
             "2026-05-01: TopicTrigger 实现 + 空闲/长工作双阈值 + KnowLever 集成"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "LLM 调用成本记录",
@@ -163,7 +181,8 @@
           ],
           "evidence": [
             "2026-05-01: persistUsage 增强 + 价格表 + 日志轮转"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -183,7 +202,8 @@
             "Hub 不可达时降级到启发式+LLM-as-Judge 本地对齐",
             "每步通过 Hub 信息型 prompt 汇报进度",
             "完成后自动标记 alignment 为 completed"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "对齐检查",
@@ -193,7 +213,8 @@
             "Hub 优先：POST /api/ui/alignment 创建对齐文档，等待用户分节确认",
             "降级模式：启发式评分 + LLM-as-Judge 多维评估",
             "对齐评分不足时 escalate 给用户"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -209,7 +230,8 @@
           "status": "done",
           "behavior": [
             "Agent 状态、对话历史、配置管理"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "PDF/PPT 审阅",
@@ -217,7 +239,8 @@
           "status": "done",
           "behavior": [
             "在线预览和标注生成的文档"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "LLM 代理 API",
@@ -234,7 +257,8 @@
           "depends_on": [
             "LLM 路由",
             "SQLite 记忆"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -250,7 +274,8 @@
           "status": "done",
           "behavior": [
             "skill-registry 热加载 + skills/ 目录"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "AutoOffice 集成",
@@ -259,7 +284,8 @@
           "behavior": [
             "报告生成技能",
             "lab-report skill 可通过 PolarPrivate LLM proxy + officecli 生成 Word 实验报告"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "实验报告基准测试链路",
@@ -280,7 +306,8 @@
             "通过 doc-reader 阅读 PPT、参数记录和报告模板，通过 safe-shell 调用用户可用的 CLI/Python/MATLAB 工具处理数据",
             "通过 lab-report 生成 Word 报告，并将雷达实验仅作为回归基准用例",
             "雷达专用 radar-ranging / radar-ranging-mat skills 已归档，避免把 benchmark 误表述为预置硬编码方案"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "KnowLever 集成",
@@ -288,7 +315,8 @@
           "status": "done",
           "behavior": [
             "知识检索技能"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "digist 集成",
@@ -296,7 +324,8 @@
           "status": "done",
           "behavior": [
             "信息摘要技能"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "自学习/工作流组合",
@@ -304,7 +333,8 @@
           "status": "done",
           "behavior": [
             "learning_compose_workflow + SkillComposer"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "ComputerUse 浏览器自动化",
@@ -316,7 +346,8 @@
             "fill_form：结构化表单自动填写",
             "Docker 隔离模式（COMPUTER_USE_DOCKER=1）",
             "CircuitBreaker 防护 + 截图持久化"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -334,7 +365,8 @@
             "skills/SOUL.md 包含生态全景：项目表、用户体系、文件系统约定、工具链寻路",
             "SOUL.md（根目录）包含 Agent 身份和沟通风格",
             "Agent 启动时合并两者注入 system prompt"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "差异化提示词",
@@ -350,7 +382,8 @@
           ],
           "evidence": [
             "2026-04-29: git 9a4a817 per-user persona system 实现并验证"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "Meta-Skills",
@@ -364,7 +397,8 @@
           ],
           "evidence": [
             "2026-04-28: git 531c537 Meta-Skills 架构实现，skills/_meta/ 目录已创建"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "Tool-Skills 按需加载",
@@ -374,7 +408,8 @@
             "skill-registry 初始化时跳过 _meta 目录（元技能不注册工具）",
             "meta-index 区分元技能（思维框架）和工具技能（含 tools.ts）",
             "Agent 通过 skill_search + skill_activate 按需加载 Tool-Skills"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -399,7 +434,8 @@
             "2026-05-01: src/core/polar-user.ts PolarUser registry 实现",
             "2026-05-01: personas/lobster-knowlever.md, personas/lobster-autooffice.md 项目龙虾人格",
             "2026-05-01: main.ts 集成 PolarUser registry 到 persona resolver"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -420,7 +456,8 @@
           ],
           "evidence": [
             "2026-05-01: src/sdk/users.ts + sdk.test.ts 3 tests passed"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "events.emit",
@@ -434,7 +471,8 @@
           ],
           "evidence": [
             "2026-05-01: src/sdk/events.ts + sdk.test.ts 5 tests passed"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "lobsters.status",
@@ -447,7 +485,8 @@
           ],
           "evidence": [
             "2026-05-01: src/sdk/lobsters.ts + sdk.test.ts 1 test passed"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "targets.*",
@@ -462,7 +501,8 @@
           ],
           "evidence": [
             "2026-05-01: src/sdk/targets.ts + sdk.test.ts 8 tests passed"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "approvals",
@@ -476,7 +516,8 @@
           ],
           "evidence": [
             "2026-05-01: src/sdk/approvals.ts + sdk.test.ts 4 tests passed"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "HTTP API 端点",
@@ -492,11 +533,12 @@
           ],
           "evidence": [
             "2026-05-01: adapters/web/server.ts SDK routes added"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "polarclaw-project-sdk 薄包",
-          "description": "外部项目 HTTP 客户端",
+          "description": "外部项目 HTTP 客户端 — now backed by PolarPilot contract",
           "status": "done",
           "behavior": [
             "createPolarClawClient({ baseUrl, projectId }) → typed SDK client",
@@ -505,7 +547,14 @@
           ],
           "evidence": [
             "2026-05-01: packages/polarclaw-project-sdk/ 包创建"
-          ]
+          ],
+          "test_status": "not_tested"
+        },
+        {
+          "name": "SDK thin adapters",
+          "status": "done",
+          "description": "lobsters/targets/events/approvals rewritten as PolarPilot HTTP contract adapters",
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -528,7 +577,8 @@
           ],
           "evidence": [
             "2026-05-01: src/pilot/targets.ts + target-validator.ts + target-tools.ts 实现，13 测试通过"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "状态机循环",
@@ -544,7 +594,8 @@
           ],
           "evidence": [
             "2026-05-01: src/pilot/state-machine.ts 实现，8 测试通过"
-          ]
+          ],
+          "test_status": "not_tested"
         },
         {
           "name": "守护进程",
@@ -558,7 +609,8 @@
           ],
           "evidence": [
             "2026-05-01: src/pilot/daemon.ts + runtime.ts + align.ts + dedup.ts + lobster-start.ts 实现，8 测试通过"
-          ]
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": [

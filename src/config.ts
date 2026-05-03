@@ -2,7 +2,7 @@
  * PolarClaw 配置加载器
  *
  * 从环境变量加载配置，支持 .env 文件。
- * 环境变量优先读 POLARCLAW_* 前缀，fallback 到旧 MYCLAW_*（兼容期保留，打 deprecation warn）。
+ * 环境变量使用 POLARCLAW_* 前缀。
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -59,9 +59,6 @@ export interface IPolarClawConfig {
   };
 }
 
-/** @deprecated Use IPolarClawConfig */
-export type IMyclawConfig = IPolarClawConfig;
-
 /** 最简 .env 解析器 */
 function loadEnvFile(filePath: string): void {
   if (!existsSync(filePath)) return;
@@ -93,23 +90,8 @@ function env(key: string, fallback = ''): string {
   return process.env[key]?.trim() ?? fallback;
 }
 
-const _warnedDeprecated = new Set<string>();
-
-/** Read POLARCLAW_* first, fallback to MYCLAW_* with deprecation warning */
 function pcEnv(suffix: string, fallback = ''): string {
-  const newKey = `POLARCLAW_${suffix}`;
-  const oldKey = `MYCLAW_${suffix}`;
-  const newVal = process.env[newKey]?.trim();
-  if (newVal) return newVal;
-  const oldVal = process.env[oldKey]?.trim();
-  if (oldVal) {
-    if (!_warnedDeprecated.has(oldKey)) {
-      console.warn(`[deprecated] ${oldKey} is deprecated, use ${newKey}`);
-      _warnedDeprecated.add(oldKey);
-    }
-    return oldVal;
-  }
-  return fallback;
+  return process.env[`POLARCLAW_${suffix}`]?.trim() ?? fallback;
 }
 
 export function loadConfig(): IPolarClawConfig {
