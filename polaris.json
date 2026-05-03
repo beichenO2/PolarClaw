@@ -338,14 +338,19 @@
         },
         {
           "name": "ComputerUse 浏览器自动化",
-          "description": "Stagehand（Playwright AI 层）驱动的浏览器操作",
-          "status": "done",
+          "description": "Stagehand（Playwright AI 层）驱动的浏览器操作；同时通过 PolarClaw SDK 以沙箱外服务形式暴露给其他 Polarisor 项目",
+          "status": "partial",
           "behavior": [
-            "browse_and_act：自然语言驱动浏览器操作",
-            "screenshot_and_analyze：截图 + 可交互元素观察",
-            "fill_form：结构化表单自动填写",
-            "Docker 隔离模式（COMPUTER_USE_DOCKER=1）",
-            "CircuitBreaker 防护 + 截图持久化"
+            "ReAct skill：computer_use_browse / computer_use_screenshot / computer_use_fill_form 通过 SkillLoader 按需加载（skills/computer-use/）",
+            "SDK module：sdk.computerUse.{browse,screenshot,fillForm}（src/sdk/computer-use.ts），HTTP 路由 /api/sdk/computer-use/*",
+            "polarclaw-project-sdk 客户端 sdk.computerUse.* 让其他项目（KnowLever/AutoOffice/PolarPilot 等）通过 HTTP 调用，不必各自安装 Chromium",
+            "桌面隔离：Dockerfile.browser 把整个 PolarClaw 跑在 mcr.microsoft.com/playwright 镜像内，COMPUTER_USE_DOCKER=1 标识",
+            "截图持久化到 data/screenshots/，文件名带时间戳",
+            "@browserbasehq/stagehand + playwright 列为 optionalDependencies，缺失时优雅降级为 ok:false 错误"
+          ],
+          "blockers": [
+            "Stagehand 需要 LLM API key（OpenAI/Anthropic 或 PolarPrivate 代理）才能真正驱动浏览器，当前未在 PolarClaw 配置层接入",
+            "未在隔离容器或宿主机做过端到端 smoke test（npm install 通过、typecheck 通过、vitest 135/135 通过，但未启动真实 Chromium）"
           ],
           "test_status": "not_tested"
         }
