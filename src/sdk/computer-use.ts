@@ -283,6 +283,10 @@ async function withBrowser<T>(
   const stagehandOpts: Record<string, unknown> = {
     env: 'LOCAL',
     localBrowserLaunchOptions: { headless: true },
+    // Help upstream models satisfy response_format json_schema contracts.
+    // Some providers (e.g. qwen via PolarPrivate) reject schema mode
+    // unless prompts explicitly mention JSON.
+    systemPrompt: 'You are a browser action planner. Always output strict JSON only. Do not include markdown or reasoning text.',
     verbose: 0,
     disablePino: true,
   };
