@@ -16,3 +16,8 @@ openclaw/
 .planning/sync-log.jsonl
 tsconfig.tsbuildinfo
 项目字典
+
+# Compiled ecosystem artifacts (regenerable from KnowLever)
+reference/KnowLever/
+# Vendor reference (gnhf project mirror)
+reference/gnhf/
