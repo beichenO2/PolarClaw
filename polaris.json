@@ -442,7 +442,8 @@
           "evidence": [
             "2026-05-01: src/core/polar-user.ts PolarUser registry 实现",
             "2026-05-01: personas/lobster-knowlever.md, personas/lobster-autooffice.md 项目龙虾人格",
-            "2026-05-01: main.ts 集成 PolarUser registry 到 persona resolver"
+            "2026-05-01: main.ts 集成 PolarUser registry 到 persona resolver",
+            "2026-05-04: personas/lobster-tqsdk.md 补齐 tqsdk 项目龙虾人格 (solo-web-9830cea5)"
           ],
           "test_status": "not_tested"
         }
