@@ -178,7 +178,10 @@ const compatFetch: typeof fetch = async (input, init) => {
         for (const choice of choices) {
           const msg = choice.message;
           if (msg && typeof msg.content === 'string') {
-            const stripped = msg.content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+            // 1. Strip <think>...</think> thinking blocks (MiniMax-M2.7-highspeed)
+            let stripped = msg.content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+            // 2. Strip markdown code fences (qwen-plus sometimes wraps JSON in ```json ... ```)
+            stripped = stripped.replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i, '$1').trim();
             if (stripped !== msg.content) {
               msg.content = stripped;
               mutated = true;
@@ -282,11 +285,21 @@ async function withBrowser<T>(
 
   const stagehandOpts: Record<string, unknown> = {
     env: 'LOCAL',
-    localBrowserLaunchOptions: { headless: true },
+    localBrowserLaunchOptions: {
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    },
     // Help upstream models satisfy response_format json_schema contracts.
     // Some providers (e.g. qwen via PolarPrivate) reject schema mode
-    // unless prompts explicitly mention JSON.
-    systemPrompt: 'You are a browser action planner. Always output strict JSON only. Do not include markdown or reasoning text.',
+    // unless prompts explicitly mention JSON.  Also, MiniMax-M2.7-highspeed
+    // sometimes emits <think> blocks before the JSON; the explicit
+    // prohibition below prevents this in most cases.
+    systemPrompt:
+      'You are a browser action planner. ' +
+      'IMPORTANT: Always output strict JSON only. Do not use markdown (no ```). ' +
+      'Do not include any <think> or </think> reasoning blocks. ' +
+      'The word "json" must appear in your response. ' +
+      'Begin directly with the JSON object.',
     verbose: 0,
     disablePino: true,
   };
