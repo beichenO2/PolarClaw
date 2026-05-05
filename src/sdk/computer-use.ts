@@ -95,11 +95,10 @@ function resolveLLMCreds() {
       envOrReal('POLARCLAW_LLM_API_KEY', 'proxy-managed'),
     ),
   );
-  // Default to MiniMax-M2.7-highspeed because qwen-plus on PolarPrivate
-  // refuses Stagehand's response_format.json_schema unless 'json' appears
-  // verbatim in messages — an Aliyun-side limitation. MiniMax accepts
-  // json_schema cleanly and is fast enough for browser action picking.
-  const modelName = envOr('COMPUTER_USE_MODEL_NAME', 'openai/MiniMax-M2.7-highspeed');
+  // Default to qwen3-coder-plus via DashScope codingplan proxy. The 'openai/'
+  // prefix is required by Stagehand's model validation (provider/model format).
+  // NOTE: COMPUTER_USE_MODEL_NAME should be set to 'openai/qwen3-coder-plus' in .env.
+  const modelName = envOr('COMPUTER_USE_MODEL_NAME', 'openai/qwen3-coder-plus');
   return { modelName, apiKey, baseURL };
 }
 
@@ -433,6 +432,8 @@ export interface ComputerUseScreenshotInput {
   url: string;
   full_page?: boolean;
   observe?: boolean;
+  /** Timeout for observe() in ms. Default 60000 (60s). Complex pages need more time for accessibility snapshot. */
+  observe_timeout_ms?: number;
 }
 
 export interface ComputerUseScreenshotResult {
@@ -510,7 +511,8 @@ export async function screenshot(input: ComputerUseScreenshotInput): Promise<Com
 
       let elements: Array<{ description?: string; selector?: string }> | undefined;
       if (doObserve) {
-        elements = await stagehand.observe('列出页面上所有可交互元素');
+        const observeTimeoutMs = (input as { observe_timeout_ms?: number }).observe_timeout_ms ?? 60000;
+        elements = await stagehand.observe('列出页面上所有可交互元素', { timeout: observeTimeoutMs });
       }
 
       return {
