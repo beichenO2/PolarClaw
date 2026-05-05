@@ -121,6 +121,75 @@ function resolveLLMCreds() {
  * portable when PolarPrivate later adds richer routing.
  */
 const compatFetch: typeof fetch = async (input, init) => {
+  const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : String(input);
+
+  // Intercept ALL requests to PolarPrivate's LLM gateway:
+  // 1. Strip 'Bearer proxy-managed' → send without auth (PolarPrivate allows anonymous MiniMax)
+  // 2. Rewrite /v1/responses → /v1/chat/completions (PolarPrivate only has Chat Completions API)
+  // 3. Transform Responses API request body → Chat Completions body
+  const isPolarPrivate = url.includes('127.0.0.1:12790');
+  if (init?.headers && isPolarPrivate) {
+    const headers = init.headers;
+    let authHeader: string | null = null;
+    if (typeof headers.get === 'function') {
+      authHeader = headers.get('authorization');
+    } else if (typeof headers === 'object' && headers !== null) {
+      authHeader = (headers as Record<string, string>)['Authorization']
+        ?? (headers as Record<string, string>)['authorization']
+        ?? null;
+    }
+
+    // Build clean headers without the bad auth token
+    const cleanHeaders: Record<string, string> = {};
+    if (typeof headers.get === 'function') {
+      headers.forEach((v, k) => { if (k.toLowerCase() !== 'authorization') cleanHeaders[k] = v; });
+    } else if (typeof headers === 'object' && headers !== null) {
+      for (const [k, v] of Object.entries(headers as Record<string, string>)) {
+        if (k.toLowerCase() !== 'authorization') cleanHeaders[k] = v;
+      }
+    }
+
+    // Rewrite URL: /v1/responses → /v1/chat/completions
+    const needsRewrite = url.includes('/v1/responses');
+    const rewrittenUrl = needsRewrite
+      ? url.replace('/v1/responses', '/v1/chat/completions')
+      : url;
+
+    // Build forwarded init
+    let forwardedInit: RequestInit = {
+      ...init,
+      headers: cleanHeaders,
+    };
+
+    // Transform body if rewriting responses → chat/completions
+    if (needsRewrite && typeof init?.body === 'string') {
+      try {
+        const body = JSON.parse(init.body);
+        // Responses API: { model, input: [{role, content}], tools?, ...
+        // Chat Completions API: { model, messages: [{role, content}], tools?, ...
+        const chatBody: Record<string, unknown> = {
+          model: body.model,
+          messages: Array.isArray(body.input)
+            ? body.input.map((item: { role?: string; content?: string; text?: string }) => ({
+                role: item.role === 'user' ? 'user' : item.role === 'assistant' ? 'assistant' : 'user',
+                content: item.content ?? item.text ?? '',
+              }))
+            : [{ role: 'user', content: String(body.input ?? '') }],
+          tools: body.tools,
+          stream: false,
+        };
+        forwardedInit = { ...forwardedInit, body: JSON.stringify(chatBody) };
+      } catch {
+        // body transformation failed; send as-is
+      }
+    }
+
+    // Only intercept if auth is bad or URL needs rewriting
+    if (authHeader === 'Bearer proxy-managed' || needsRewrite) {
+      return fetch(rewrittenUrl, forwardedInit);
+    }
+  }
+
   if (init?.body && typeof init.body === 'string') {
     try {
       const body = JSON.parse(init.body) as Record<string, unknown>;
