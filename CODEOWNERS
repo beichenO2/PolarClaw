@@ -1,0 +1,19 @@
+# PolarClaw Code Ownership
+# See: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default: all files
+*                       @beichenO2
+
+# Agent core + SDK
+src/                    @beichenO2
+packages/               @beichenO2
+
+# Skills (integration points)
+skills/                 @beichenO2
+
+# Contracts & schemas
+contracts/              @beichenO2
+
+# Tests
+tests/                  @beichenO2
+src/__tests__/          @beichenO2
