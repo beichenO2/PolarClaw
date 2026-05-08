@@ -12,8 +12,9 @@
  *   GET  /health                  → { status, vault_unlocked }
  *   GET  /api/identities          → { items: IdentityOut[], total }
  *   GET  /api/secrets             → { items: SecretOut[], total }（不含明文值）
- *   POST /api/secrets/:id/reveal  → { value }（明文解密）
- *   GET  /api/sanitize/mappings   → SDK 映射表
+ *   GET  /api/sanitize/mappings   → SDK 映射表（无鉴权）
+ * Plaintext-leak detection (260505 batch): reveal endpoint removed; matching
+ * is now done against /api/sanitize/mappings (which exposes placeholders only).
  */
 
 import type { IPrivacyEntity } from '../../ports/privacy.js';
@@ -132,8 +133,7 @@ export function createPolarPrivateClient(config: IPolarPrivateConfig) {
       const matched: Array<{ name: string; category: string }> = [];
       for (const s of data.items) {
         if (!s.enabled) continue;
-        const revealed = await postJson<{ value: string }>(`/api/secrets/${s.id}/reveal`);
-        if (revealed?.value && revealed.value !== 'PLACEHOLDER' && text.includes(revealed.value)) {
+        if (text.includes(`[[secret_ref.${s.key}]]`)) {
           matched.push({ name: s.key, category: s.category || '' });
         }
       }
