@@ -148,6 +148,26 @@
       "side_effects": false,
       "timeout_ms": 5000,
       "contract": "polarpilot-status"
+    },
+    {
+      "id": "polarclaw.design.resolve",
+      "service_name": "polarclaw-agent",
+      "description": "设计系统风格解析 — 根据关键词匹配 PolarDesign 设计系统候选列表",
+      "transport": "skill",
+      "tool_name": "design_resolve",
+      "idempotent": true,
+      "side_effects": false,
+      "timeout_ms": 10000
+    },
+    {
+      "id": "polarclaw.design.generate",
+      "service_name": "polarclaw-agent",
+      "description": "HTML 工件生成 — 按 Skill + 设计系统生成 HTML 工件上下文",
+      "transport": "skill",
+      "tool_name": "design_generate",
+      "idempotent": false,
+      "side_effects": true,
+      "timeout_ms": 60000
     }
   ]
 }
