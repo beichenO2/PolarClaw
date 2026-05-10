@@ -36,6 +36,7 @@ import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import { createWebServer } from './adapters/web/server.js';
 import { createPolarUserRegistry } from './core/polar-user.js';
 import { createPolarClawSDK } from './sdk/index.js';
+import { HubClient } from './adapters/web/hub-client.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -580,6 +581,25 @@ async function main() {
   console.error('[PolarClaw] 状态:', JSON.stringify(agent.getStatus(), null, 2));
   console.error(`[PolarClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
+  // Hub Web 注册（可选，通过环境变量启用）
+  let hubClient: HubClient | null = null;
+  const hubUrl = process.env.HUB_WEB_URL?.trim() || 'http://127.0.0.1:8765';
+  if (process.env.HUB_WEB_ENABLED === '1') {
+    try {
+      hubClient = new HubClient(hubUrl);
+      const agentInfo = await hubClient.register({
+        hubUrl,
+        agentType: 'polarclaw',
+        mainModel: (process.env.HUB_MAIN_MODEL as 'glm-5.1' | 'qwen-3.6-plus') || 'qwen-3.6-plus',
+        subagentModel: (process.env.HUB_SUBAGENT_MODEL as any) || 'qwen-3.6-plus',
+      });
+      console.error(`[PolarClaw] Hub Web 注册成功: ${agentInfo.agent_id}`);
+    } catch (err) {
+      console.error('[PolarClaw] Hub Web 注册失败:', err);
+      hubClient = null;
+    }
+  }
+
   // Web 服务器（Review API + SPA + YOLO API）— 端口通过 port-sdk 申请
   let webPort = 3910;
   try {
@@ -741,6 +761,7 @@ async function main() {
   // 优雅退出
   const shutdown = async () => {
     console.error('[PolarClaw] 正在关闭...');
+    hubClient?.unregister().catch(() => {});
     webServer.stop();
     scheduleBridge?.stop();
     clockSseBridge?.stop();
