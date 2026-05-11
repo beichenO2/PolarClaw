@@ -237,8 +237,11 @@ export class SessionMemoryManager {
       compressed = await this.partialEvictCompress(messages);
     }
 
-    // 追加到情景记忆
+    // 追加到情景记忆（保留最近 10 条，防止累积超出预算）
     session.episodic.push(compressed);
+    if (session.episodic.length > 10) {
+      session.episodic = session.episodic.slice(-10);
+    }
 
     // 保留 working 中的最近消息
     const retainCount = this.mode === CompressionMode.STATIC_MESSAGE_BUFFER
@@ -248,15 +251,24 @@ export class SessionMemoryManager {
 
     // 序列化并确保不超过 20K
     let result = serializeSessionMemory(session);
-    if (result.length > this.maxCompressedChars) {
-      // 截断 episodic 摘要以适配预算
-      const lastEpisodic = session.episodic[session.episodic.length - 1];
-      if (lastEpisodic) {
-        const overRatio = this.maxCompressedChars / result.length;
-        const newSummaryLen = Math.floor(lastEpisodic.summary.length * overRatio * 0.8);
-        lastEpisodic.summary = middleTruncate(lastEpisodic.summary, newSummaryLen);
-        result = serializeSessionMemory(session);
+    while (result.length > this.maxCompressedChars) {
+      if (session.episodic.length > 1) {
+        // 逐步截断最老的情景记忆摘要
+        const oldest = session.episodic[0];
+        if (oldest && oldest.summary.length > 100) {
+          oldest.summary = middleTruncate(oldest.summary, Math.floor(oldest.summary.length * 0.5));
+        } else {
+          session.episodic.shift();
+        }
+      } else {
+        // 只剩1条时直接截断该摘要
+        const only = session.episodic[0];
+        if (only) {
+          const budget = this.maxCompressedChars - 200; // 留给 JSON 结构开销
+          only.summary = middleTruncate(only.summary, Math.max(100, budget));
+        }
       }
+      result = serializeSessionMemory(session);
     }
 
     return result;
