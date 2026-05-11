@@ -18,6 +18,7 @@ import type { IMemoryStore, IConversationHistory, IChatMessage } from '../ports/
 import type { ILLMRouter, ILLMResponse } from '../ports/llm.js';
 import type { IToolExecutor } from '../ports/tools.js';
 import type { IContextCompressor } from '../ports/compression.js';
+import type { SessionMemoryManager } from '../memory/SessionMemory.js';
 
 export interface IPersonaResult {
   content: string;
@@ -49,6 +50,8 @@ export interface IAgentDeps {
   privacy: IPrivacyGateway;
   /** 上下文压缩器（可选，不提供则不启用压缩） */
   compressor?: IContextCompressor;
+  /** 运行时记忆管理器（可选，Phase 3 新增） */
+  sessionMemory?: SessionMemoryManager;
 }
 
 export interface IAgentResponse {
@@ -78,7 +81,7 @@ function filterSkillCatalog(catalog: string | undefined, allowedSkills: string[]
 }
 
 export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
-  const { llm, memory, conversations, tools, privacy, compressor } = deps;
+  const { llm, memory, conversations, tools, privacy, compressor, sessionMemory } = deps;
   const maxToolOutputLen = config.maxToolOutputLength ?? 12000;
 
   const memoryContextCache = new Map<string, { context: string; ts: number }>();
@@ -129,9 +132,28 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
     const existingHistory = conversations.getHistory(convId);
     const isOngoing = existingHistory.length > 2;
-    const result = await runLoop(convId, userId, isOngoing);
 
-    // 5a. 持久化 LLM token usage 到日志
+    // 5a. Phase 3: 运行时记忆注入（长期记忆 + 情景记忆）
+    let sessionMemoryPrefix = '';
+    if (sessionMemory) {
+      const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText);
+      if (longTermBlocks.length > 0) {
+        const session = sessionMemory.getOrCreateSession(convId);
+        session.longTermBlocks = longTermBlocks;
+      }
+      sessionMemoryPrefix = sessionMemory.buildMemoryInjection(convId);
+    }
+
+    const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix);
+
+    // 5b. Phase 3: 运行时记忆压缩（每轮对话后压缩，供下次注入）
+    if (sessionMemory) {
+      const currentHistory = conversations.getHistory(convId);
+      sessionMemory.updateWorkingMemory(convId, currentHistory);
+      await sessionMemory.compressForNextTurn(convId);
+    }
+
+    // 5c. 持久化 LLM token usage 到日志
     if (result.usage) {
       persistUsage(userId, channel, result.usage, result.model, convId);
     }
@@ -190,7 +212,12 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   }
 
   /** Agent 主循环：system + 历史消息 → LLM → 工具调用 → 观察 → 重复 */
-  async function runLoop(convId: string, userId: string, isOngoing = false): Promise<{ text: string; usage?: ILLMResponse['usage']; model?: string }> {
+  async function runLoop(
+    convId: string,
+    userId: string,
+    isOngoing = false,
+    sessionMemoryPrefix = '',
+  ): Promise<{ text: string; usage?: ILLMResponse['usage']; model?: string }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
     let lastModel = '';
 
@@ -219,9 +246,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         }
       }
 
-      const systemContent = isOngoing
-        ? basePrompt + '\n\n[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]'
-        : basePrompt;
+      const systemContent = [
+        basePrompt,
+        sessionMemoryPrefix ? `[记忆上下文]\n${sessionMemoryPrefix}` : '',
+        isOngoing ? '[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]' : '',
+      ].filter(Boolean).join('\n\n');
 
       const messages: IChatMessage[] = [
         { role: 'system', content: systemContent },
