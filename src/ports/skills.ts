@@ -98,4 +98,10 @@ export interface ISkillRegistry {
 
   /** 取消监听 */
   off(handler: SkillEventHandler): void;
+
+  /** 便捷钩子：技能加载时触发 */
+  onSkillLoaded(callback: (skill: ISkillMeta) => void): void;
+
+  /** 便捷钩子：技能卸载时触发 */
+  onSkillUnloaded(callback: (skillName: string) => void): void;
 }

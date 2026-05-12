@@ -1,166 +1,200 @@
 /**
  * Self-Learning Loop — 自进化闭环控制器
  *
- * 协调 usage-tracker → pattern-detector → skill-generator → promotion/demotion 的完整循环。
- * 每次调用 runCycle() 执行一轮：分析 → 生成 → 晋升/降级。
+ * 完整闭环：工具使用追踪 → 模式检测 → 候选技能生成 → 晋升/降级
+ * 自学习循环是可选的 — PolarClaw 在未启用时正常工作。
  */
 
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { ILearningStore, IToolPattern } from '../../ports/learning.js';
-import type { ISkillRegistry, ISkillMeta } from '../../ports/skills.js';
+import type { ISkillRegistry } from '../../ports/skills.js';
+import { createSkillGenerator } from './skill-generator.js';
 
-export interface SelfLearningLoopConfig {
-  learningStore: ILearningStore;
-  skillRegistry: ISkillRegistry;
-  /** 模式出现次数阈值（默认 5） */
-  patternThreshold?: number;
-  /** 晋升成功使用次数阈值（默认 3） */
-  promotionThreshold?: number;
-  /** 降级失败次数阈值（默认 3） */
-  demotionThreshold?: number;
+export interface ISelfLearningLoopConfig {
+  skillsDir: string;
+  candidatesDir: string;
+  patternThreshold: number;
+  promotionThreshold: number;
+  demotionThreshold: number;
+  cycleIntervalMs: number;
+  enabled: boolean;
 }
 
-export interface SelfLearningLoopResult {
-  patternsDetected: number;
-  skillsGenerated: number;
-  skillsPromoted: number;
-  skillsDemoted: number;
+export const DEFAULT_LOOP_CONFIG: ISelfLearningLoopConfig = {
+  skillsDir: 'skills',
+  candidatesDir: 'skills/_candidates',
+  patternThreshold: 5,
+  promotionThreshold: 3,
+  demotionThreshold: 3,
+  cycleIntervalMs: 60_000,
+  enabled: false,
+};
+
+export interface ICandidateRecord {
+  id: string;
+  name: string;
+  patternName: string;
+  createdAt: string;
+  successCount: number;
+  failureCount: number;
+  status: 'candidate' | 'promoted' | 'demoted';
+  demotionReason?: string;
 }
 
-export interface SkillHealthReport {
-  skillName: string;
-  status: string;
-  useCount: number;
-  successRate: number;
-  lastUsedAt: string | null;
-  recommendation: 'promote' | 'demote' | 'keep' | 'delete';
+export interface ILoopCycleResult {
+  patternsAnalyzed: number;
+  candidatesGenerated: number;
+  promotions: string[];
+  demotions: Array<{ id: string; reason: string }>;
 }
 
-const DEFAULT_PATTERN_THRESHOLD = 5;
-const DEFAULT_PROMOTION_THRESHOLD = 3;
-const DEFAULT_DEMOTION_THRESHOLD = 3;
+export interface ISelfLearningLoop {
+  readonly config: ISelfLearningLoopConfig;
+  analyzeUsagePatterns(): IToolPattern[];
+  generateCandidateSkill(pattern: IToolPattern): ICandidateRecord | null;
+  promoteCandidateSkill(skillId: string): boolean;
+  demoteSkill(skillId: string, reason: string): boolean;
+  runCycle(): ILoopCycleResult;
+  getCandidates(): ICandidateRecord[];
+  getCandidate(skillId: string): ICandidateRecord | undefined;
+  start(): void;
+  stop(): void;
+}
 
-export function createSelfLearningLoop(config: SelfLearningLoopConfig) {
-  const {
-    learningStore,
-    skillRegistry,
-    patternThreshold = DEFAULT_PATTERN_THRESHOLD,
-    promotionThreshold = DEFAULT_PROMOTION_THRESHOLD,
-    demotionThreshold = DEFAULT_DEMOTION_THRESHOLD,
-  } = config;
+export function createSelfLearningLoop(
+  learningStore: ILearningStore,
+  skillRegistry: ISkillRegistry,
+  partialConfig?: Partial<ISelfLearningLoopConfig>,
+): ISelfLearningLoop {
+  const config: ISelfLearningLoopConfig = { ...DEFAULT_LOOP_CONFIG, ...partialConfig };
+  const candidates = new Map<string, ICandidateRecord>();
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const skillGenerator = createSkillGenerator({ outputDir: config.candidatesDir });
 
-  return {
-    /** 分析工具使用模式，返回高于阈值的模式 */
-    analyzeUsagePatterns(): IToolPattern[] {
-      return learningStore.findPatterns(patternThreshold);
-    },
+  loadCandidatesFromDisk();
 
-    /** 从模式生成候选技能元数据 */
-    generateCandidateSkill(pattern: IToolPattern): ISkillMeta | null {
-      const skillName = `auto-${pattern.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}`;
-      const existing = skillRegistry.getSkill(skillName);
-      if (existing) return existing;
+  function loadCandidatesFromDisk(): void {
+    if (!existsSync(config.candidatesDir)) return;
+    for (const entry of readdirSync(config.candidatesDir)) {
+      if (!entry.endsWith('.json')) continue;
+      try {
+        const raw = readFileSync(join(config.candidatesDir, entry), 'utf-8');
+        const rec: ICandidateRecord = JSON.parse(raw);
+        if (rec.status === 'candidate') candidates.set(rec.id, rec);
+      } catch { /* skip */ }
+    }
+  }
 
-      const meta: ISkillMeta = {
-        name: skillName,
-        description: `自动生成的组合工具：${pattern.trigger}`,
-        version: '0.1.0',
-        path: '',
-        origin: 'generated',
-        status: 'draft',
-        successfulUses: 0,
-        createdAt: new Date().toISOString(),
-      };
+  function persistCandidate(rec: ICandidateRecord): void {
+    if (!existsSync(config.candidatesDir)) mkdirSync(config.candidatesDir, { recursive: true });
+    writeFileSync(join(config.candidatesDir, `${rec.id}.json`), JSON.stringify(rec, null, 2));
+  }
 
-      return meta;
-    },
+  function removeCandidateFile(id: string): void {
+    const fp = join(config.candidatesDir, `${id}.json`);
+    try { if (existsSync(fp)) unlinkSync(fp); } catch { /* ok */ }
+  }
 
-    /** 晋升候选技能为 verified */
-    promoteCandidateSkill(skillName: string): boolean {
-      const skill = skillRegistry.getSkill(skillName);
-      if (!skill || skill.status === 'verified') return false;
+  function analyzeUsagePatterns(): IToolPattern[] {
+    return learningStore.findPatterns(config.patternThreshold);
+  }
 
-      const useCount = learningStore.getSkillUseCount(skillName);
-      if (useCount < promotionThreshold) return false;
+  function generateCandidateSkill(pattern: IToolPattern): ICandidateRecord | null {
+    const existing = Array.from(candidates.values()).find(
+      c => c.patternName === pattern.name && c.status === 'candidate',
+    );
+    if (existing) return null;
+    const generated = skillGenerator.generateFromPattern(pattern);
+    if (!generated) return null;
+    const rec: ICandidateRecord = {
+      id: generated.meta.name, name: generated.meta.name, patternName: pattern.name,
+      createdAt: new Date().toISOString(), successCount: 0, failureCount: 0, status: 'candidate',
+    };
+    candidates.set(rec.id, rec);
+    persistCandidate(rec);
+    return rec;
+  }
 
-      skill.status = 'verified';
-      skill.successfulUses = useCount;
+  function promoteCandidateSkill(skillId: string): boolean {
+    const rec = candidates.get(skillId);
+    if (!rec || rec.status !== 'candidate') return false;
+    const useCount = learningStore.getSkillUseCount(skillId);
+    if (useCount < config.promotionThreshold) return false;
+    const skill = skillRegistry.getSkill(skillId);
+    if (skill) { skill.status = 'verified'; skill.successfulUses = useCount; }
+    rec.status = 'promoted';
+    removeCandidateFile(skillId);
+    candidates.delete(skillId);
+    return true;
+  }
+
+  function demoteSkill(skillId: string, reason: string): boolean {
+    const rec = candidates.get(skillId);
+    if (rec) {
+      rec.status = 'demoted'; rec.demotionReason = reason;
+      removeCandidateFile(skillId); candidates.delete(skillId);
       return true;
-    },
+    }
+    const skill = skillRegistry.getSkill(skillId);
+    if (!skill || skill.origin === 'static') return false;
+    skillRegistry.unloadSkill(skillId);
+    skill.status = 'retired';
+    return true;
+  }
 
-    /** 降级技能为 draft */
-    demoteSkill(skillName: string, reason: string): boolean {
-      const skill = skillRegistry.getSkill(skillName);
-      if (!skill) return false;
-      if (skill.origin === 'static') return false;
-
-      skill.status = 'draft';
-      return true;
-    },
-
-    /** 执行一轮完整的自进化循环 */
-    runCycle(): SelfLearningLoopResult {
-      const patterns = this.analyzeUsagePatterns();
-      let skillsGenerated = 0;
-      let skillsPromoted = 0;
-      let skillsDemoted = 0;
-
-      for (const pattern of patterns) {
-        const meta = this.generateCandidateSkill(pattern);
-        if (meta) skillsGenerated++;
+  function runCycle(): ILoopCycleResult {
+    if (!config.enabled) return { patternsAnalyzed: 0, candidatesGenerated: 0, promotions: [], demotions: [] };
+    const patterns = analyzeUsagePatterns();
+    const result: ILoopCycleResult = { patternsAnalyzed: patterns.length, candidatesGenerated: 0, promotions: [], demotions: [] };
+    for (const pattern of patterns) {
+      const rec = generateCandidateSkill(pattern);
+      if (rec) result.candidatesGenerated++;
+    }
+    for (const [id, rec] of candidates.entries()) {
+      if (rec.status !== 'candidate') continue;
+      const useCount = learningStore.getSkillUseCount(id);
+      rec.successCount = useCount;
+      if (useCount >= config.promotionThreshold) {
+        if (promoteCandidateSkill(id)) result.promotions.push(id);
+        continue;
       }
-
-      for (const skill of skillRegistry.listSkills()) {
-        if (skill.origin !== 'static' && skill.status === 'draft') {
-          if (this.promoteCandidateSkill(skill.name)) {
-            skillsPromoted++;
+      const skill = skillRegistry.getSkill(id);
+      if (skill?.toolNames?.length) {
+        let failures = 0;
+        for (const toolName of skill.toolNames) {
+          const history = learningStore.getUsageHistory('anonymous', toolName, 50);
+          failures += history.filter(r => !r.success).length;
+        }
+        rec.failureCount = failures;
+        if (failures >= config.demotionThreshold) {
+          if (demoteSkill(id, `Exceeded failure threshold (${failures} failures)`)) {
+            result.demotions.push({ id, reason: `Exceeded failure threshold (${failures} failures)` });
+            continue;
           }
         }
       }
+      persistCandidate(rec);
+    }
+    return result;
+  }
 
-      for (const skill of skillRegistry.listSkills()) {
-        if (skill.origin !== 'static' && skill.status === 'verified') {
-          const useCount = learningStore.getSkillUseCount(skill.name);
-          // If use count is 0 and skill has been verified for a while, consider demotion
-          // For simplicity, we check if the skill has zero uses recently
-          if (useCount === 0 && (skill.successfulUses ?? 0) > 0) {
-            // No recent uses — could demote, but we'll be conservative
-          }
-        }
-      }
+  function getCandidates(): ICandidateRecord[] {
+    return Array.from(candidates.values()).filter(c => c.status === 'candidate');
+  }
 
-      return { patternsDetected: patterns.length, skillsGenerated, skillsPromoted, skillsDemoted };
-    },
+  function getCandidate(skillId: string): ICandidateRecord | undefined {
+    return candidates.get(skillId);
+  }
 
-    /** 获取所有技能的健康报告 */
-    getHealthReport(): SkillHealthReport[] {
-      const skills = skillRegistry.listSkills();
-      return skills.map(skill => {
-        const useCount = learningStore.getSkillUseCount(skill.name);
-        const sUses = skill.successfulUses ?? 0;
-        const total = Math.max(useCount, sUses);
-        const successRate = total > 0 ? sUses / total : 0;
-        const skillStatus = skill.status ?? 'draft';
+  function start(): void {
+    if (!config.enabled || timer) return;
+    timer = setInterval(() => { try { runCycle(); } catch { /* non-critical */ } }, config.cycleIntervalMs);
+  }
 
-        let recommendation: SkillHealthReport['recommendation'] = 'keep';
-        if (skill.origin !== 'static') {
-          if (skillStatus === 'draft' && useCount >= promotionThreshold) {
-            recommendation = 'promote';
-          } else if (skillStatus === 'verified' && useCount === 0 && sUses > 0) {
-            recommendation = 'demote';
-          } else if (total === 0 && skillStatus === 'draft') {
-            recommendation = 'delete';
-          }
-        }
+  function stop(): void {
+    if (timer) { clearInterval(timer); timer = null; }
+  }
 
-        return {
-          skillName: skill.name,
-          status: skillStatus,
-          useCount,
-          successRate,
-          lastUsedAt: null,
-          recommendation,
-        };
-      });
-    },
-  };
+  return { config, analyzeUsagePatterns, generateCandidateSkill, promoteCandidateSkill, demoteSkill, runCycle, getCandidates, getCandidate, start, stop };
 }

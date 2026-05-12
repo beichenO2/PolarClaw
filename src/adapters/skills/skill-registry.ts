@@ -257,5 +257,21 @@ export function createSkillRegistry(
     off(handler) {
       eventHandlers.delete(handler);
     },
+
+    onSkillLoaded(callback) {
+      eventHandlers.add((event) => {
+        if (event.type === 'loaded' || event.type === 'reloaded') {
+          callback(event.skill);
+        }
+      });
+    },
+
+    onSkillUnloaded(callback) {
+      eventHandlers.add((event) => {
+        if (event.type === 'unloaded') {
+          callback(event.skillName);
+        }
+      });
+    },
   };
 }
