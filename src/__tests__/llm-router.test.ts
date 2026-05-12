@@ -73,4 +73,48 @@ describe('createLLMRouter', () => {
     const research = router.resolveModel([{ role: 'user', content: '研究一下这篇论文' }]);
     expect(research.intent).toBe('research');
   });
+
+  // ── R2: LLM 调用成本记录 ──────────────────────────────
+
+  it('returns usage with token counts for cost tracking', async () => {
+    const router = createLLMRouter({
+      baseUrl: `http://127.0.0.1:${serverPort}/v1`,
+      apiKey: 'test',
+      models: { coding: 'code-model', research: 'res-model', vision: 'vis-model', general: 'gen-model' },
+    });
+
+    const result = await router.chat([
+      { role: 'user', content: '你好' },
+    ]);
+    expect(result.usage).toBeDefined();
+    expect(result.usage!.promptTokens).toBe(10);
+    expect(result.usage!.completionTokens).toBe(5);
+    expect(result.usage!.totalTokens).toBe(15);
+  });
+
+  it('returns latencyMs for performance tracking', async () => {
+    const router = createLLMRouter({
+      baseUrl: `http://127.0.0.1:${serverPort}/v1`,
+      apiKey: 'test',
+      models: { coding: 'code-model', research: 'res-model', vision: 'vis-model', general: 'gen-model' },
+    });
+
+    const result = await router.chat([
+      { role: 'user', content: '你好' },
+    ]);
+    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns model name in response for cost attribution', async () => {
+    const router = createLLMRouter({
+      baseUrl: `http://127.0.0.1:${serverPort}/v1`,
+      apiKey: 'test',
+      models: { coding: 'code-model', research: 'res-model', vision: 'vis-model', general: 'gen-model' },
+    });
+
+    const result = await router.chat([
+      { role: 'user', content: '帮我写代码' },
+    ]);
+    expect(result.model).toBe('code-model');
+  });
 });
