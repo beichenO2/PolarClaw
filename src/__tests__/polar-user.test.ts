@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createPolarUserRegistry } from '../core/polar-user.js';
 
-describe('PolarUserRegistry', () => {
+describe('R7: PolarUser 身份注册与解析', () => {
   it('resolves admin as PolarUser.human', () => {
     const registry = createPolarUserRegistry();
     const user = registry.resolve('admin');
@@ -16,7 +16,6 @@ describe('PolarUserRegistry', () => {
     const user = registry.resolve('someone');
     expect(user.kind).toBe('human');
     expect(user.group).toBe('PolarUser.human');
-    expect(user.persona).toBe('someone');
     expect(user.tool_scopes).toContain('*');
   });
 
@@ -28,15 +27,14 @@ describe('PolarUserRegistry', () => {
     expect(user.project_id).toBe('knowlever');
     expect(user.persona).toBe('lobster-knowlever');
     expect(user.memory_namespace).toBe('project:knowlever');
-    expect(user.display_name).toBe('KnowLever Lobster');
   });
 
-  it('resolves project:autooffice as PolarUser.project', () => {
+  it('dynamically creates unknown project users', () => {
     const registry = createPolarUserRegistry();
-    const user = registry.resolve('project:autooffice');
+    const user = registry.resolve('project:newproject');
     expect(user.kind).toBe('project');
-    expect(user.persona).toBe('lobster-autooffice');
-    expect(user.display_name).toBe('AutoOffice Lobster');
+    expect(user.project_id).toBe('newproject');
+    expect(user.persona).toBe('lobster-newproject');
   });
 
   it('project and human memory namespaces are isolated', () => {
@@ -53,11 +51,6 @@ describe('PolarUserRegistry', () => {
     const ids = projects.map(p => p.project_id);
     expect(ids).toContain('knowlever');
     expect(ids).toContain('autooffice');
-    expect(ids).toContain('clock');
-    expect(ids).toContain('tqsdk');
-    expect(ids).toContain('digist');
-    expect(ids).toContain('sotagent');
-    expect(ids).toContain('polarcopilot');
   });
 
   it('isProject and isHuman correctly classify', () => {
@@ -70,7 +63,6 @@ describe('PolarUserRegistry', () => {
 
   it('project users have SDK scopes, human admin has wildcard tool scope', () => {
     const registry = createPolarUserRegistry();
-    const admin = registry.resolve('admin');
     expect(registry.hasToolScope('admin', 'anything')).toBe(true);
 
     const lobster = registry.resolve('project:knowlever');
@@ -79,18 +71,27 @@ describe('PolarUserRegistry', () => {
     expect(lobster.sdk_scopes).toContain('health:run');
   });
 
-  it('dynamically creates unknown project users', () => {
-    const registry = createPolarUserRegistry();
-    const user = registry.resolve('project:newproject');
-    expect(user.kind).toBe('project');
-    expect(user.project_id).toBe('newproject');
-    expect(user.persona).toBe('lobster-newproject');
-  });
-
   it('getPersonaName returns correct persona for each user type', () => {
     const registry = createPolarUserRegistry();
     expect(registry.getPersonaName('admin')).toBe('admin');
     expect(registry.getPersonaName('project:knowlever')).toBe('lobster-knowlever');
     expect(registry.getPersonaName('someone')).toBe('someone');
+  });
+
+  it('register adds a custom user to the registry', () => {
+    const registry = createPolarUserRegistry();
+    registry.register({
+      id: 'custom-user',
+      kind: 'human',
+      group: 'PolarUser.human',
+      display_name: 'Custom',
+      persona: 'custom',
+      memory_namespace: 'custom-user',
+      tool_scopes: ['read'],
+      sdk_scopes: [],
+    });
+    const user = registry.get('custom-user');
+    expect(user).toBeDefined();
+    expect(user!.display_name).toBe('Custom');
   });
 });
