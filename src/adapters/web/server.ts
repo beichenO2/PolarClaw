@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlink
 import { join, extname, basename } from 'node:path';
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { fetchEcosystemHealth } from '../../sdk/ecosystem-health.js';
 
 export interface WebServerConfig {
   port: number;
@@ -32,11 +33,18 @@ export interface WebServerConfig {
 export interface AgentStatusData {
   name: string;
   version: string;
-  channels: { name: string; connected: boolean }[];
+  channels: { name: string; connected: boolean; lastEventTime?: string | null; lastError?: { code: string; message: string } | null }[];
   uptime: number;
   memory: { totalEntries: number; dbSizeBytes: number };
   skills: { count: number; names: string[] };
   yolo: { activeSessions: number };
+  hubWeb?: {
+    agentId: string | null;
+    sseConnected: boolean;
+    lastHeartbeatAt: string | null;
+    lastPromptAt: string | null;
+    lastError: string | null;
+  };
 }
 
 export interface YoloSessionData {
@@ -176,6 +184,25 @@ export function createWebServer(config: WebServerConfig) {
         skills: { count: 0, names: [] },
         yolo: { activeSessions: 0 },
       });
+    }
+  });
+
+  // ── API: ecosystem status ───────────────────────────────
+  app.get('/api/ecosystem/status', async (_req, res) => {
+    try {
+      const polarclawStatus = config.getStatus ? config.getStatus() : undefined;
+      const hubWebStatus = (globalThis as Record<string, unknown>).__polarClawHubWebStatus;
+      const hubAgentId = hubWebStatus && typeof hubWebStatus === 'object'
+        ? (hubWebStatus as { agentId?: string | null }).agentId ?? null
+        : null;
+      const result = await fetchEcosystemHealth({
+        polarclawStatus,
+        hubAgentId,
+      });
+      res.json(result);
+    } catch (err) {
+      console.error('[PolarClaw] /api/ecosystem/status error:', err);
+      res.status(500).json({ error: String(err) });
     }
   });
 
