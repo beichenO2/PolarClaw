@@ -15,7 +15,8 @@ import { createToolExecutor } from './adapters/tools/tool-executor.js';
 import { createPrivacyGateway } from './adapters/privacy/privacy-gateway.js';
 import { loadSecretsToEnv } from './adapters/privacy/secrets-loader.js';
 import { createFeishuAdapter } from './adapters/channel/feishu.js';
-import { loadFeishuConfig } from './adapters/channel/feishu-config.js';
+import type { IFeishuChannelAdapter } from './adapters/channel/feishu.js';
+import { loadFeishuConfig, validateFeishuEnv } from './adapters/channel/feishu-config.js';
 import { createFeishuDedup } from './adapters/channel/feishu-dedup.js';
 import { createCLIAdapter } from './adapters/channel/cli.js';
 import { createContextCompressor } from './adapters/compression/summarizer.js';
@@ -36,7 +37,7 @@ import { createRecoveryStrategy } from './adapters/yolo/recovery.js';
 import { createWebServer } from './adapters/web/server.js';
 import { createPolarUserRegistry } from './core/polar-user.js';
 import { createPolarClawSDK } from './sdk/index.js';
-import { HubClient } from './adapters/web/hub-client.js';
+import { HubClient, HubPromptTimeoutError, HubPromptInvalidError, HubNetworkError } from './adapters/web/hub-client.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -588,6 +589,19 @@ async function main() {
   // 此模式下 Agent 只通过 Hub Web 交互，不启动其他通道
   if (process.env.MODE === 'hub-web' || process.env.HUB_WEB_ENABLED === '1') {
     const hubClient = new HubClient(hubUrl);
+
+    // 暴露 hub-web 状态供 webServer.getStatus() 反查
+    (globalThis as Record<string, unknown>).__polarClawHubWebStatus = hubClient.getStatus();
+
+    // SIGTERM / SIGINT 优雅退出
+    const gracefulShutdown = async (signal: string) => {
+      console.error(`[PolarClaw] 收到 ${signal}，正在注销 Hub Web...`);
+      try { await hubClient.unregister(); } catch { /* ignore */ }
+      process.exit(0);
+    };
+    process.once('SIGTERM', () => void gracefulShutdown('SIGTERM'));
+    process.once('SIGINT', () => void gracefulShutdown('SIGINT'));
+
     const agentInfo = await hubClient.register({
       hubUrl,
       agentType: 'polarclaw',
@@ -595,6 +609,9 @@ async function main() {
       subagentModel: (process.env.HUB_SUBAGENT_MODEL as any) || 'qwen-3.6-plus',
     });
     console.error(`[PolarClaw] Hub Web 注册成功: ${agentInfo.agent_id}`);
+
+    // 刷新暴露状态
+    (globalThis as Record<string, unknown>).__polarClawHubWebStatus = hubClient.getStatus();
 
     // 发送第一条消息，等待用户指令
     const firstAnswer = await hubClient.sendPrompt(
@@ -610,20 +627,84 @@ async function main() {
       text: firstAnswer,
     });
 
-      // 发送结果，继续等待下一个指令（循环）
-      // 注意：这是 hub-web 模式的核心循环，不会退出
-      while (true) {
-      const nextAnswer = await hubClient.sendPrompt(
-        reply + '\n\n任务完成，请选择下一步操作：',
-        ['继续执行', '查看详情', '执行新任务', 'YOLO 模式']
-      );
-      console.error(`[PolarClaw] 收到用户指令: ${nextAnswer.slice(0, 100)}...`);
+    // 发送结果，继续等待下一个指令（循环）
+    // 注意：这是 hub-web 模式的核心循环，不会退出
+    let consecutiveNetworkFailures = 0;
+    while (true) {
+      try {
+        const nextAnswer = await hubClient.sendPrompt(
+          reply + '\n\n任务完成，请选择下一步操作：',
+          ['继续执行', '查看详情', '执行新任务', 'YOLO 模式']
+        );
+        consecutiveNetworkFailures = 0;
+        console.error(`[PolarClaw] 收到用户指令: ${nextAnswer.slice(0, 100)}...`);
 
-      reply = await handleChannelMessage({
-        channel: 'hub-web',
-        userId: 'admin',
-        text: nextAnswer,
-      });
+        reply = await handleChannelMessage({
+          channel: 'hub-web',
+          userId: 'admin',
+          text: nextAnswer,
+        });
+      } catch (err: unknown) {
+        // 更新暴露状态
+        (globalThis as Record<string, unknown>).__polarClawHubWebStatus = hubClient.getStatus();
+
+        if (err instanceof HubPromptTimeoutError) {
+          console.error('[PolarClaw] Hub Web 提示超时，继续下一轮:', err.message);
+          reply = '（上一轮对话超时，请重新输入指令）';
+          continue;
+        }
+
+        if (err instanceof HubPromptInvalidError) {
+          console.error('[PolarClaw] Hub Web 提示无效（agent未注册），重新注册...', err.message);
+          try {
+            await hubClient.unregister();
+            const newInfo = await hubClient.register({
+              hubUrl,
+              agentType: 'polarclaw',
+              mainModel: (process.env.HUB_MAIN_MODEL as 'glm-5.1' | 'qwen-3.6-plus') || 'qwen-3.6-plus',
+              subagentModel: (process.env.HUB_SUBAGENT_MODEL as any) || 'qwen-3.6-plus',
+            });
+            console.error(`[PolarClaw] Hub Web 重新注册成功: ${newInfo.agent_id}`);
+            reply = '（已重新连接 Hub，请重新输入指令）';
+          } catch (regErr) {
+            console.error('[PolarClaw] Hub Web 重新注册失败:', regErr);
+            reply = '（重新连接失败，请重新输入指令）';
+          }
+          continue;
+        }
+
+        if (err instanceof HubNetworkError) {
+          consecutiveNetworkFailures++;
+          console.error(`[PolarClaw] Hub Web 网络错误 (连续第 ${consecutiveNetworkFailures} 次):`, err.message);
+          if (consecutiveNetworkFailures >= 5) {
+            console.error('[PolarClaw] Hub Web 连续网络失败 5 次，退出主循环');
+            try { await hubClient.unregister(); } catch { /* ignore */ }
+            process.exit(1);
+          }
+          await new Promise((r) => setTimeout(r, 5000));
+          try {
+            await hubClient.unregister();
+            const newInfo = await hubClient.register({
+              hubUrl,
+              agentType: 'polarclaw',
+              mainModel: (process.env.HUB_MAIN_MODEL as 'glm-5.1' | 'qwen-3.6-plus') || 'qwen-3.6-plus',
+              subagentModel: (process.env.HUB_SUBAGENT_MODEL as any) || 'qwen-3.6-plus',
+            });
+            console.error(`[PolarClaw] Hub Web 重新注册成功: ${newInfo.agent_id}`);
+            reply = '（已恢复连接，请重新输入指令）';
+          } catch (regErr) {
+            console.error('[PolarClaw] Hub Web 重新注册失败:', regErr);
+          }
+          continue;
+        }
+
+        // 未知错误，记录后继续
+        console.error('[PolarClaw] Hub Web 未知错误:', err);
+        reply = '（发生未知错误，请重新输入指令）';
+      } finally {
+        // 每轮更新暴露状态
+        (globalThis as Record<string, unknown>).__polarClawHubWebStatus = hubClient.getStatus();
+      }
     }
   }
 
@@ -656,14 +737,33 @@ async function main() {
     webDistDir: join(config.projectRoot, 'web', 'dist'),
     getStatus: () => {
       const skills = skillRegistry.listSkills();
+      const globalChannelStatus = (globalThis as Record<string, unknown>).__polarClawChannelStatus as
+        Record<string, { code: string; message?: string; adapter?: { isAlive(): boolean; getLastEventTime(): string | null; getLastError(): { code: string; message: string } | null } }> | undefined;
+      const hubWebStatus = (globalThis as Record<string, unknown>).__polarClawHubWebStatus;
       return {
         name: 'PolarClaw',
         version: '0.1.0',
-        channels: channels.map(ch => ({ name: ch.name, connected: true })),
+        channels: channels.map(ch => {
+          const adapterEntry = globalChannelStatus?.[ch.name.replace(':', '_')];
+          const adapter = adapterEntry?.adapter;
+          return {
+            name: ch.name,
+            connected: adapter ? adapter.isAlive() : (adapterEntry?.code === 'online'),
+            lastEventTime: adapter ? adapter.getLastEventTime() : null,
+            lastError: adapter ? adapter.getLastError() : (adapterEntry?.code !== 'online' ? { code: adapterEntry?.code ?? 'unknown', message: adapterEntry?.message ?? '' } : null),
+          };
+        }),
         uptime: process.uptime(),
         memory: { totalEntries: memory.search('*', { limit: 0 }).total, dbSizeBytes: 0 },
         skills: { count: skills.length, names: skills.map(s => s.name) },
         yolo: { activeSessions: 0 },
+        hubWeb: hubWebStatus && typeof hubWebStatus === 'object' ? hubWebStatus as {
+          agentId: string | null;
+          sseConnected: boolean;
+          lastHeartbeatAt: string | null;
+          lastPromptAt: string | null;
+          lastError: string | null;
+        } : undefined,
       };
     },
     llm,
@@ -677,6 +777,23 @@ async function main() {
   // 启动通道
   const channels: IChannelAdapter[] = [];
 
+  // 初始化飞书通道全局状态
+  type FeishuChannelStatus = {
+    code: 'online' | 'config_missing' | 'auth_failed' | 'network_failed' | 'config_disabled' | 'unknown';
+    message?: string;
+    ts: string;
+    adapter?: IFeishuChannelAdapter;
+  };
+  interface PolarClawChannelStatus {
+    feishu_admin: FeishuChannelStatus;
+    feishu_girlfriend: FeishuChannelStatus;
+  }
+  const channelStatus: PolarClawChannelStatus = {
+    feishu_admin: { code: 'config_disabled', ts: new Date().toISOString() },
+    feishu_girlfriend: { code: 'config_disabled', ts: new Date().toISOString() },
+  };
+  (globalThis as Record<string, unknown>).__polarClawChannelStatus = channelStatus;
+
   if (config.channels.feishu) {
     const feishuDataDir = join(config.projectRoot, '.data');
 
@@ -689,6 +806,15 @@ async function main() {
       baseUrl: config.privacy.polarPrivateUrl,
     });
     const resolveUser = async (openId: string) => ppClient.resolveFeishuUser(openId);
+
+    // ── 管理员 Bot ───────────────────────────────────────────────
+    const adminPreFlight = validateFeishuEnv('FEISHU_ADMIN');
+    if (adminPreFlight.missing.length > 0) {
+      console.error(`[PolarClaw][Feishu] pre-flight FEISHU_ADMIN: 缺少 env: [${adminPreFlight.missing.join(', ')}]`);
+    }
+    if (adminPreFlight.present.length > 0) {
+      console.error(`[PolarClaw][Feishu] pre-flight FEISHU_ADMIN: 已就位 env: [${adminPreFlight.present.join(', ')}]`);
+    }
 
     try {
       const adminConfig = loadFeishuConfig('FEISHU_ADMIN');
@@ -705,15 +831,35 @@ async function main() {
       feishuAdmin.onMessage(async (msg) => handleChannelMessage(msg));
       await feishuAdmin.start();
       channels.push(feishuAdmin);
+      channelStatus.feishu_admin = { code: 'online', ts: new Date().toISOString(), adapter: feishuAdmin };
       console.error('[PolarClaw] 飞书管理员 Bot 已连接');
 
       feishuAdmin.catchUp?.().catch((err: unknown) =>
         console.error('[PolarClaw] 管理员 Bot 补漏失败:', err));
-    } catch (err) {
-      console.error('[PolarClaw] 飞书管理员 Bot 启动失败:', err);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      let code: FeishuChannelStatus['code'] = 'unknown';
+      if (err instanceof Error && /_APP_ID|_APP_SECRET|_VERIFICATION_TOKEN/.test(err.message)) {
+        code = 'config_missing';
+      } else if (/ECONNREFUSED|ENOTFOUND|fetch failed/i.test(errMsg)) {
+        code = 'network_failed';
+      } else if (/401|403|invalid_app|invalid_token/i.test(errMsg)) {
+        code = 'auth_failed';
+      }
+      channelStatus.feishu_admin = { code, message: errMsg, ts: new Date().toISOString() };
+      console.error(`[PolarClaw] 飞书管理员 Bot 启动失败 [${code}]:`, err);
     }
 
+    // ── 女友 Bot ─────────────────────────────────────────────────
     if (process.env.FEISHU_GIRLFRIEND_APP_ID) {
+      const gfPreFlight = validateFeishuEnv('FEISHU_GIRLFRIEND');
+      if (gfPreFlight.missing.length > 0) {
+        console.error(`[PolarClaw][Feishu] pre-flight FEISHU_GIRLFRIEND: 缺少 env: [${gfPreFlight.missing.join(', ')}]`);
+      }
+      if (gfPreFlight.present.length > 0) {
+        console.error(`[PolarClaw][Feishu] pre-flight FEISHU_GIRLFRIEND: 已就位 env: [${gfPreFlight.present.join(', ')}]`);
+      }
+
       try {
         const gfConfig = loadFeishuConfig('FEISHU_GIRLFRIEND');
         const gfDedup = createFeishuDedup(feishuDataDir, 'feishu-girlfriend');
@@ -729,12 +875,23 @@ async function main() {
         feishuGf.onMessage(async (msg) => handleChannelMessage(msg));
         await feishuGf.start();
         channels.push(feishuGf);
+        channelStatus.feishu_girlfriend = { code: 'online', ts: new Date().toISOString(), adapter: feishuGf };
         console.error('[PolarClaw] 飞书女友 Bot 已连接');
 
         feishuGf.catchUp?.().catch((err: unknown) =>
           console.error('[PolarClaw] 女友 Bot 补漏失败:', err));
-      } catch (err) {
-        console.error('[PolarClaw] 飞书女友 Bot 启动失败:', err);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        let code: FeishuChannelStatus['code'] = 'unknown';
+        if (err instanceof Error && /_APP_ID|_APP_SECRET|_VERIFICATION_TOKEN/.test(err.message)) {
+          code = 'config_missing';
+        } else if (/ECONNREFUSED|ENOTFOUND|fetch failed/i.test(errMsg)) {
+          code = 'network_failed';
+        } else if (/401|403|invalid_app|invalid_token/i.test(errMsg)) {
+          code = 'auth_failed';
+        }
+        channelStatus.feishu_girlfriend = { code, message: errMsg, ts: new Date().toISOString() };
+        console.error(`[PolarClaw] 飞书女友 Bot 启动失败 [${code}]:`, err);
       }
     }
   }
