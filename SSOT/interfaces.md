@@ -53,7 +53,7 @@ SDK contract for the rest of the ecosystem; PolarPilot is not involved.
 | HTTP route (POST) | Calling project header | Server-side method | Purpose |
 |-------------------|-----------------------|--------------------|---------|
 | `/api/sdk/computer-use/browse` | `X-PolarClaw-Project` | `sdk.computerUse.browse({url, action, screenshot?})` | Navigate + perform a natural-language action; returns action result, page url/title, optional screenshot path |
-| `/api/sdk/computer-use/screenshot` | `X-PolarClaw-Project` | `sdk.computerUse.screenshot({url, full_page?, observe?})` | Pure screenshot path (no LLM unless `observe=true`); useful for VLM pipelines |
+| `/api/sdk/computer-use/screenshot` | `X-PolarClaw-Project` | `sdk.computerUse.screenshot({url, full_page?, observe?, observe_timeout_ms?, analyze?, analyze_prompt?})` | Screenshot with optional `observe` (Stagehand accessibility tree via PolarPrivate text LLM) and optional `analyze` (local VLM for image understanding); `analysis` field returns VLM text description |
 | `/api/sdk/computer-use/fill-form` | `X-PolarClaw-Project` | `sdk.computerUse.fillForm({url, fields, submit?})` | Fill form fields keyed by description, optionally submit |
 
 Calling projects use the `polarclaw-project-sdk` thin client:
@@ -67,6 +67,14 @@ LLM routing for the action / observe paths is configured via
 `COMPUTER_USE_MODEL_NAME` env vars on the PolarClaw side. The default
 points at the PolarPrivate `/v1` gateway so no project ever sees an
 external LLM key.
+
+VLM image analysis (the `analyze` option in `screenshot`) is served by a
+local llama-server instance and configured via `COMPUTER_USE_VLM_URL`
+(default `http://127.0.0.1:8080`) and `COMPUTER_USE_VLM_MODEL` (default
+`gemma-3-27b-it`). llama-server runs as a launchd service
+(`com.llama.server`) on Mac Studio, starts automatically at login, and
+exposes an OpenAI-compatible `/v1/chat/completions` endpoint for multimodal
+requests.
 
 ### Configuration
 

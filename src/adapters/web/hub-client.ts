@@ -4,6 +4,9 @@
  * 用于注册到 Hub Web 并进行用户交互。
  */
 
+// Node.js EventSource polyfill
+import { EventSource } from 'eventsource';
+
 export interface HubClientConfig {
   hubUrl: string;
   agentType: 'polarclaw';
@@ -20,6 +23,7 @@ export class HubClient {
   private hubUrl: string;
   private agentId: string | null = null;
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private aliveConnection: EventSource | null = null;
 
   constructor(hubUrl: string) {
     this.hubUrl = hubUrl;
@@ -46,13 +50,35 @@ export class HubClient {
     const data = (await resp.json()) as AgentInfo;
     this.agentId = data.agent_id;
 
-    // 启动心跳
-    this.startHeartbeat();
+    // 启动 SSE 长连接（优先）或回退到 HTTP 心跳
+    this.startAliveConnection();
 
     console.error(`[HubClient] Registered as ${this.agentId}`);
     return data;
   }
 
+  // SSE 长连接心跳
+  private startAliveConnection() {
+    if (!this.agentId) return;
+
+    this.aliveConnection = new EventSource(`${this.hubUrl}/api/agents/${this.agentId}/alive`);
+
+    this.aliveConnection.onopen = () => {
+      console.error('[HubClient] SSE alive connection established');
+    };
+
+    this.aliveConnection.onerror = (_err) => {
+      console.error('[HubClient] SSE error, falling back to HTTP heartbeat');
+      this.aliveConnection?.close();
+      this.startHeartbeat();
+    };
+
+    this.aliveConnection.addEventListener('heartbeat', (_e) => {
+      // 收到心跳，连接正常
+    });
+  }
+
+  // HTTP 心跳（回退方案）
   private startHeartbeat() {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
@@ -122,6 +148,13 @@ export class HubClient {
   }
 
   async unregister() {
+    // 关闭 SSE 连接
+    if (this.aliveConnection) {
+      this.aliveConnection.close();
+      this.aliveConnection = null;
+    }
+
+    // 关闭 HTTP 心跳
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;

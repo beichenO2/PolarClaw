@@ -88,6 +88,40 @@
           "test_status": "not_tested"
         },
         {
+          "name": "双入口提示词分层",
+          "description": "飞书入口（产品经理角色）和 IDE 入口（开发者角色）差异化 system prompt",
+          "status": "done",
+          "behavior": [
+            "prompts/entry-feishu.md 定义产品经理角色，能力受限（仅重复工作流 + 新建 Demo）",
+            "prompts/entry-ide.md 定义开发者角色，无限制",
+            "prompts/entry-web.md 定义 Web 入口角色，通过 Hub Web UI 交互",
+            "src/core/entry-prompt.ts 检测入口类型（feishu/cli/web/ide/api）并加载对应模板",
+            "llm-router.ts 调用 PolarPrivate 时携带 append_system_prompt",
+            "飞书入口超出范围时拒绝并引导到 IDE"
+          ],
+          "evidence": [
+            "260508_compiled/PolarClaw.md Step2"
+          ],
+          "test_status": "not_tested"
+        },
+        {
+          "name": "多入口架构",
+          "description": "EntryType 扩展为 feishu | cli | web | ide | api 五种入口类型",
+          "status": "done",
+          "behavior": [
+            "EntryType 枚举：feishu（飞书）、cli（命令行）、web（Hub Web UI）、ide（IDE 插件）、api（HTTP API）",
+            "CLI 支持 --mode web/ide 参数切换入口模式",
+            "prompts/entry-web.md 提供 Web 入口专用提示词模板",
+            "packages/polarclaw-vscode/ 提供 VSCode IDE 插件",
+            "hub-client.ts 实现 Hub Web 集成客户端",
+            "main.ts 支持 hub-web 模式启动"
+          ],
+          "evidence": [
+            "2026-05-11: EntryType 扩展 + entry-web.md + hub-client.ts 实现"
+          ],
+          "test_status": "not_tested"
+        },
+        {
           "name": "多用户人格差异化",
           "description": "按 userId 加载不同 persona，控制交互风格和技能可见性",
           "status": "done",
@@ -356,10 +390,42 @@
           ],
           "evidence": [
             "2026-05-05: systemPrompt 强化 + compatFetch 思维块/代码块双重剥离",
-            "2026-05-05: localBrowserLaunchOptions 增 --no-sandbox 参数，polarclaw-browser 镜像重建"
+            "2026-05-05: localBrowserLaunchOptions 增 --no-sandbox 参数，polarclaw-browser 镜像重建",
+            "2026-05-05: VLM analyze 路径实现（本地 llama-server Gemma 3 4B）；launchd plist 常态化部署",
+            "2026-05-10: VLM 迁移 Ollama MLX qwen3-vl:8b（替换 llama-server gemma-3-27b-it）"
           ],
           "blockers": [],
           "test_status": "passed"
+        },
+        {
+          "name": "PolarPilot arrow_logs 接入",
+          "description": "接收 PolarPilot 的射箭历史，分析 hit/miss 模式，生成思考模板",
+          "status": "done",
+          "behavior": [
+            "ports/learning.ts 新增 IArrowLogRecord 接口和 recordArrowLog/getArrowLogs 方法",
+            "feedback-store.ts 新增 arrow_logs 表存储射箭历史",
+            "arrow-log-adapter.ts 提供 HTTP API 接收和查询",
+            "pattern-detector.ts detectFromArrowLogs 分析高命中率 delta 模式"
+          ],
+          "evidence": [
+            "260508_compiled/PolarPilot_E3_findings.md done"
+          ],
+          "test_status": "passed"
+        },
+        {
+          "name": "Hub Web 集成",
+          "description": "PolarClaw 作为 Hub Web 的后端 Agent，通过 hub-client.ts 与 Hub 通信",
+          "status": "done",
+          "behavior": [
+            "src/core/hub-client.ts 实现 Hub Web 客户端（SSE 连接、Prompt 接收、Answer 发送）",
+            "main.ts 支持 --mode hub-web 启动模式",
+            "阻塞机制：POST /api/ui/prompts 时设置 blocked 状态，等待用户回复后解除",
+            "与 PolarCopilot Hub 的 SSE 流对接，实现实时 Prompt 推送"
+          ],
+          "evidence": [
+            "2026-05-11: hub-client.ts + main.ts hub-web 模式实现"
+          ],
+          "test_status": "not_tested"
         }
       ],
       "blockers": []
@@ -638,7 +704,14 @@
     },
     "backend": "Express + better-sqlite3",
     "frontend": "React 18 + Vite + Tailwind + pdfjs-dist",
-    "test": "Vitest（13 测试文件）"
+    "test": "Vitest（13 测试文件）",
+    "local_llm": "Ollama (MLX 后端) — qwen3-vl:8b for ComputerUse VLM"
+  },
+  "service_management": {
+    "install_command": "npm ci",
+    "start_command": "npm start",
+    "restart_command": "bash Start/start.sh",
+    "health_endpoint": "http://127.0.0.1:3000/api/health"
   },
   "depends_on": [
     "SOTAgent/sdk-port",
@@ -646,7 +719,7 @@
     "Clock"
   ],
   "contacts": {
-    "last_updated": "2026-05-01",
-    "updated_by": "solo-web-d3ae1b9f"
+    "last_updated": "2026-05-11",
+    "updated_by": "solo-web-sw-202605110350"
   }
 }

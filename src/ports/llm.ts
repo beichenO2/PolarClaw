@@ -32,6 +32,8 @@ export interface ILLMOptions {
   maxTokens?: number;
   tools?: IToolDefinition[];
   toolChoice?: 'auto' | 'none' | 'required';
+  /** Extra system prompt appended via PolarPrivate's append_system_prompt mechanism. */
+  append_system_prompt?: string;
 }
 
 /** 工具定义（function calling 格式） */

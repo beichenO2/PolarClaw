@@ -23,8 +23,8 @@
  *   OPENAI_API_KEY is required and all traffic stays inside the
  *   Polarisor network. Override via env vars when needed.
  */
-import { existsSync, mkdirSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { resolve, join, extname } from 'node:path';
 import { homedir } from 'node:os';
 
 const SCREENSHOT_DIR = resolve(homedir(), 'Polarisor/PolarClaw/data/screenshots');
@@ -130,7 +130,7 @@ const compatFetch: typeof fetch = async (input, init) => {
   if (init?.headers && isPolarPrivate) {
     const headers = init.headers;
     let authHeader: string | null = null;
-    if (typeof headers.get === 'function') {
+    if (headers instanceof Headers) {
       authHeader = headers.get('authorization');
     } else if (typeof headers === 'object' && headers !== null) {
       authHeader = (headers as Record<string, string>)['Authorization']
@@ -140,7 +140,7 @@ const compatFetch: typeof fetch = async (input, init) => {
 
     // Build clean headers without the bad auth token
     const cleanHeaders: Record<string, string> = {};
-    if (typeof headers.get === 'function') {
+    if (headers instanceof Headers) {
       headers.forEach((v, k) => { if (k.toLowerCase() !== 'authorization') cleanHeaders[k] = v; });
     } else if (typeof headers === 'object' && headers !== null) {
       for (const [k, v] of Object.entries(headers as Record<string, string>)) {
@@ -177,6 +177,17 @@ const compatFetch: typeof fetch = async (input, init) => {
           tools: body.tools,
           stream: false,
         };
+        // Strip response_format.json_schema (full JSON Schema definition) and replace
+        // with simple json_object. DashScope/qwen do not support the full JSON Schema
+        // format that Stagehand sends; the simpler type is sufficient.
+        if (body.response_format != null) {
+          const rf = body.response_format as Record<string, unknown>;
+          if (rf?.json_schema != null) {
+            chatBody.response_format = { type: 'json_object' };
+          } else {
+            chatBody.response_format = rf;
+          }
+        }
         forwardedInit = { ...forwardedInit, body: JSON.stringify(chatBody) };
       } catch {
         // body transformation failed; send as-is
@@ -185,6 +196,7 @@ const compatFetch: typeof fetch = async (input, init) => {
 
     // Only intercept if auth is bad or URL needs rewriting
     if (authHeader === 'Bearer proxy-managed' || needsRewrite) {
+      console.error('[compatFetch] forwarding to', rewrittenUrl.replace('http://127.0.0.1:12790', ''), 'body snippet:', String(forwardedInit.body || '').slice(0, 200));
       return fetch(rewrittenUrl, forwardedInit);
     }
   }
@@ -413,6 +425,75 @@ async function ensurePage(stagehand: StagehandInstance, url: string): Promise<St
   return stagehand.context.newPage(url);
 }
 
+// ---------------------------------------------------------------------------
+// VLM (Vision Language Model) — Ollama MLX (qwen3-vl:8b)
+// ---------------------------------------------------------------------------
+
+const VLM_URL = envOr('COMPUTER_USE_VLM_URL', 'http://localhost:11434/v1');
+const VLM_MODEL = envOr('COMPUTER_USE_VLM_MODEL', 'qwen3-vl:8b');
+
+const VLM_DEFAULT_PROMPT =
+  '请分析这个网页截图。描述页面的主要内容、布局结构、所有可见的交互元素（按钮、链接、输入框等）及其当前状态。如果有文字内容，请提取关键文本。用中文回答。';
+
+const IMAGE_MIME: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+};
+
+async function analyzeWithVLM(
+  imagePath: string,
+  prompt?: string,
+): Promise<string> {
+  const ext = extname(imagePath).toLowerCase();
+  const mime = IMAGE_MIME[ext] ?? 'image/png';
+  const b64 = readFileSync(imagePath).toString('base64');
+
+  const body = {
+    model: VLM_MODEL,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: prompt || VLM_DEFAULT_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mime};base64,${b64}` } },
+        ],
+      },
+    ],
+    max_tokens: 2000,
+    temperature: 0.3,
+    stream: false,
+  };
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 120_000);
+
+  try {
+    const res = await fetch(`${VLM_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`VLM ${res.status}: ${text.slice(0, 300)}`);
+    }
+
+    const data = await res.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content?.trim() ?? '(VLM 无输出)';
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 export interface ComputerUseBrowseInput {
   url: string;
   action: string;
@@ -434,6 +515,10 @@ export interface ComputerUseScreenshotInput {
   observe?: boolean;
   /** Timeout for observe() in ms. Default 60000 (60s). Complex pages need more time for accessibility snapshot. */
   observe_timeout_ms?: number;
+  /** Send screenshot to local VLM (Gemma 27B via llama.cpp) for content understanding/OCR. */
+  analyze?: boolean;
+  /** Custom prompt for VLM analysis. Default provides general page understanding + OCR. */
+  analyze_prompt?: string;
 }
 
 export interface ComputerUseScreenshotResult {
@@ -442,6 +527,8 @@ export interface ComputerUseScreenshotResult {
   page_url?: string;
   page_title?: string;
   elements?: Array<{ description?: string; selector?: string }>;
+  /** VLM analysis of the screenshot content (when analyze:true). */
+  analysis?: string;
   error?: string;
 }
 
@@ -498,6 +585,7 @@ export async function screenshot(input: ComputerUseScreenshotInput): Promise<Com
   const url = (input.url ?? '').toString();
   const fullPage = Boolean(input.full_page);
   const doObserve = Boolean(input.observe);
+  const doAnalyze = Boolean(input.analyze);
 
   if (!url) return { ok: false, error: 'url 必填' };
 
@@ -515,12 +603,22 @@ export async function screenshot(input: ComputerUseScreenshotInput): Promise<Com
         elements = await stagehand.observe('列出页面上所有可交互元素', { timeout: observeTimeoutMs });
       }
 
+      let analysis: string | undefined;
+      if (doAnalyze) {
+        try {
+          analysis = await analyzeWithVLM(screenshotPath, input.analyze_prompt);
+        } catch (err) {
+          analysis = `[VLM error: ${err instanceof Error ? err.message : String(err)}]`;
+        }
+      }
+
       return {
         ok: true,
         screenshot: screenshotPath,
         page_url: page.url(),
         page_title: await page.title(),
         elements,
+        analysis,
       };
     }, { needLLM: doObserve });
   } catch (err) {

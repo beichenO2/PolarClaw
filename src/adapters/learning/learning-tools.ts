@@ -12,6 +12,7 @@
 import type { IToolHandler } from '../../ports/tools.js';
 import type { ILearningStore } from '../../ports/learning.js';
 import type { ISkillRegistry } from '../../ports/skills.js';
+import type { ILearningIntegration } from './learning-integration.js';
 
 export function createLearningTools(deps: {
   learningStore: ILearningStore;
@@ -25,8 +26,10 @@ export function createLearningTools(deps: {
     compose: (workflow: any) => string;
     parseWorkflow: (json: string) => any;
   };
+  /** 可选：学习集成模块（用于 arrow_logs 模式检测和思考模板生成） */
+  learningIntegration?: ILearningIntegration;
 }): IToolHandler[] {
-  const { learningStore, skillRegistry, patternDetector, skillGenerator, skillComposer } = deps;
+  const { learningStore, skillRegistry, patternDetector, skillGenerator, skillComposer, learningIntegration } = deps;
 
   const recordFeedback: IToolHandler = {
     name: 'learning_record_feedback',
@@ -175,6 +178,74 @@ export function createLearningTools(deps: {
     },
   };
 
+  const runArrowPatternLearning: IToolHandler = {
+    name: 'learning_run_arrow_pattern',
+    description:
+      '从 arrow_logs 检测高命中率模式并生成思考模板。' +
+      '当 pattern-detector 检测到高命中率 delta 模式时，自动生成思考模板并注入 PolarPilot patterns/ 目录。',
+    parameters: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', description: '项目 ID' },
+      },
+      required: ['project_id'],
+    },
+    async handler(args) {
+      if (!learningIntegration) {
+        return { ok: false, error: 'learningIntegration not configured' };
+      }
+
+      try {
+        const result = await learningIntegration.learnFromProject(String(args.project_id));
+        return {
+          ok: true,
+          patterns_detected: result.patterns.length,
+          templates_generated: result.templates.length,
+          templates_saved: result.savedCount,
+          duration_ms: result.durationMs,
+          patterns: result.patterns.map(p => ({
+            name: p.name,
+            hit_rate: `${(p.hitRate * 100).toFixed(0)}%`,
+            occurrences: p.occurrences,
+            hits: p.hits,
+          })),
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  };
+
+  const detectArrowPatterns: IToolHandler = {
+    name: 'learning_detect_arrow_patterns',
+    description: '从 arrow_logs 检测高命中率的 delta 模式，不生成模板，仅返回检测结果。',
+    parameters: {
+      type: 'object',
+      properties: {
+        project_id: { type: 'string', description: '项目 ID' },
+      },
+      required: ['project_id'],
+    },
+    handler(args) {
+      if (!learningIntegration) {
+        return { ok: false, error: 'learningIntegration not configured' };
+      }
+
+      const patterns = learningIntegration.detectPatterns(String(args.project_id));
+      return {
+        ok: true,
+        count: patterns.length,
+        patterns: patterns.map(p => ({
+          name: p.name,
+          delta_pattern: p.deltaPattern.slice(0, 100),
+          hit_rate: `${(p.hitRate * 100).toFixed(0)}%`,
+          occurrences: p.occurrences,
+          hits: p.hits,
+        })),
+      };
+    },
+  };
+
   return [
     recordFeedback,
     getPreferences,
@@ -182,5 +253,7 @@ export function createLearningTools(deps: {
     generateSkill,
     listSkills,
     composeWorkflow,
+    runArrowPatternLearning,
+    detectArrowPatterns,
   ];
 }

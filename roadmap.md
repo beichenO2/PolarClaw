@@ -36,5 +36,6 @@
 
 | 日期 | 更新内容 |
 | --- | --- |
+| 2026-05-05 | ComputerUse VLM analyze 路径跑通（截图 → 本地 llama-server Gemma 3 4B）；PolarPrivate proxy → qwen3-coder-plus observe/act 路径同时可用；launchd 常态化部署 |
 | 2026-05-01 | R7 PolarUser + R8 SDK/API 完成 |
 | 2026-04-29 | 初始创建：从 polaris.json 提取进度信息 |

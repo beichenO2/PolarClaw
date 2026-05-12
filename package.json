@@ -20,6 +20,7 @@
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",
     "better-sqlite3": "^12.9.0",
+    "eventsource": "^4.1.0",
     "express": "^5.2.1",
     "multer": "^2.1.1"
   },
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/better-sqlite3": "^7.6.13",
+    "@types/eventsource": "^1.1.15",
     "@types/express": "^5.0.6",
     "@types/multer": "^2.1.0",
     "@types/node": "^25.6.0",

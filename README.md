@@ -71,3 +71,40 @@ npm run dev
 - **主动关怀**：定时/条件触发关怀消息，不活跃检测 + 番茄钟结束提醒
 - **YOLO 模式**：自主多步执行，token/步数/时间预算保护 + 自动错误恢复
 - **Clock 集成**：番茄钟状态感知，根据用户工作状态调整行为
+
+## 自学习系统
+
+PolarClaw 内置完整的自学习基础设施：
+
+### 工具使用追踪
+
+`usage-tracker.ts` 包装 IToolExecutor，自动记录每次工具调用的参数、结果、成功状态和耗时。
+
+### 模式检测
+
+`pattern-detector.ts` 通过滑动窗口 + 序列哈希检测重复的工具调用模式，当出现次数达到阈值时自动保存为候选技能。
+
+### PolarPilot arrow_logs 接入
+
+PolarPilot 的射箭历史（arrow_logs）可接入自学习系统，分析 hit/miss 与 delta 的相关性：
+
+```typescript
+// PolarPilot 通过 HTTP API 发送 arrow_logs
+POST /api/claw/learning/arrow-logs
+{
+  "project_id": "my-project",
+  "target_id": "target-1",
+  "ts": "2026-05-10T10:00:00Z",
+  "outcome": "hit",
+  "delta": "修改了 src/utils.ts 的 helper 函数",
+  "next_action": "shoot"
+}
+
+// PolarClaw 分析高命中率 delta 模式
+const patterns = patternDetector.detectFromArrowLogs('my-project');
+// 返回: [{ name: 'modify-pattern', hitRate: 0.75, occurrences: 12, ... }]
+```
+
+### 技能晋升
+
+自动生成的技能成功使用 ≥ 3 次后自动晋升为 `verified` 状态。

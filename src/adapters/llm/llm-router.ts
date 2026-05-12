@@ -114,6 +114,10 @@ async function callProvider(
     max_tokens: options.maxTokens ?? defaultMaxTokens,
   };
 
+  if (options.append_system_prompt) {
+    body.append_system_prompt = options.append_system_prompt;
+  }
+
   if (options.tools?.length) {
     body.tools = options.tools;
     body.tool_choice = options.toolChoice ?? 'auto';

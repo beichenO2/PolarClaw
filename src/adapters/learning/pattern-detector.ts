@@ -7,7 +7,7 @@
  * 算法：滑动窗口 + 序列哈希 → 频率统计
  */
 
-import type { ILearningStore, IToolPattern, IToolUsageRecord } from '../../ports/learning.js';
+import type { ILearningStore, IToolPattern, IToolUsageRecord, IArrowLogRecord } from '../../ports/learning.js';
 
 export interface IPatternDetectorConfig {
   /** 最小序列长度（默认 2） */
@@ -23,6 +23,21 @@ export interface IPatternDetectorConfig {
 interface ToolStep {
   tool: string;
   argsKeys: string[];
+}
+
+/** Arrow log 模式（高命中率 delta 模式） */
+export interface IArrowPattern {
+  name: string;
+  /** delta 模式（可能包含占位符） */
+  deltaPattern: string;
+  /** 命中率 */
+  hitRate: number;
+  /** 总出现次数 */
+  occurrences: number;
+  /** 命中次数 */
+  hits: number;
+  /** 关联的 target 类型（可选） */
+  targetType?: string;
 }
 
 export function createPatternDetector(
@@ -141,6 +156,61 @@ export function createPatternDetector(
     getCandidates(): IToolPattern[] {
       return learningStore.findPatterns(promotionThreshold);
     },
+
+    /**
+     * 从 arrow_logs 检测高命中率的 delta 模式。
+     * 分析 hit/miss 与 delta 的相关性，识别"什么样的改动更容易命中目标"。
+     */
+    detectFromArrowLogs(projectId: string): IArrowPattern[] {
+      const logs = learningStore.getArrowLogs(projectId, 500);
+      if (logs.length < promotionThreshold) return [];
+
+      // 按 delta 分组统计 hit/miss
+      const deltaStats = new Map<string, { hits: number; misses: number; deltas: string[] }>();
+
+      for (const log of logs) {
+        // 对 delta 做简单归一化（去除具体值，保留结构）
+        const normalizedDelta = normalizeDelta(log.delta);
+
+        const existing = deltaStats.get(normalizedDelta);
+        if (existing) {
+          if (log.outcome === 'hit') {
+            existing.hits++;
+          } else {
+            existing.misses++;
+          }
+          existing.deltas.push(log.delta);
+        } else {
+          deltaStats.set(normalizedDelta, {
+            hits: log.outcome === 'hit' ? 1 : 0,
+            misses: log.outcome === 'miss' ? 1 : 0,
+            deltas: [log.delta],
+          });
+        }
+      }
+
+      const patterns: IArrowPattern[] = [];
+
+      for (const [normalizedDelta, stats] of deltaStats) {
+        const total = stats.hits + stats.misses;
+        if (total < promotionThreshold) continue;
+
+        const hitRate = stats.hits / total;
+        // 只保留命中率 > 50% 的模式
+        if (hitRate <= 0.5) continue;
+
+        patterns.push({
+          name: generateArrowPatternName(normalizedDelta),
+          deltaPattern: normalizedDelta,
+          hitRate,
+          occurrences: total,
+          hits: stats.hits,
+        });
+      }
+
+      // 按命中率降序排列
+      return patterns.sort((a, b) => b.hitRate - a.hitRate);
+    },
   };
 
   function getDistinctToolNames(userId: string): string[] {
@@ -174,4 +244,46 @@ function generatePatternName(steps: { tool: string }[]): string {
     return parts.length > 1 ? parts[1] : parts[0];
   });
   return verbs.join('-then-');
+}
+
+/**
+ * 归一化 delta 字符串，提取结构模式。
+ * 例如："修改了 src/foo.ts 的 bar 函数" → "修改了 {file} 的 {function}"
+ */
+function normalizeDelta(delta: string): string {
+  // 简单实现：替换路径、数字、引号内容为占位符
+  let normalized = delta;
+
+  // 替换文件路径（常见模式）
+  normalized = normalized.replace(/src\/[\w/.-]+/g, '{file}');
+  normalized = normalized.replace(/\b[\w-]+\.ts\b/g, '{file}');
+  normalized = normalized.replace(/\b[\w-]+\.js\b/g, '{file}');
+
+  // 替换数字
+  normalized = normalized.replace(/\b\d+\b/g, '{n}');
+
+  // 替换引号内容
+  normalized = normalized.replace(/'[^']*'/g, "'{str}'");
+  normalized = normalized.replace(/"[^"]*"/g, '"{str}"');
+
+  // 替换函数名/变量名（驼峰命名）
+  normalized = normalized.replace(/\b[a-z][a-zA-Z0-9]*\b/g, '{name}');
+
+  return normalized;
+}
+
+/**
+ * 从归一化的 delta 生成模式名称
+ */
+function generateArrowPatternName(normalizedDelta: string): string {
+  // 提取关键动词
+  if (normalizedDelta.includes('修改')) return 'modify-pattern';
+  if (normalizedDelta.includes('新增')) return 'add-pattern';
+  if (normalizedDelta.includes('删除')) return 'delete-pattern';
+  if (normalizedDelta.includes('重构')) return 'refactor-pattern';
+  if (normalizedDelta.includes('修复')) return 'fix-pattern';
+
+  // 默认使用前 20 个字符
+  const short = normalizedDelta.slice(0, 20).replace(/\s+/g, '-');
+  return `delta-${short}`;
 }

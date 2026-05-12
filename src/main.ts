@@ -582,23 +582,53 @@ async function main() {
   console.error(`[PolarClaw] 学习系统: ${learningTools.length} 工具已注册`);
 
   // Hub Web 注册（可选，通过环境变量启用）
-  let hubClient: HubClient | null = null;
   const hubUrl = process.env.HUB_WEB_URL?.trim() || 'http://127.0.0.1:8765';
-  if (process.env.HUB_WEB_ENABLED === '1') {
-    try {
-      hubClient = new HubClient(hubUrl);
-      const agentInfo = await hubClient.register({
-        hubUrl,
-        agentType: 'polarclaw',
-        mainModel: (process.env.HUB_MAIN_MODEL as 'glm-5.1' | 'qwen-3.6-plus') || 'qwen-3.6-plus',
-        subagentModel: (process.env.HUB_SUBAGENT_MODEL as any) || 'qwen-3.6-plus',
+
+  // hub-web 模式：由 Hub Web spawn，需要建立 SSE 长连接并等待用户指令
+  // 此模式下 Agent 只通过 Hub Web 交互，不启动其他通道
+  if (process.env.MODE === 'hub-web' || process.env.HUB_WEB_ENABLED === '1') {
+    const hubClient = new HubClient(hubUrl);
+    const agentInfo = await hubClient.register({
+      hubUrl,
+      agentType: 'polarclaw',
+      mainModel: (process.env.HUB_MAIN_MODEL as 'glm-5.1' | 'qwen-3.6-plus') || 'qwen-3.6-plus',
+      subagentModel: (process.env.HUB_SUBAGENT_MODEL as any) || 'qwen-3.6-plus',
+    });
+    console.error(`[PolarClaw] Hub Web 注册成功: ${agentInfo.agent_id}`);
+
+    // 发送第一条消息，等待用户指令
+    const firstAnswer = await hubClient.sendPrompt(
+      '🤖 PolarClaw 已就绪，等待指令',
+      ['查看项目进度', '执行新任务', 'YOLO 模式', '查看记忆库']
+    );
+    console.error(`[PolarClaw] 收到用户指令: ${firstAnswer.slice(0, 100)}...`);
+
+    // 处理用户指令
+    let reply = await handleChannelMessage({
+      channel: 'hub-web',
+      userId: 'admin',
+      text: firstAnswer,
+    });
+
+      // 发送结果，继续等待下一个指令（循环）
+      // 注意：这是 hub-web 模式的核心循环，不会退出
+      while (true) {
+      const nextAnswer = await hubClient.sendPrompt(
+        reply + '\n\n任务完成，请选择下一步操作：',
+        ['继续执行', '查看详情', '执行新任务', 'YOLO 模式']
+      );
+      console.error(`[PolarClaw] 收到用户指令: ${nextAnswer.slice(0, 100)}...`);
+
+      reply = await handleChannelMessage({
+        channel: 'hub-web',
+        userId: 'admin',
+        text: nextAnswer,
       });
-      console.error(`[PolarClaw] Hub Web 注册成功: ${agentInfo.agent_id}`);
-    } catch (err) {
-      console.error('[PolarClaw] Hub Web 注册失败:', err);
-      hubClient = null;
     }
   }
+
+  // 以下代码只在非 hub-web 模式下执行
+  let hubClient: HubClient | null = null;
 
   // Web 服务器（Review API + SPA + YOLO API）— 端口通过 port-sdk 申请
   let webPort = 3910;
@@ -761,7 +791,12 @@ async function main() {
   // 优雅退出
   const shutdown = async () => {
     console.error('[PolarClaw] 正在关闭...');
-    hubClient?.unregister().catch(() => {});
+    // hub-web 模式下 hubClient 在无限循环中，这里不会执行
+    // 但 TypeScript 推断类型为 never，需要类型断言
+    const hc = hubClient as HubClient | null;
+    if (hc) {
+      hc.unregister().catch(() => {});
+    }
     webServer.stop();
     scheduleBridge?.stop();
     clockSseBridge?.stop();

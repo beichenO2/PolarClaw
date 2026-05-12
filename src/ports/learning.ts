@@ -71,6 +71,25 @@ export interface ILearningContext {
   patterns: string[];
 }
 
+/** PolarPilot arrow_log 记录（射箭历史） */
+export interface IArrowLogRecord {
+  id?: number;
+  /** 项目 ID */
+  projectId: string;
+  /** 靶子 ID */
+  targetId: string;
+  /** 时间戳 */
+  ts: string;
+  /** 射箭结果 */
+  outcome: 'miss' | 'hit';
+  /** 改动描述（delta） */
+  delta: string;
+  /** 下一步动作 */
+  nextAction: 'shoot' | 'moveboard' | 'escalate';
+  /** 记录时间 */
+  createdAt?: string;
+}
+
 /** 学习存储接口 */
 export interface ILearningStore {
   /** 记录一次工具调用 */
@@ -78,6 +97,9 @@ export interface ILearningStore {
 
   /** 记录用户反馈 */
   recordFeedback(record: IFeedbackRecord): void;
+
+  /** 记录 PolarPilot arrow_log（射箭历史） */
+  recordArrowLog(record: IArrowLogRecord): void;
 
   /** 查询用户对某工具的使用历史 */
   getUsageHistory(userId: string, toolName: string, limit?: number): IToolUsageRecord[];
@@ -108,4 +130,7 @@ export interface ILearningStore {
 
   /** 获取所有已注册的不同工具名（从 tool_usage 表动态查询） */
   getDistinctToolNames(userId: string): string[];
+
+  /** 查询项目的 arrow_logs */
+  getArrowLogs(projectId: string, limit?: number): IArrowLogRecord[];
 }

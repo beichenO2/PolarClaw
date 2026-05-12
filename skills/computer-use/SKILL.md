@@ -14,20 +14,28 @@ requires:
 ## 工具列表
 
 - `computer_use_browse` — 自然语言驱动的浏览器操作（导航、点击、填写）
-- `computer_use_screenshot` — 页面截图 + 可交互元素观察
+- `computer_use_screenshot` — 页面截图 + 可选 observe（Stagehand accessibility tree）或 analyze（本地 VLM）
 - `computer_use_fill_form` — 结构化表单自动填写
 
 ## 调用时机
 
 - 需要打开网页并进行交互（点击、填写、滚动）→ `computer_use_browse`
-- 需要对页面截图后 VLM 视觉分析 / UI 评分 → `computer_use_screenshot`
+- 需要对页面截图后 VLM 视觉分析 / UI 评分 → `computer_use_screenshot` with `analyze: true`
 - 需要批量填写带描述字段的表单 → `computer_use_fill_form`
+
+## LLM 路径
+
+| 模式 | 用途 | LLM 端点 | 模型 |
+|------|------|----------|------|
+| `observe: true` | Stagehand accessibility tree 文本元素发现 | PolarPrivate proxy (`127.0.0.1:12790`) | qwen3-coder-plus |
+| `analyze: true` | 截图视觉理解 / OCR | 本地 llama-server (`127.0.0.1:8080`) | Gemma 3 4B + mmproj |
 
 ## 依赖
 
 - `@browserbasehq/stagehand` — AI 浏览器自动化框架
 - `playwright` — 底层浏览器引擎
-- Stagehand 需要 LLM API（默认走 OpenAI/Anthropic；本项目可通过 PolarPrivate 代理或显式 `OPENAI_API_KEY`）
+- Stagehand observe/act 走 PolarPrivate proxy，自动注入 DashScope key，无需外部 API key
+- 本地 VLM 需要 llama-server 常驻（launchd `com.llama.server`，Mac Studio 端口 8080）
 - Docker（可选）— 用于桌面隔离运行
 
 ## 桌面隔离（推荐部署形态）

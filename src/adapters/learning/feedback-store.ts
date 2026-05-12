@@ -11,6 +11,7 @@ import type {
   IToolUsageRecord,
   IFeedbackRecord,
   IToolPattern,
+  IArrowLogRecord,
 } from '../../ports/learning.js';
 
 const SCHEMA = `
@@ -60,6 +61,20 @@ CREATE TABLE IF NOT EXISTS skill_tracking (
   last_used_at TEXT NOT NULL,
   PRIMARY KEY (skill_name, tool_name)
 );
+
+CREATE TABLE IF NOT EXISTS arrow_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  outcome TEXT NOT NULL,
+  delta TEXT NOT NULL DEFAULT '',
+  next_action TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_arrow_logs_project ON arrow_logs(project_id, target_id);
+CREATE INDEX IF NOT EXISTS idx_arrow_logs_ts ON arrow_logs(project_id, ts);
 `;
 
 export function createLearningStore(dbPath: string): ILearningStore {
@@ -100,6 +115,15 @@ export function createLearningStore(dbPath: string): ILearningStore {
 
   const queryDistinctTools = db.prepare(`
     SELECT DISTINCT tool_name FROM tool_usage WHERE user_id = ?
+  `);
+
+  const insertArrowLog = db.prepare(`
+    INSERT INTO arrow_logs (project_id, target_id, ts, outcome, delta, next_action, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const queryArrowLogs = db.prepare(`
+    SELECT * FROM arrow_logs WHERE project_id = ? ORDER BY ts DESC LIMIT ?
   `);
 
   return {
@@ -223,6 +247,23 @@ export function createLearningStore(dbPath: string): ILearningStore {
       const rows = queryDistinctTools.all(userId) as { tool_name: string }[];
       return rows.map(r => r.tool_name);
     },
+
+    recordArrowLog(record) {
+      insertArrowLog.run(
+        record.projectId,
+        record.targetId,
+        record.ts,
+        record.outcome,
+        record.delta,
+        record.nextAction,
+        new Date().toISOString(),
+      );
+    },
+
+    getArrowLogs(projectId, limit = 100) {
+      const rows = queryArrowLogs.all(projectId, limit) as any[];
+      return rows.map(mapArrowLogRow);
+    },
   };
 }
 
@@ -266,6 +307,19 @@ function mapPatternRow(r: any): IToolPattern {
     occurrences: r.occurrences,
     promoted: r.promoted === 1,
     skillName: r.skill_name ?? undefined,
+    createdAt: r.created_at,
+  };
+}
+
+function mapArrowLogRow(r: any): IArrowLogRecord {
+  return {
+    id: r.id,
+    projectId: r.project_id,
+    targetId: r.target_id,
+    ts: r.ts,
+    outcome: r.outcome,
+    delta: r.delta,
+    nextAction: r.next_action,
     createdAt: r.created_at,
   };
 }

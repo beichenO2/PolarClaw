@@ -2,6 +2,8 @@
 
 此文件是 PolarClaw Agent 的生态认知基座，描述整个 Polarisor 生态中的项目、能力、接口和文件系统约定。Agent 启动时自动加载此文件到 system prompt。
 
+> **运行期约束**：执行任何任务前必须遵守 [Agent_core 原则](../../Agent_core/principles/CORE.md)。
+
 ## 生态全景
 
 | 项目 | 角色 | 核心能力 | 接口方式 |
