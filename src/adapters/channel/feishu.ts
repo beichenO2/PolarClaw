@@ -99,7 +99,15 @@ function parseJsonContent(raw: string): Record<string, unknown> | null {
   }
 }
 
-export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAdapter {
+export interface IFeishuAdapterHealth {
+  isAlive(): boolean;
+  getLastEventTime(): string | null;
+  getLastError(): { code: string; message: string } | null;
+}
+
+export type IFeishuChannelAdapter = IChannelAdapter & IFeishuAdapterHealth;
+
+export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChannelAdapter {
   const {
     config,
     transport = 'websocket',
@@ -125,6 +133,11 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
 
   let wsClient: Lark.WSClient | null = null;
   let httpServer: http.Server | null = null;
+
+  // ─── Health State ──────────────────────────────────────────────────────
+  let alive = false;
+  let lastEventAt: number | null = null;
+  let lastError: { code: string; message: string } | null = null;
 
   // ─── Message Aggregation Buffer ───────────────────────────────────────
   interface PendingMsg {
@@ -212,6 +225,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     attachments?: IAttachment[],
   ) {
     if (!messageHandler || (!text && !attachments?.length)) return;
+    lastEventAt = Date.now();
 
     let resolvedUserId = openId ?? chatId;
     if (resolveUser && openId) {
@@ -539,6 +553,8 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       server.listen(port, config.webhookHost, () => resolve());
       server.once('error', reject);
     });
+    alive = true;
+    lastError = null;
     console.error(`[${channelName}] webhook server listening on ${config.webhookHost}:${port}${config.webhookPath}`);
   }
 
@@ -551,6 +567,8 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
       loggerLevel: Lark.LoggerLevel.info,
     });
     await wsClient.start({ eventDispatcher: dispatcher });
+    alive = true;
+    lastError = null;
     console.error(`[${channelName}] WebSocket connected`);
   }
 
@@ -574,6 +592,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
     },
 
     async stop() {
+      alive = false;
       for (const [key, batch] of pendingBatches) {
         clearTimeout(batch.timer);
         await flushBatch(key);
@@ -609,6 +628,18 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IChannelAda
 
     onMessage(handler) {
       messageHandler = handler;
+    },
+
+    isAlive(): boolean {
+      return alive;
+    },
+
+    getLastEventTime(): string | null {
+      return lastEventAt !== null ? new Date(lastEventAt).toISOString() : null;
+    },
+
+    getLastError(): { code: string; message: string } | null {
+      return lastError;
     },
   };
 }

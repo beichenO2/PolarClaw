@@ -25,6 +25,43 @@ export interface IFeishuBotConfig {
 }
 
 /**
+ * 预检飞书环境变量是否就位，纯函数，不抛错
+ * @param prefix 环境变量前缀，如 "FEISHU_ADMIN" 或 "FEISHU_GIRLFRIEND"
+ */
+export function validateFeishuEnv(
+  prefix: string,
+  env: NodeJS.ProcessEnv = process.env,
+): { missing: string[]; present: string[] } {
+  const p = prefix.toUpperCase();
+  const required = [`${p}_APP_ID`, `${p}_APP_SECRET`, `${p}_VERIFICATION_TOKEN`];
+  const optional = [
+    `${p}_ENCRYPT_KEY`,
+    `${p}_WEBHOOK_HOST`,
+    `${p}_WEBHOOK_PORT`,
+    `${p}_WEBHOOK_PATH`,
+    `${p}_ALLOW_FROM`,
+  ];
+
+  const missing: string[] = [];
+  const present: string[] = [];
+
+  for (const key of required) {
+    if ((env[key] ?? '').trim()) {
+      present.push(key);
+    } else {
+      missing.push(key);
+    }
+  }
+  for (const key of optional) {
+    if ((env[key] ?? '').trim()) {
+      present.push(key);
+    }
+  }
+
+  return { missing, present };
+}
+
+/**
  * 从环境变量加载飞书 Bot 配置
  * @param prefix 环境变量前缀，如 "FEISHU_ADMIN" 或 "FEISHU_GIRLFRIEND"
  */
