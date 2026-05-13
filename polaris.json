@@ -95,6 +95,12 @@
           "test_status": "passed"
         },
         {
+          "name": "SessionMemory persistence + LRU + bootstrap",
+          "status": "done",
+          "test_status": "passed",
+          "behavior": ["SessionMemory episodic 持久化到 SQLite", "sessions Map LRU 驱逐（maxSessions=50）", "fetchLongTermMemory 按 temporal decay 加权排序", "main.ts 注入 sessionMemory 到 agent deps", "bootstrap dependency-checker 自动检测/拉起依赖服务"]
+        },
+        {
           "name": "LLM 路由",
           "description": "多模型并发限制、回退链、PolarPrivate 代理",
           "status": "done",
