@@ -4,6 +4,13 @@
  * 实现 IMemoryStore 接口，复用旧版的 schema 设计。
  */
 
+/**
+ * @deprecated SQLite memory store — retained as local fallback.
+ * Primary memory path is now via PolarMemory (HTTP) + SessionMemoryManager.
+ * This store provides FTS5 trigram search for local notes but does not
+ * support typed blocks, temporal validity, or conflict detection.
+ * See src/memory/SessionMemory.ts for the primary memory path.
+ */
 import Database from 'better-sqlite3';
 import type { IMemoryStore } from '../../ports/memory.js';
 

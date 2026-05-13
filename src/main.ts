@@ -38,6 +38,7 @@ import { createWebServer } from './adapters/web/server.js';
 import { createPolarUserRegistry } from './core/polar-user.js';
 import { createPolarClawSDK } from './sdk/index.js';
 import { HubClient, HubPromptTimeoutError, HubPromptInvalidError, HubNetworkError } from './adapters/web/hub-client.js';
+import { SessionMemoryManager } from './memory/SessionMemory.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -71,6 +72,23 @@ async function main() {
 
   // 组装适配器
   const memory = createSqliteMemoryStore(config.memory.dbPath);
+
+  // SessionMemory manager — connects to PolarMemory for long-term blocks
+  const sessionMemory = new SessionMemoryManager({
+    polarMemoryBaseUrl: process.env.POLARMEMORY_URL || 'http://localhost:3100',
+    dbPath: process.env.POLARCLAW_DATA_DIR
+      ? join(process.env.POLARCLAW_DATA_DIR, 'session_episodic.db')
+      : join(config.projectRoot, 'data', 'session_episodic.db'),
+    maxSessions: 50,
+    summarize: async (text: string) => {
+      try {
+        const resp = await llm.chat([{ role: 'user', content: `请简要总结以下对话的核心内容（100字以内）:\n${text}` }]);
+        return resp.content || text.slice(0, 500);
+      } catch {
+        return text.slice(0, 500);
+      }
+    },
+  });
   const conversations = createPersistentConversation({
     dbPath: config.memory.dbPath,
     maxMessages: config.memory.maxMessages,
@@ -253,13 +271,41 @@ async function main() {
         metadata: JSON.stringify({ source: 'tool' }),
         userId,
       });
+
+      // Also save to PolarMemory for cross-session long-term memory
+      try {
+        const polarUrl = process.env.POLARMEMORY_URL || 'http://localhost:3100';
+        fetch(`${polarUrl}/api/blocks/upsert`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            block: {
+              label: `user_${userId}_mem_${Date.now()}`,
+              value: content,
+              tokens: Math.ceil(content.length / 4),
+              read_only: false,
+              source_wiki: '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              type: 'fact',
+              source: 'user_explicit',
+              confidence: 0.8,
+              entity_refs: args.tags ? String(args.tags).split(',').map((t: string) => t.trim()) : undefined,
+            },
+          }),
+          signal: AbortSignal.timeout(3000),
+        }).catch(() => {}); // fire-and-forget
+      } catch {
+        // Silently fail — SQLite save is primary, PolarMemory is secondary
+      }
+
       return { id: entry.id, ok: true };
     },
   });
 
   tools.register({
     name: 'memory_search',
-    description: '按关键词搜索记忆库（FTS5）。结果按用户隔离。',
+    description: '按关键词搜索记忆库（FTS5 + PolarMemory）。结果按用户隔离。',
     parameters: {
       type: 'object',
       properties: {
@@ -268,12 +314,36 @@ async function main() {
       },
       required: ['query'],
     },
-    handler(args) {
+    async handler(args) {
       const q = String(args.query ?? '').trim();
       const limit = Number.isFinite(Number(args.limit)) ? Number(args.limit) : 8;
       const userId = tools.getCurrentUserId();
       const result = memory.search(q, { limit, userId });
-      return { hits: result.entries, total: result.total };
+
+      // Also query PolarMemory for long-term blocks
+      let polarBlocks: any[] = [];
+      try {
+        const polarUrl = process.env.POLARMEMORY_URL || 'http://localhost:3100';
+        const resp = await fetch(`${polarUrl}/api/blocks/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: q, top_k: limit }),
+          signal: AbortSignal.timeout(3000),
+        });
+        if (resp.ok) {
+          const data = await resp.json() as { blocks?: any[] };
+          polarBlocks = data.blocks || [];
+        }
+      } catch {
+        // Silently fail — SQLite search is primary, PolarMemory is secondary
+      }
+
+      return {
+        hits: result.entries,
+        total: result.total,
+        long_term: polarBlocks,
+        long_term_count: polarBlocks.length,
+      };
     },
   });
 
@@ -372,7 +442,7 @@ async function main() {
       temperature: config.llm.temperature,
       maxTokens: config.llm.maxTokens,
     },
-    { llm, memory, conversations, tools, privacy, compressor },
+    { llm, memory, conversations, tools, privacy, compressor, sessionMemory },
   );
 
   // 纠正信号检测：当用户消息包含纠正意图时，注入提示让 Agent 记录反馈
@@ -963,6 +1033,7 @@ async function main() {
       try { await ch.stop(); } catch { /* ignore */ }
     }
     memory.close();
+    sessionMemory.close();
     process.exit(0);
   };
   process.once('SIGINT', () => void shutdown());

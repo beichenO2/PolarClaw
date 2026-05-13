@@ -11,11 +11,17 @@
  * - fetchLongTermMemory：调用 PolarMemory /api/blocks/search 获取长期记忆 Block
  */
 
+import Database from 'better-sqlite3';
+import { mkdirSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
 import type { IChatMessage } from '../ports/memory.js';
 
 // ─── 类型定义 ───
 
 /** PolarMemory Block 结构（与 PolarMemory/src/block.ts 对齐） */
+export type BlockType = 'entity' | 'preference' | 'fact' | 'goal' | 'relationship' | 'event' | 'concept' | 'procedure' | 'emotion' | 'decision' | 'skill' | 'context' | 'meta';
+export type BlockSource = 'conversation' | 'wiki' | 'agent_written' | 'user_explicit';
+
 export interface Block {
   label: string;
   value: string;
@@ -24,6 +30,15 @@ export interface Block {
   source_wiki: string;
   created_at: string;
   updated_at: string;
+  type?: BlockType;
+  temporal?: {
+    valid_from?: string;
+    valid_until?: string;
+    recurrence?: string;
+  };
+  confidence?: number;
+  source?: BlockSource;
+  entity_refs?: string[];
 }
 
 /** 压缩后的情景记忆 */
@@ -74,6 +89,10 @@ export interface ISessionMemoryManagerConfig {
   maxLongTermBlocks?: number;
   /** LLM 摘要函数（可选，不提供则使用规则压缩） */
   summarize?: (text: string) => Promise<string>;
+  /** SQLite path for episodic persistence */
+  dbPath?: string;
+  /** Max in-memory sessions (default 50) */
+  maxSessions?: number;
 }
 
 // ─── 工具函数 ───
@@ -174,6 +193,14 @@ export class SessionMemoryManager {
   /** 按 conversationId 维护的会话记忆状态 */
   private readonly sessions = new Map<string, SessionMemory>();
 
+  /** Episodic persistence SQLite DB */
+  private episodicDb: Database.Database | null = null;
+  private readonly dbPath: string;
+  private readonly maxSessions: number;
+
+  /** LRU access order tracking */
+  private accessOrder: string[] = [];
+
   constructor(config: ISessionMemoryManagerConfig = {}) {
     this.mode = config.mode ?? CompressionMode.STATIC_MESSAGE_BUFFER;
     this.messageBufferLimit = config.messageBufferLimit ?? 20;
@@ -183,19 +210,43 @@ export class SessionMemoryManager {
     this.polarMemoryBaseUrl = config.polarMemoryBaseUrl ?? 'http://localhost:3100';
     this.maxLongTermBlocks = config.maxLongTermBlocks ?? 5;
     this.summarize = config.summarize;
+    const explicitDbPath = config.dbPath ?? (process.env.POLARCLAW_DATA_DIR ? join(process.env.POLARCLAW_DATA_DIR, 'session_episodic.db') : null);
+    this.dbPath = explicitDbPath ?? '';
+    this.maxSessions = config.maxSessions ?? 50;
+    if (explicitDbPath) {
+      this.initEpisodicDb();
+    }
   }
 
-  /** 获取或创建会话记忆 */
+  /** 获取或创建会话记忆（带 LRU 和 DB 加载） */
   getOrCreateSession(convId: string): SessionMemory {
     let session = this.sessions.get(convId);
     if (!session) {
-      session = {
-        working: [],
-        episodic: [],
-        coreFacts: '',
-        longTermBlocks: [],
-      };
+      // Try loading from DB first
+      session = this.loadSessionFromDb(convId) ?? undefined;
+      if (session) {
+        session.working = []; // working memory is always fresh
+      } else {
+        session = {
+          working: [],
+          episodic: [],
+          coreFacts: '',
+          longTermBlocks: [],
+        };
+      }
       this.sessions.set(convId, session);
+    }
+    // Update LRU access order
+    this.accessOrder = this.accessOrder.filter(id => id !== convId);
+    this.accessOrder.push(convId);
+
+    // LRU eviction if over capacity
+    if (this.sessions.size > this.maxSessions) {
+      const lruConvId = this.accessOrder.shift();
+      if (lruConvId && lruConvId !== convId) {
+        try { this.saveSessionToDb(lruConvId); } catch { /* ignore */ }
+        this.sessions.delete(lruConvId);
+      }
     }
     return session;
   }
@@ -271,6 +322,9 @@ export class SessionMemoryManager {
       result = serializeSessionMemory(session);
     }
 
+    // Persist to SQLite after compression
+    try { this.saveSessionToDb(convId); } catch { /* ignore */ }
+
     return result;
   }
 
@@ -293,13 +347,14 @@ export class SessionMemoryManager {
    * fetchLongTermMemory — 调用 PolarMemory /api/blocks/search 获取长期记忆 Block
    *
    * 优雅降级：API 不可用时返回空数组
+   * 应用时间衰减：基于创建/更新时间计算衰减因子
    */
   async fetchLongTermMemory(query: string): Promise<Block[]> {
     try {
       const response = await fetch(`${this.polarMemoryBaseUrl}/api/blocks/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, top_k: this.maxLongTermBlocks }),
+        body: JSON.stringify({ query, top_k: this.maxLongTermBlocks, temporal_valid: true }),
         signal: AbortSignal.timeout(5000),
       });
 
@@ -309,7 +364,19 @@ export class SessionMemoryManager {
       }
 
       const data = await response.json() as { blocks: Block[]; total: number };
-      return data.blocks ?? [];
+      const blocks = data.blocks ?? [];
+      // Apply temporal decay
+      const halfLifeDays = 30;
+      const now = Date.now();
+      return blocks
+        .map(b => {
+          const ageDays = (now - new Date(b.created_at || b.updated_at).getTime()) / (1000 * 60 * 60 * 24);
+          const decayFactor = Math.exp(-ageDays / halfLifeDays);
+          const baseScore = b.confidence ?? 1.0;
+          return { block: b, score: baseScore * decayFactor };
+        })
+        .sort((a, b) => b.score - a.score)
+        .map(x => x.block);
     } catch (err) {
       console.error('[SessionMemory] fetchLongTermMemory failed:', err instanceof Error ? err.message : String(err));
       return [];
@@ -351,9 +418,77 @@ export class SessionMemoryManager {
   /** 清除会话记忆 */
   clearSession(convId: string): void {
     this.sessions.delete(convId);
+    // Also remove from DB
+    try {
+      this.episodicDb?.prepare('DELETE FROM session_episodic WHERE conversation_id = ?').run(convId);
+    } catch { /* ignore */ }
+    this.accessOrder = this.accessOrder.filter(id => id !== convId);
   }
 
   // ─── 私有方法 ───
+
+  /** Initialize the episodic persistence SQLite database */
+  private initEpisodicDb(): void {
+    const dbDir = dirname(this.dbPath);
+    if (!existsSync(dbDir)) mkdirSync(dbDir, { recursive: true });
+    this.episodicDb = new Database(this.dbPath);
+    this.episodicDb.exec(`
+      CREATE TABLE IF NOT EXISTS session_episodic (
+        conversation_id TEXT PRIMARY KEY,
+        episodic_json TEXT,
+        core_facts TEXT,
+        long_term_json TEXT,
+        last_accessed TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+  }
+
+  /** Persist session's episodic, coreFacts, longTermBlocks to SQLite */
+  private saveSessionToDb(convId: string): void {
+    if (!this.episodicDb) return;
+    const session = this.sessions.get(convId);
+    if (!session) return;
+    const now = new Date().toISOString();
+    this.episodicDb.prepare(`
+      INSERT INTO session_episodic (conversation_id, episodic_json, core_facts, long_term_json, last_accessed, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(conversation_id) DO UPDATE SET
+        episodic_json = excluded.episodic_json,
+        core_facts = excluded.core_facts,
+        long_term_json = excluded.long_term_json,
+        last_accessed = excluded.last_accessed,
+        updated_at = excluded.updated_at
+    `).run(
+      convId,
+      JSON.stringify(session.episodic),
+      session.coreFacts,
+      JSON.stringify(session.longTermBlocks),
+      now,
+      now,
+    );
+  }
+
+  /** Load session from SQLite; returns null if not found */
+  private loadSessionFromDb(convId: string): SessionMemory | null {
+    if (!this.episodicDb) return null;
+    const row = this.episodicDb.prepare(
+      'SELECT episodic_json, core_facts, long_term_json FROM session_episodic WHERE conversation_id = ?'
+    ).get(convId) as { episodic_json: string; core_facts: string; long_term_json: string } | undefined;
+    if (!row) return null;
+
+    try {
+      return {
+        working: [],
+        episodic: JSON.parse(row.episodic_json) as CompressedMemory[],
+        coreFacts: row.core_facts || '',
+        longTermBlocks: JSON.parse(row.long_term_json) as Block[],
+      };
+    } catch {
+      return null;
+    }
+  }
 
   /** STATIC_MESSAGE_BUFFER 压缩：保留最近 N 条，其余生成摘要 */
   private async staticBufferCompress(messages: IChatMessage[]): Promise<CompressedMemory> {
@@ -418,5 +553,13 @@ export class SessionMemoryManager {
       }
     }
     return ruleBasedCompress(messages);
+  }
+
+  /** Close the episodic DB, saving all sessions first */
+  close(): void {
+    for (const convId of this.sessions.keys()) {
+      try { this.saveSessionToDb(convId); } catch { /* ignore */ }
+    }
+    this.episodicDb?.close();
   }
 }
