@@ -793,10 +793,7 @@
           "test_status": "passed"
         }
       ],
-      "blockers": [
-        "PolarUser.project 身份体系完整实现 → PolarClaw_PolarUser.md",
-        "SOTAgent lobster-events.jsonl 写入/查询 API → SOTAgent_LobsterEvents.md"
-      ]
+      "blockers": []
     }
   ],
   "tech": {
