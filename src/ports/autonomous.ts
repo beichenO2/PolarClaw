@@ -10,6 +10,8 @@
 
 /** YOLO 会话配置 */
 export interface IYoloSessionConfig {
+  /** 项目 ID（用于 project lock） */
+  projectId: string;
   /** 可选：预指定 session ID（Web API 使用） */
   sessionId?: string;
   /** 目标描述（用户的高层指令） */
@@ -84,7 +86,7 @@ export interface IYoloEngine {
    */
   run(
     config: IYoloSessionConfig,
-    context: { channel: string; userId: string; conversationId?: string },
+    context: { channel: string; userId: string; conversationId?: string; projectId: string },
   ): Promise<IYoloSessionState>;
 
   /** 取消正在运行的会话 */

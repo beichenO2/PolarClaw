@@ -19,6 +19,7 @@ import type { ILLMRouter, ILLMResponse } from '../ports/llm.js';
 import type { IToolExecutor } from '../ports/tools.js';
 import type { IContextCompressor } from '../ports/compression.js';
 import type { SessionMemoryManager } from '../memory/SessionMemory.js';
+import { acquireLock, releaseLock } from '../sdk/project-lock.js';
 
 export interface IPersonaResult {
   content: string;
@@ -100,72 +101,92 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     userId: string,
     text: string,
     conversationId?: string,
+    projectId?: string,
   ): Promise<IAgentResponse> {
     const convId = conversationId ?? `${channel}:${userId}`;
+    const holder = projectId ? `agent/solo-${userId}` : '';
 
-    // 1. 隐私网关入站脱敏
-    const sanitizeResult = await privacy.sanitize(userId, text);
-    if (sanitizeResult.blocked) {
-      return {
-        text: sanitizeResult.warning ?? '⚠️ 消息被隐私网关拦截',
-        blocked: true,
-        warning: sanitizeResult.warning,
-      };
-    }
-
-    const sanitizedText = sanitizeResult.sanitized;
-
-    // 2. 记录用户活跃状态
-    memory.saveProfile(userId, 'lastActiveAt', new Date().toISOString());
-    memory.saveProfile(userId, 'lastChannel', channel);
-
-    // 3. 构建记忆上下文
-    const memoryContext = buildMemoryContext(userId, sanitizedText);
-
-    // 4. 追加用户消息到对话历史
-    const userContent = memoryContext
-      ? `${memoryContext}\n\n${sanitizedText}`
-      : sanitizedText;
-
-    conversations.append(convId, { role: 'user', content: userContent });
-
-    // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
-    const existingHistory = conversations.getHistory(convId);
-    const isOngoing = existingHistory.length > 2;
-
-    // 5a. Phase 3: 运行时记忆注入（长期记忆 + 情景记忆）
-    let sessionMemoryPrefix = '';
-    if (sessionMemory) {
-      const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText);
-      if (longTermBlocks.length > 0) {
-        const session = sessionMemory.getOrCreateSession(convId);
-        session.longTermBlocks = longTermBlocks;
+    // Acquire project lock if projectId provided (Solo Agent task)
+    if (projectId) {
+      const acquired = acquireLock(projectId, holder, 'solo-agent-task');
+      if (!acquired) {
+        return {
+          text: '⚠️ 项目已被其他任务锁定，请稍后再试。',
+          blocked: true,
+          warning: `project lock held by another task`,
+        };
       }
-      sessionMemoryPrefix = sessionMemory.buildMemoryInjection(convId);
     }
 
-    const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix);
+    try {
+      // 1. 隐私网关入站脱敏
+      const sanitizeResult = await privacy.sanitize(userId, text);
+      if (sanitizeResult.blocked) {
+        return {
+          text: sanitizeResult.warning ?? '⚠️ 消息被隐私网关拦截',
+          blocked: true,
+          warning: sanitizeResult.warning,
+        };
+      }
 
-    // 5b. Phase 3: 运行时记忆压缩（每轮对话后压缩，供下次注入）
-    if (sessionMemory) {
-      const currentHistory = conversations.getHistory(convId);
-      sessionMemory.updateWorkingMemory(convId, currentHistory);
-      await sessionMemory.compressForNextTurn(convId);
+      const sanitizedText = sanitizeResult.sanitized;
+
+      // 2. 记录用户活跃状态
+      memory.saveProfile(userId, 'lastActiveAt', new Date().toISOString());
+      memory.saveProfile(userId, 'lastChannel', channel);
+
+      // 3. 构建记忆上下文
+      const memoryContext = buildMemoryContext(userId, sanitizedText);
+
+      // 4. 追加用户消息到对话历史
+      const userContent = memoryContext
+        ? `${memoryContext}\n\n${sanitizedText}`
+        : sanitizedText;
+
+      conversations.append(convId, { role: 'user', content: userContent });
+
+      // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
+      const existingHistory = conversations.getHistory(convId);
+      const isOngoing = existingHistory.length > 2;
+
+      // 5a. Phase 3: 运行时记忆注入（长期记忆 + 情景记忆）
+      let sessionMemoryPrefix = '';
+      if (sessionMemory) {
+        const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText);
+        if (longTermBlocks.length > 0) {
+          const session = sessionMemory.getOrCreateSession(convId);
+          session.longTermBlocks = longTermBlocks;
+        }
+        sessionMemoryPrefix = sessionMemory.buildMemoryInjection(convId);
+      }
+
+      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix);
+
+      // 5b. Phase 3: 运行时记忆压缩（每轮对话后压缩，供下次注入）
+      if (sessionMemory) {
+        const currentHistory = conversations.getHistory(convId);
+        sessionMemory.updateWorkingMemory(convId, currentHistory);
+        await sessionMemory.compressForNextTurn(convId);
+      }
+
+      // 5c. 持久化 LLM token usage 到日志
+      if (result.usage) {
+        persistUsage(userId, channel, result.usage, result.model, convId);
+      }
+
+      // 6. 隐私网关出站还原
+      const restoredText = privacy.desanitize(userId, result.text);
+
+      return {
+        text: restoredText,
+        blocked: false,
+        usage: result.usage,
+      };
+    } finally {
+      if (projectId) {
+        releaseLock(projectId, holder);
+      }
     }
-
-    // 5c. 持久化 LLM token usage 到日志
-    if (result.usage) {
-      persistUsage(userId, channel, result.usage, result.model, convId);
-    }
-
-    // 6. 隐私网关出站还原
-    const restoredText = privacy.desanitize(userId, result.text);
-
-    return {
-      text: restoredText,
-      blocked: false,
-      usage: result.usage,
-    };
   }
 
   /** 构建注入的记忆上下文（用户画像 + FTS 相关记忆），带短窗口缓存避免高频消息重复查询 */

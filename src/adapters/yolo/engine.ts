@@ -13,6 +13,7 @@ import type {
   IRecoveryStrategy,
 } from '../../ports/autonomous.js';
 import type { IHubAlignmentClient } from './hub-alignment.js';
+import { acquireLock, releaseLock } from '../../sdk/project-lock.js';
 
 export interface IYoloAgentHandle {
   handleMessage(
@@ -20,6 +21,7 @@ export interface IYoloAgentHandle {
     userId: string,
     text: string,
     conversationId?: string,
+    projectId?: string,
   ): Promise<{ text: string; blocked: boolean; usage?: { totalTokens: number } }>;
 }
 
@@ -233,6 +235,19 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
       };
       sessions.set(sessionId, session);
 
+      const lockHolder = 'PolarClaw';
+      const lockAcquired = acquireLock(config.projectId, lockHolder, 'YOLO task');
+      if (!lockAcquired) {
+        session.status = 'aborted';
+        session.stopReason = '项目已被其他任务锁定';
+        return session;
+      }
+
+      let releaseAndReturn = (s: IYoloSessionState): IYoloSessionState => {
+        releaseLock(config.projectId, lockHolder);
+        return s;
+      };
+
       const startTime = Date.now();
       const convId = context.conversationId ?? `yolo:${context.userId}:${sessionId}`;
 
@@ -274,7 +289,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
                 session.status = 'aborted';
                 session.stopReason = 'Hub 审核拒绝';
                 session.elapsedMs = Date.now() - startTime;
-                return session;
+                return releaseAndReturn(session);
               }
               if (decision === 'timeout') {
                 console.error('[YoloEngine] Hub 审核超时，降级到本地对齐');
@@ -324,7 +339,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
               goalReached: false, error: '对齐验证未通过', durationMs: Date.now() - startTime,
             });
             deps.onEscalate?.(sessionId, `对齐验证未通过（含降级重试），Agent 回复: ${retryResp.text.slice(0, 200)}`);
-            return session;
+            return releaseAndReturn(session);
           }
         }
 
@@ -363,7 +378,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
               goalReached: false, error: judgeVerdict.reason, durationMs: Date.now() - startTime,
             });
             deps.onEscalate?.(sessionId, `对齐评分 ${finalScore.toFixed(2)}: ${judgeVerdict.reason}`);
-            return session;
+            return releaseAndReturn(session);
           }
         }
 
@@ -380,7 +395,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
               step: 0, text: alignResponse.text, tokensUsed: alignTokens,
               goalReached: false, error: '用户拒绝', durationMs: Date.now() - startTime,
             });
-            return session;
+            return releaseAndReturn(session);
           }
         }
 
@@ -398,7 +413,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
         session.status = 'aborted';
         session.stopReason = `对齐验证失败: ${msg}`;
         session.elapsedMs = Date.now() - startTime;
-        return session;
+        return releaseAndReturn(session);
       }
 
       let prevResult: IStepResult | undefined;
@@ -545,7 +560,7 @@ export function createYoloEngine(deps: IYoloEngineDeps): IYoloEngine {
       }
 
       session.elapsedMs = Date.now() - startTime;
-      return session;
+      return releaseAndReturn(session);
     },
 
     cancel(sessionId) {

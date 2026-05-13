@@ -10,6 +10,14 @@ import { join, extname, basename } from 'node:path';
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fetchEcosystemHealth } from '../../sdk/ecosystem-health.js';
+import {
+  isLocked,
+  getLockInfo,
+  getLockAgeMs,
+  acquireLock,
+  releaseLock,
+  type LockInfo,
+} from '../../sdk/project-lock.js';
 
 export interface WebServerConfig {
   port: number;
@@ -21,8 +29,8 @@ export interface WebServerConfig {
   /** Full agent handler (ReAct loop + tools + memory + privacy) */
   agentHandler?: (msg: { channel: string; userId: string; text: string }) => Promise<string>;
   yoloEngine?: {
-    run(config: { sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
-        context: { channel: string; userId: string }): Promise<YoloSessionData>;
+    run(config: { projectId: string; sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
+        context: { channel: string; userId: string; projectId: string }): Promise<YoloSessionData>;
     cancel(sessionId: string): void;
     getSession(sessionId: string): YoloSessionData | null;
   };
@@ -316,15 +324,16 @@ export function createWebServer(config: WebServerConfig) {
 
   app.post('/api/yolo/start', (req, res) => {
     if (!config.yoloEngine) return res.status(503).json({ error: 'yolo engine not available' });
-    const { goal, max_steps } = req.body as { goal?: string; max_steps?: number };
+    const { project_id, goal, max_steps } = req.body as { project_id?: string; goal?: string; max_steps?: number };
+    if (!project_id?.trim()) return res.status(400).json({ error: 'project_id is required' });
     if (!goal?.trim()) return res.status(400).json({ error: 'goal is required' });
 
     const sessionId = `yolo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     knownSessionIds.push(sessionId);
 
     config.yoloEngine.run(
-      { sessionId, goal: goal.trim(), maxSteps: max_steps ?? 10, maxTotalTokens: 200000, maxWallTimeMs: 600000, maxRetries: 2 },
-      { channel: 'web', userId: 'admin' },
+      { projectId: project_id.trim(), sessionId, goal: goal.trim(), maxSteps: max_steps ?? 10, maxTotalTokens: 200000, maxWallTimeMs: 600000, maxRetries: 2 },
+      { channel: 'web', userId: 'admin', projectId: project_id.trim() },
     ).catch(err => console.error('[WebServer] YOLO run error:', err));
 
     res.json({ ok: true, sessionId });
@@ -633,6 +642,35 @@ export function createWebServer(config: WebServerConfig) {
       } catch (err: any) {
         res.status(500).json(err.toJSON?.() ?? { error: err.message });
       }
+    });
+
+    // ── Project locks ───────────────────────────────────────
+    app.get('/api/sdk/project-lock/:projectId/status', (req, res) => {
+      const { projectId } = req.params;
+      const locked = isLocked(projectId);
+      const info: LockInfo | null = locked ? getLockInfo(projectId) : null;
+      const age_ms: number | null = locked ? getLockAgeMs(projectId) : null;
+      res.json({ locked, info, age_ms });
+    });
+
+    app.post('/api/sdk/project-lock/:projectId/acquire', (req, res) => {
+      const { projectId } = req.params;
+      const { holder, reason } = req.body as { holder?: string; reason?: string };
+      if (!holder || !reason) {
+        return res.status(400).json({ error: 'holder and reason are required' });
+      }
+      const success = acquireLock(projectId, holder, reason);
+      res.json({ success });
+    });
+
+    app.post('/api/sdk/project-lock/:projectId/release', (req, res) => {
+      const { projectId } = req.params;
+      const { holder } = req.body as { holder?: string };
+      if (!holder) {
+        return res.status(400).json({ error: 'holder is required' });
+      }
+      const success = releaseLock(projectId, holder);
+      res.json({ success });
     });
 
   }

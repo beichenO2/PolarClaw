@@ -32,8 +32,8 @@ describe('createYoloEngine', () => {
       recovery: createRecoveryStrategy(),
     });
     const result = await engine.run(
-      { goal: 'test', maxSteps: 10, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 2 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'test', maxSteps: 10, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 2 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     expect(result.status).toBe('completed');
     expect(result.stepsCompleted).toBe(3);
@@ -47,8 +47,8 @@ describe('createYoloEngine', () => {
       recovery: createRecoveryStrategy(),
     });
     const result = await engine.run(
-      { goal: 'infinite', maxSteps: 3, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'infinite', maxSteps: 3, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     expect(result.status).toBe('aborted');
     expect(result.stepsCompleted).toBe(3);
@@ -62,8 +62,8 @@ describe('createYoloEngine', () => {
       recovery: createRecoveryStrategy(),
     });
     const result = await engine.run(
-      { goal: 'expensive', maxSteps: 100, maxTotalTokens: 8000, maxWallTimeMs: 60000, maxRetries: 1 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'expensive', maxSteps: 100, maxTotalTokens: 8000, maxWallTimeMs: 60000, maxRetries: 1 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     expect(result.status).toBe('aborted');
     expect(result.stopReason).toContain('Token');
@@ -80,8 +80,8 @@ describe('createYoloEngine', () => {
       onEscalate,
     });
     const result = await engine.run(
-      { goal: 'risky', maxSteps: 10, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'risky', maxSteps: 10, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     expect(result.status).toBe('escalated');
     expect(onEscalate).toHaveBeenCalled();
@@ -96,8 +96,8 @@ describe('createYoloEngine', () => {
       onStepComplete,
     });
     await engine.run(
-      { goal: 'quick', maxSteps: 5, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'quick', maxSteps: 5, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     expect(onStepComplete).toHaveBeenCalledTimes(2);
   });
@@ -117,8 +117,8 @@ describe('createYoloEngine', () => {
     });
 
     const result = await engine.run(
-      { goal: 'long', maxSteps: 2, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'long', maxSteps: 2, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     expect(result.stepsCompleted).toBe(2);
     expect(result.status).toBe('aborted');
@@ -131,8 +131,8 @@ describe('createYoloEngine', () => {
       recovery: createRecoveryStrategy(),
     });
     const result = await engine.run(
-      { goal: 'quick', maxSteps: 5, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
-      { channel: 'test', userId: 'u1' },
+      { projectId: 'test-project', goal: 'quick', maxSteps: 5, maxTotalTokens: 100000, maxWallTimeMs: 60000, maxRetries: 1 },
+      { channel: 'test', userId: 'u1', projectId: 'test-project' },
     );
     const session = engine.getSession(result.sessionId);
     expect(session).not.toBeNull();

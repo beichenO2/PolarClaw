@@ -596,17 +596,19 @@ async function main() {
     parameters: {
       type: 'object',
       properties: {
+        project_id: { type: 'string', description: '项目 ID（用于 project lock）' },
         goal: { type: 'string', description: '要完成的目标描述' },
         max_steps: { type: 'number', description: '最大自主步数（默认 10）' },
       },
-      required: ['goal'],
+      required: ['project_id', 'goal'],
     },
     async handler(args) {
+      const projectId = String(args.project_id ?? '');
       const goal = String(args.goal ?? '');
       const maxSteps = Number(args.max_steps) || 10;
       const result = await yoloEngine.run(
-        { goal, maxSteps, maxTotalTokens: 200000, maxWallTimeMs: 600000, maxRetries: 2 },
-        { channel: 'yolo', userId: 'admin' },
+        { projectId, goal, maxSteps, maxTotalTokens: 200000, maxWallTimeMs: 600000, maxRetries: 2 },
+        { channel: 'yolo', userId: 'admin', projectId },
       );
       return {
         status: result.status,
