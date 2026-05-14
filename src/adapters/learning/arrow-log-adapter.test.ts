@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import Database from 'better-sqlite3';
-import { createLearningStore } from './feedback-store';
-import { createArrowLogAdapter, createArrowLogRoutes, type ArrowLogInput } from './arrow-log-adapter';
+import { createLearningStore } from './feedback-store.js';
+import { createArrowLogAdapter, createArrowLogRoutes, type ArrowLogInput } from './arrow-log-adapter.js';
 
 let tmpDir: string;
 let dbPath: string;
@@ -173,7 +173,7 @@ describe('createArrowLogRoutes', () => {
       { project_id: 'p1', target_id: 't2', ts: '2026-05-10T10:01:00Z', outcome: 'miss', delta: 'd2', next_action: 'moveboard' },
     ];
 
-    const result = routes.handlePost({ body: logs });
+    const result = routes.handlePost({ body: logs }) as { success: boolean; received: number };
     expect(result.success).toBe(true);
     expect(result.received).toBe(2);
   });

@@ -208,7 +208,7 @@ describe('R8: SDK/API', () => {
       ]);
 
       const approvals = createApprovalsModule({ pilotClient });
-      const result = await approvals.listPending('polarpilot');
+      const result = await approvals.listPending();
       expect(result.length).toBe(2);
     });
   });

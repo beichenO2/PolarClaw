@@ -34,7 +34,7 @@ describe('R5: 自学习/工作流组合 (skill-composer)', () => {
 
     expect(toolName).toBe('workflow_test');
     expect(executor.register).toHaveBeenCalled();
-    const registeredTool = executor.register.mock.calls[0]![0] as IToolHandler;
+    const registeredTool = (executor.register as unknown as { mock: { calls: IToolHandler[][] } }).mock.calls[0]![0] as IToolHandler;
     expect(registeredTool.name).toBe('workflow_test');
   });
 
