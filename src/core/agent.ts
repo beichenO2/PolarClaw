@@ -166,8 +166,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, onProgress);
 
-      // 后处理在 setImmediate 中执行，确保不阻塞 return
-      const responseText = privacy.desanitize(userId, result.text);
+      const rawText = result.text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
+      const responseText = privacy.desanitize(userId, rawText || result.text);
       const responseUsage = result.usage;
 
       setImmediate(() => {
@@ -340,9 +340,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         toolCalls: response.toolCalls.length > 0 ? response.toolCalls : undefined,
       });
 
-      // 无工具调用 → 返回文本
       if (response.toolCalls.length === 0) {
-        const text = response.content?.trim() || '（暂无文本回复）';
+        const rawContent = response.content?.trim() || '（暂无文本回复）';
+        const text = rawContent.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim() || rawContent;
         onProgress?.({ type: 'done', content: text });
         return { text, usage: totalUsage, model: lastModel };
       }

@@ -29,6 +29,19 @@ export function normalizeCode(code?: string): CapabilityCode {
 }
 
 /**
+ * Resolve capability code to model name.
+ * This mapping lives in the SDK (not exposed to callers),
+ * because PolarPrivate's /v1/chat/completions still requires a model field.
+ * When PolarPrivate adds native capability routing, this becomes a passthrough.
+ */
+function resolveModelInternal(code: CapabilityCode): string {
+  const [q, , s] = code;
+  if (q === '1') return 'GLM-5.1';
+  if (s === '1') return 'MiniMax-M2.7-highspeed';
+  return 'qwen3.6-plus';
+}
+
+/**
  * Map legacy intent names to capability codes.
  */
 export function intentToCode(intent: string): CapabilityCode {
@@ -84,11 +97,12 @@ export function createLLMClient(): LLMProxyClient {
         options.signal.addEventListener('abort', () => controller.abort());
       }
 
+      const model = resolveModelInternal(capability);
       const body: Record<string, unknown> = {
+        model,
         messages,
         temperature: options.temperature ?? 0.7,
         max_tokens: options.maxTokens ?? 4096,
-        capability,
       };
       if (options.append_system_prompt) {
         body.append_system_prompt = options.append_system_prompt;
