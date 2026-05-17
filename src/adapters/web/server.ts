@@ -19,6 +19,8 @@ import {
   type LockInfo,
 } from '../../sdk/project-lock.js';
 
+import type { AgentProgressEvent } from '../../core/agent.js';
+
 export interface WebServerConfig {
   port: number;
   dataDir: string;
@@ -28,6 +30,11 @@ export interface WebServerConfig {
   memoryStore?: import('../../ports/memory.js').IMemoryStore;
   /** Full agent handler (ReAct loop + tools + memory + privacy) */
   agentHandler?: (msg: { channel: string; userId: string; text: string }) => Promise<string>;
+  /** Streaming agent handler — returns final text, pushes progress via callback */
+  agentHandlerStream?: (
+    msg: { channel: string; userId: string; text: string },
+    onProgress: (event: AgentProgressEvent) => void,
+  ) => Promise<string>;
   yoloEngine?: {
     run(config: { projectId: string; sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
         context: { channel: string; userId: string; projectId: string }): Promise<YoloSessionData>;
@@ -232,6 +239,7 @@ export function createWebServer(config: WebServerConfig) {
 
   // ── API: agent chat (full ReAct loop with tools) ────────
   app.post('/api/agent/chat', async (req, res) => {
+    console.error(`[WebServer] /api/agent/chat received, hasHandler=${!!config.agentHandler}`);
     if (!config.agentHandler) return res.status(503).json({ error: 'agent not available' });
     try {
       const { message, conversation_id } = req.body as {
@@ -242,15 +250,72 @@ export function createWebServer(config: WebServerConfig) {
         return res.status(400).json({ error: 'message (string) required' });
       }
       const channel = conversation_id ? `hub:${conversation_id}` : 'hub:anonymous';
+      console.error(`[WebServer] calling agentHandler (channel=${channel})`);
       const reply = await config.agentHandler({
         channel,
         userId: 'hub-user',
         text: message,
       });
+      console.error(`[WebServer] agentHandler returned, replyLen=${reply?.length ?? 'null'}`);
       res.json({ content: reply, conversation_id: channel });
+      console.error(`[WebServer] response sent`);
     } catch (err) {
       console.error('[PolarClaw] /api/agent/chat error:', err);
       res.status(500).json({ error: String(err) });
+    }
+  });
+
+  // ── API: agent chat SSE (streaming progress) ──────────
+  app.post('/api/agent/chat/stream', async (req, res) => {
+    const handler = config.agentHandlerStream ?? config.agentHandler;
+    if (!handler) return res.status(503).json({ error: 'agent not available' });
+
+    const { message, conversation_id } = req.body as {
+      message?: string;
+      conversation_id?: string;
+    };
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({ error: 'message (string) required' });
+    }
+
+    req.socket?.setNoDelay(true);
+    req.socket?.setTimeout(0);
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write(':ok\n\n');
+
+    const channel = conversation_id ? `hub:${conversation_id}` : 'hub:anonymous';
+    let closed = false;
+    res.on('close', () => { closed = true; });
+
+    const sendEvent = (event: string, data: unknown) => {
+      if (closed) return;
+      const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+      res.write(payload);
+    };
+
+    try {
+      if (config.agentHandlerStream) {
+        const reply = await config.agentHandlerStream(
+          { channel, userId: 'hub-user', text: message },
+          (evt) => {
+            if (evt.type !== 'done') sendEvent(evt.type, evt);
+          },
+        );
+        sendEvent('done', { type: 'done', content: reply });
+      } else {
+        sendEvent('thinking', { type: 'thinking', round: 0 });
+        const reply = await config.agentHandler!({ channel, userId: 'hub-user', text: message });
+        sendEvent('done', { type: 'done', content: reply });
+      }
+    } catch (err) {
+      sendEvent('error', { type: 'error', message: String(err) });
+    } finally {
+      if (!closed) res.end();
     }
   });
 
@@ -681,6 +746,11 @@ export function createWebServer(config: WebServerConfig) {
     start() {
       return new Promise<void>((resolve) => {
         server = app.listen(config.port, '127.0.0.1', () => {
+          if (server) {
+            server.keepAliveTimeout = 10 * 60_000;
+            server.headersTimeout = 10 * 60_000 + 1000;
+            (server as any).requestTimeout = 0;
+          }
           console.error(`[PolarClaw Web] Listening on http://127.0.0.1:${config.port}/mc/`);
           resolve();
         });

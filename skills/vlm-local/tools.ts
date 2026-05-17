@@ -16,16 +16,58 @@ const MIME_MAP: Record<string, string> = {
   '.gif': 'image/gif',
 };
 
+function imageToBase64(filePath: string): string {
+  return readFileSync(filePath).toString('base64');
+}
+
 function imageToBase64Url(filePath: string): string {
   const ext = extname(filePath).toLowerCase();
   const mime = MIME_MAP[ext];
   if (!mime) throw new Error(`不支持的图片格式: ${ext}`);
-
-  const data = readFileSync(filePath);
-  return `data:${mime};base64,${data.toString('base64')}`;
+  return `data:${mime};base64,${imageToBase64(filePath)}`;
 }
 
-async function callVisionLLM(
+const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
+const OLLAMA_VLM_MODEL = process.env.OLLAMA_VLM_MODEL || 'qwen3-vl:8b';
+
+async function isOllamaAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_URL}/api/tags`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return false;
+    const data = await res.json() as { models?: Array<{ name: string }> };
+    return data.models?.some(m => m.name.includes('vl')) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+async function callOllamaVLM(imagePath: string, query: string): Promise<string> {
+  const base64 = imageToBase64(imagePath);
+  const body = {
+    model: OLLAMA_VLM_MODEL,
+    messages: [{ role: 'user', content: query, images: [base64] }],
+    stream: false,
+  };
+
+  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000),
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ollama VLM ${res.status}: ${text.slice(0, 300)}`);
+  }
+
+  const data = await res.json() as { message?: { content?: string } };
+  return data.message?.content ?? '(无输出)';
+}
+
+async function callOpenAIVLM(
   imageBase64Url: string,
   query: string,
   baseUrl: string,
@@ -47,33 +89,25 @@ async function callVisionLLM(
     temperature: 0.3,
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120000);
+  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120000),
+  });
 
-  try {
-    const res = await fetch(`${baseUrl}/v1/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-    clearTimeout(timer);
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`VLM API ${res.status}: ${text.slice(0, 300)}`);
-    }
-
-    const data = await res.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    return data.choices?.[0]?.message?.content ?? '(无输出)';
-  } finally {
-    clearTimeout(timer);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`VLM API ${res.status}: ${text.slice(0, 300)}`);
   }
+
+  const data = await res.json() as {
+    choices?: Array<{ message?: { content?: string } }>;
+  };
+  return data.choices?.[0]?.message?.content ?? '(无输出)';
 }
 
 export const tools: IToolHandler[] = [
@@ -96,23 +130,22 @@ export const tools: IToolHandler[] = [
         throw new Error(`图片文件不存在: ${imagePath}`);
       }
 
-      const base64Url = imageToBase64Url(imagePath);
+      const ollamaOk = await isOllamaAvailable();
+      if (ollamaOk) {
+        const analysis = await callOllamaVLM(imagePath, query);
+        return { image: imagePath, query, analysis, model: OLLAMA_VLM_MODEL, backend: 'ollama-local' };
+      }
 
+      const base64Url = imageToBase64Url(imagePath);
       const baseUrl = process.env.POLARCLAW_LLM_BASE_URL
-        || `${process.env.POLARPRIVATE_URL || 'http://127.0.0.1:12790'}/v1`;
+        || `${process.env.POLARPRIVATE_URL || 'http://127.0.0.1:12790'}`;
       const apiKey = process.env.POLARCLAW_LLM_API_KEY
         || process.env.DASHSCOPE_API_KEY
         || 'proxy-managed';
-      const model = process.env.POLARCLAW_MODEL_VISION || 'qwen3.6-plus';
+      const model = process.env.POLARCLAW_MODEL_VISION || 'qwen-vl-max';
 
-      const analysis = await callVisionLLM(base64Url, query, baseUrl, apiKey, model);
-
-      return {
-        image: imagePath,
-        query,
-        analysis,
-        model,
-      };
+      const analysis = await callOpenAIVLM(base64Url, query, baseUrl, apiKey, model);
+      return { image: imagePath, query, analysis, model, backend: 'polarprivate-proxy' };
     },
   },
 ];

@@ -21,6 +21,13 @@ import type { IContextCompressor } from '../ports/compression.js';
 import type { SessionMemoryManager } from '../memory/SessionMemory.js';
 import { acquireLock, releaseLock } from '../sdk/project-lock.js';
 
+export type AgentProgressEvent =
+  | { type: 'thinking'; round: number }
+  | { type: 'tool_call'; tool: string; args: Record<string, unknown> }
+  | { type: 'tool_result'; tool: string; result: string }
+  | { type: 'chunk'; content: string }
+  | { type: 'done'; content: string };
+
 export interface IPersonaResult {
   content: string;
   allowedSkills?: string[];
@@ -41,6 +48,8 @@ export interface IAgentConfig {
   maxTokens?: number;
   /** 工具输出截断长度 */
   maxToolOutputLength?: number;
+  /** 强制工具调用（设为 true 时，tool_choice 设为 required） */
+  forceToolCall?: boolean;
 }
 
 export interface IAgentDeps {
@@ -102,6 +111,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     text: string,
     conversationId?: string,
     projectId?: string,
+    onProgress?: (event: AgentProgressEvent) => void,
   ): Promise<IAgentResponse> {
     const convId = conversationId ?? `${channel}:${userId}`;
     const holder = projectId ? `agent/solo-${userId}` : '';
@@ -119,7 +129,6 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     }
 
     try {
-      // 1. 隐私网关入站脱敏
       const sanitizeResult = await privacy.sanitize(userId, text);
       if (sanitizeResult.blocked) {
         return {
@@ -131,25 +140,20 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       const sanitizedText = sanitizeResult.sanitized;
 
-      // 2. 记录用户活跃状态
       memory.saveProfile(userId, 'lastActiveAt', new Date().toISOString());
       memory.saveProfile(userId, 'lastChannel', channel);
 
-      // 3. 构建记忆上下文
       const memoryContext = buildMemoryContext(userId, sanitizedText);
 
-      // 4. 追加用户消息到对话历史
       const userContent = memoryContext
         ? `${memoryContext}\n\n${sanitizedText}`
         : sanitizedText;
 
       conversations.append(convId, { role: 'user', content: userContent });
 
-      // 5. 执行 Agent 循环（ReAct: 推理 → 工具调用 → 观察）
       const existingHistory = conversations.getHistory(convId);
       const isOngoing = existingHistory.length > 2;
 
-      // 5a. Phase 3: 运行时记忆注入（长期记忆 + 情景记忆）
       let sessionMemoryPrefix = '';
       if (sessionMemory) {
         const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText);
@@ -160,27 +164,29 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         sessionMemoryPrefix = sessionMemory.buildMemoryInjection(convId);
       }
 
-      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix);
+      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, onProgress);
 
-      // 5b. Phase 3: 运行时记忆压缩（每轮对话后压缩，供下次注入）
-      if (sessionMemory) {
-        const currentHistory = conversations.getHistory(convId);
-        sessionMemory.updateWorkingMemory(convId, currentHistory);
-        await sessionMemory.compressForNextTurn(convId);
-      }
+      // 后处理在 setImmediate 中执行，确保不阻塞 return
+      const responseText = privacy.desanitize(userId, result.text);
+      const responseUsage = result.usage;
 
-      // 5c. 持久化 LLM token usage 到日志
-      if (result.usage) {
-        persistUsage(userId, channel, result.usage, result.model, convId);
-      }
-
-      // 6. 隐私网关出站还原
-      const restoredText = privacy.desanitize(userId, result.text);
+      setImmediate(() => {
+        if (sessionMemory) {
+          const currentHistory = conversations.getHistory(convId);
+          sessionMemory.updateWorkingMemory(convId, currentHistory);
+          sessionMemory.compressForNextTurn(convId).catch((err) => {
+            console.error(`[Agent] session memory compression failed:`, err);
+          });
+        }
+        if (responseUsage) {
+          try { persistUsage(userId, channel, responseUsage, result.model, convId); } catch { /* non-fatal */ }
+        }
+      });
 
       return {
-        text: restoredText,
+        text: responseText,
         blocked: false,
-        usage: result.usage,
+        usage: responseUsage,
       };
     } finally {
       if (projectId) {
@@ -238,6 +244,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     userId: string,
     isOngoing = false,
     sessionMemoryPrefix = '',
+    onProgress?: (event: AgentProgressEvent) => void,
   ): Promise<{ text: string; usage?: ILLMResponse['usage']; model?: string }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
     let lastModel = '';
@@ -250,7 +257,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     const catalog = filterSkillCatalog(config.skillCatalog, personaResult?.allowedSkills);
     const basePrompt = [config.systemPrompt, catalog, personaText].filter(Boolean).join('\n\n');
 
-    const maxRounds = config.maxToolRounds > 0 ? config.maxToolRounds : Infinity;
+    const maxRounds = config.maxToolRounds > 0
+      ? config.maxToolRounds
+      : config.maxToolRounds === 0 ? Infinity : 10;
     for (let round = 0; round < maxRounds; round++) {
       const history = conversations.getHistory(convId);
       let contextMessages = history;
@@ -278,12 +287,39 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         ...contextMessages,
       ];
 
-      const response = await llm.chat(messages, {
-        tools: tools.list(),
-        toolChoice: 'auto',
-        temperature: config.temperature,
-        maxTokens: config.maxTokens,
-      });
+      const toolCallReminder = round === 0 && !isOngoing && tools.list().length > 0
+        ? '\n\n[INSTRUCTION] When the user gives a clear task, call relevant tools (skill_search, memory_search) before generating text. However, if the user\'s request is vague or missing critical details (format, scope, requirements), reply with clarifying questions FIRST instead of blindly executing.'
+        : undefined;
+
+      onProgress?.({ type: 'thinking', round });
+      console.error(`[Agent] runLoop round ${round}: calling LLM (msgCount=${messages.length})`);
+      const llmStartMs = Date.now();
+      let response: Awaited<ReturnType<typeof llm.chat>>;
+      try {
+        response = await llm.chat(messages, {
+          tools: tools.list(),
+          toolChoice: 'auto',
+          temperature: config.temperature,
+          maxTokens: config.maxTokens,
+          append_system_prompt: toolCallReminder,
+        });
+      } catch (llmErr) {
+        const errMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
+        if (errMsg.includes('fetch failed') || errMsg.includes('ECONNREFUSED') || errMsg.includes('ECONNRESET')) {
+          console.error(`[Agent] runLoop round ${round}: LLM transient error, retrying in 5s: ${errMsg}`);
+          await new Promise(r => setTimeout(r, 5000));
+          response = await llm.chat(messages, {
+            tools: tools.list(),
+            toolChoice: 'auto',
+            temperature: config.temperature,
+            maxTokens: config.maxTokens,
+            append_system_prompt: toolCallReminder,
+          });
+        } else {
+          throw llmErr;
+        }
+      }
+      console.error(`[Agent] runLoop round ${round}: LLM responded in ${Date.now()-llmStartMs}ms, toolCalls=${response.toolCalls.length}, contentLen=${response.content?.length ?? 0}`);
 
       // 累计 token
       lastModel = response.model || lastModel;
@@ -306,8 +342,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       // 无工具调用 → 返回文本
       if (response.toolCalls.length === 0) {
-        const text = response.content?.trim();
-        return { text: text || '（暂无文本回复）', usage: totalUsage, model: lastModel };
+        const text = response.content?.trim() || '（暂无文本回复）';
+        onProgress?.({ type: 'done', content: text });
+        return { text, usage: totalUsage, model: lastModel };
       }
 
       // 并发执行所有工具调用（Promise.allSettled 保证全部完成，不因单个失败终止）
@@ -315,7 +352,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         let args: Record<string, unknown> = {};
         try {
           args = JSON.parse(tc.function.arguments);
-        } catch { /* empty */ }
+        } catch (parseErr) {
+          console.error(`[Agent] Failed to parse tool args for ${tc.function.name}: ${tc.function.arguments?.slice(0, 300)}`);
+        }
+
+        onProgress?.({ type: 'tool_call', tool: tc.function.name, args });
 
         let result: unknown;
         try {
@@ -333,6 +374,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         if (payload.length > maxToolOutputLen) {
           payload = `${payload.slice(0, maxToolOutputLen)}…(已截断)`;
         }
+
+        onProgress?.({ type: 'tool_result', tool: tc.function.name, result: payload.slice(0, 200) });
 
         return { id: tc.id, payload };
       });

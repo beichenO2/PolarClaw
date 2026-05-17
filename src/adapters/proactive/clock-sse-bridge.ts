@@ -92,15 +92,29 @@ export function createClockSseBridge(
       if (stopped) return;
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('abort')) return;
-      console.error(`[ClockSSE] ${username} 断开: ${msg}`);
+      if (attempt <= 3) {
+        console.error(`[ClockSSE] ${username} 断开: ${msg}`);
+      }
     }
 
     if (stopped) return;
 
+    const nextAttempt = attempt + 1;
     const delay = Math.min(baseMs * 2 ** attempt, maxMs);
-    console.error(`[ClockSSE] ${username} 将在 ${delay / 1000}s 后重连 (attempt ${attempt + 1})`);
+
+    if (nextAttempt <= 3) {
+      console.error(`[ClockSSE] ${username} 将在 ${delay / 1000}s 后重连 (attempt ${nextAttempt})`);
+    } else if (nextAttempt === 4) {
+      console.error(`[ClockSSE] ${username} Clock 服务不可用，后续重连静默进行`);
+    }
+
+    if (nextAttempt > 100) {
+      console.error(`[ClockSSE] ${username} 连续 ${nextAttempt} 次失败，停止重连`);
+      return;
+    }
+
     await sleep(delay);
-    if (!stopped) connectUser(username, attempt + 1);
+    if (!stopped) connectUser(username, nextAttempt);
   }
 
   function handleEvent(

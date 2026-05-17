@@ -71,15 +71,15 @@ export const autoofficeHealth: IToolHandler = {
 export const autoofficeGenerateReport: IToolHandler = {
   name: 'autooffice_generate_report',
   description:
-    '生成专业报告。支持 5 种格式：pptx, pdf, docx, latex, html。' +
-    '传入结构化数据（含 title + sections），返回 base64 编码的文件内容。',
+    '生成专业报告。支持格式：pptx, pdf, docx, latex, latex-pdf, html。' +
+    '传入结构化数据（含 title + sections）。文件类格式自动保存到磁盘并返回路径。',
   parameters: {
     type: 'object',
     properties: {
       format: {
         type: 'string',
         enum: ['pptx', 'pdf', 'docx', 'latex', 'latex-pdf', 'html'],
-        description: '输出格式。latex-pdf = LaTeX 编译为 PDF（适合学术论文如 CVPR）',
+        description: '输出格式。latex-pdf = LaTeX 编译为 PDF',
       },
       data: {
         type: 'object',
@@ -87,10 +87,14 @@ export const autoofficeGenerateReport: IToolHandler = {
       },
       template: { type: 'string', description: '自定义 HTML 模板（可选）' },
       locale: { type: 'string', description: '语言地区（默认 zh-CN）' },
+      output_path: { type: 'string', description: '输出路径（默认 ~/Desktop/report.{ext}）' },
     },
     required: ['format', 'data'],
   },
   async handler(args) {
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    const { dirname, resolve } = await import('node:path');
+
     const format = String(args.format ?? 'html');
     const body: Record<string, unknown> = {
       format,
@@ -102,10 +106,22 @@ export const autoofficeGenerateReport: IToolHandler = {
     const result = await aoFetch<Record<string, unknown>>('/api/generate', {
       method: 'POST',
       body,
-      timeoutMs: 60000,
+      timeoutMs: 120000,
     });
 
     if (!result.ok) return { error: result.error };
+
+    const b64 = (result.data as any).content ?? (result.data as any).file;
+    const extMap: Record<string, string> = { pptx: 'pptx', pdf: 'pdf', docx: 'docx', latex: 'tex', 'latex-pdf': 'pdf', html: 'html' };
+    const ext = extMap[format] ?? format;
+
+    if (typeof b64 === 'string' && b64.length > 100 && format !== 'html') {
+      const outPath = resolve(String(args.output_path ?? `${process.env.HOME}/Desktop/report.${ext}`));
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, Buffer.from(b64, 'base64'));
+      return { format, saved: true, path: outPath, sizeBytes: Buffer.from(b64, 'base64').length };
+    }
+
     return { format, ...result.data };
   },
 };
@@ -254,8 +270,8 @@ export const autoofficeBatchGenerate: IToolHandler = {
 export const autoofficeGeneratePaper: IToolHandler = {
   name: 'autooffice_generate_paper',
   description:
-    '生成学术论文（如 CVPR、NeurIPS 格式）。使用 LaTeX 编译为 PDF。' +
-    '传入论文数据（title, abstract, sections, references），返回 PDF。',
+    '生成学术论文 PDF。使用 LaTeX 编译。' +
+    '传入论文数据，自动保存 PDF 到指定路径并返回文件路径。',
   parameters: {
     type: 'object',
     properties: {
@@ -263,24 +279,37 @@ export const autoofficeGeneratePaper: IToolHandler = {
         type: 'object',
         description: '论文数据：{ title, abstract, sections: [{heading, body, math?}], references?: string[], latex?: { theme?, toc? } }',
       },
-      locale: { type: 'string', description: '语言（默认 en-US）' },
+      locale: { type: 'string', description: '语言（默认 zh-CN）' },
+      output_path: { type: 'string', description: '输出 PDF 路径（默认 ~/Desktop/paper.pdf）' },
     },
     required: ['data'],
   },
   async handler(args) {
+    const { writeFileSync, mkdirSync } = await import('node:fs');
+    const { dirname, resolve } = await import('node:path');
+
     const paperData = args.data as Record<string, unknown>;
     const body: Record<string, unknown> = {
       format: 'latex-pdf',
       data: paperData,
-      locale: args.locale ?? 'en-US',
+      locale: args.locale ?? 'zh-CN',
     };
     const result = await aoFetch<Record<string, unknown>>('/api/generate', {
       method: 'POST',
       body,
-      timeoutMs: 120000,
+      timeoutMs: 180000,
     });
     if (!result.ok) return { error: result.error };
-    return { format: 'latex-pdf', ...result.data };
+
+    const b64 = (result.data as any).content ?? (result.data as any).file;
+    if (typeof b64 === 'string' && b64.length > 100) {
+      const outPath = resolve(String(args.output_path ?? `${process.env.HOME}/Desktop/paper.pdf`));
+      mkdirSync(dirname(outPath), { recursive: true });
+      writeFileSync(outPath, Buffer.from(b64, 'base64'));
+      return { format: 'latex-pdf', saved: true, path: outPath, sizeBytes: Buffer.from(b64, 'base64').length };
+    }
+
+    return { format: 'latex-pdf', ...result.data, note: 'base64 content returned but could not auto-save' };
   },
 };
 

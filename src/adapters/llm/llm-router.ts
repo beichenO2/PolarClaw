@@ -14,6 +14,7 @@
 
 import type { ILLMRouter, ILLMResponse, ILLMOptions, IntentType } from '../../ports/llm.js';
 import type { IChatMessage, IToolCall } from '../../ports/memory.js';
+import { resolveModel as resolveByCode, intentToCode } from '../../sdk/llm-proxy.js';
 
 /** 单个 Provider 的配置 */
 export interface IProviderConfig {
@@ -265,14 +266,8 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   return {
     resolveModel(messages) {
       const intent = detectIntent(messages);
-      for (let i = 0; i < providers.length; i++) {
-        if (isAvailable(i)) {
-          const models = providers[i]!.models;
-          return { model: models[intent] ?? models.general, intent };
-        }
-      }
-      const models = providers[0]!.models;
-      return { model: models[intent] ?? models.general, intent };
+      const resolved = resolveByCode(intentToCode(intent));
+      return { model: resolved.model, intent };
     },
 
     async chat(messages, options = {}) {
@@ -285,7 +280,9 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           if (!isAvailable(i)) continue;
 
           const provider = providers[i]!;
-          const model = options.model ?? (provider.models[intent] ?? provider.models.general);
+          const model = options.model
+            ?? (options.capability ? resolveByCode(options.capability).model : null)
+            ?? resolveByCode(intentToCode(intent)).model;
 
           try {
             let result: ILLMResponse | null = null;

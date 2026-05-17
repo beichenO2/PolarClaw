@@ -236,6 +236,25 @@ async function main() {
     { llm, memory, conversations, tools, privacy, compressor },
   );
 
+  // YOLO 自主执行引擎（强制所有任务走 YOLO 循环）
+  const { createYoloEngine } = await import('../yolo/engine.js');
+  const { createRecoveryStrategy } = await import('../yolo/recovery.js');
+  const yoloEngine = createYoloEngine({
+    agent,
+    recovery: createRecoveryStrategy(),
+    onStepComplete: (step, session) => {
+      console.error(`[YOLO] 步骤 ${step.step}/${session.stepsCompleted} 完成 (${step.tokensUsed} tokens)`);
+    },
+    onEscalate: (_sessionId, message) => {
+      console.error(`[YOLO] 需要用户介入: ${message}`);
+    },
+    async onAlignmentCheck(_sessionId, plan) {
+      console.error(`[YOLO] 对齐计划:\n${plan.slice(0, 500)}`);
+      console.error('[YOLO] 自动确认（feishu-simulate 模式）');
+      return true; // 模拟模式自动确认
+    },
+  });
+
   // 模拟飞书消息处理流程
   const channelName = `feishu:${args.bot}`;
   const convId = `${channelName}:${resolvedUserId}`;
@@ -249,12 +268,25 @@ async function main() {
   tools.setContext(resolvedUserId, convId);
 
   try {
-    const result = await agent.handleMessage(channelName, resolvedUserId, args.text, convId);
-    console.log(`\nPolarClaw> ${result.text}\n`);
+    // 通过 YOLO 引擎执行（强制 Plan → Execute 循环）
+    const yoloResult = await yoloEngine.run(
+      {
+        projectId: 'feishu-simulate',
+        goal: args.text,
+        maxSteps: 20,
+        maxTotalTokens: 5000000,
+        maxWallTimeMs: 2000000,
+        maxRetries: 5,
+      },
+      { channel: channelName, userId: resolvedUserId, conversationId: convId, projectId: 'feishu-simulate' },
+    );
 
-    if (result.usage) {
-      console.error(`[feishu-simulate] tokens: prompt=${result.usage.promptTokens} completion=${result.usage.completionTokens} total=${result.usage.totalTokens}`);
-    }
+    const resultText = yoloResult.status === 'completed'
+      ? `[YOLO 完成] ${yoloResult.steps.length} 步执行完毕\n\n${yoloResult.steps[yoloResult.steps.length - 1]?.text ?? ''}`
+      : `[YOLO ${yoloResult.status}] ${yoloResult.stopReason ?? ''}`;
+
+    console.log(`\nPolarClaw> ${resultText}\n`);
+    console.error(`[feishu-simulate] YOLO 统计: ${yoloResult.stepsCompleted} 步, ${yoloResult.totalTokensUsed} tokens, ${Math.round(yoloResult.elapsedMs / 1000)}s`);
   } catch (err) {
     console.error('[feishu-simulate] 处理失败:', err);
     process.exit(1);

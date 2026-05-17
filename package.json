@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -b",
     "dev": "tsx watch src/main.ts",
-    "start": "bash -lc 'if [ -s \"$HOME/.nvm/nvm.sh\" ]; then source \"$HOME/.nvm/nvm.sh\" && nvm use --silent; fi; node dist/main.js'",
+    "start": "node dist/main.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "feishu:simulate": "tsx src/adapters/channel/feishu-simulate.ts",
@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.60.0",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^12.10.0",
     "eventsource": "^4.1.0",
     "express": "^5.2.1",
     "multer": "^2.1.1"

@@ -300,11 +300,14 @@ export class SessionMemoryManager {
       : Math.ceil(messages.length * (1 - this.partialEvictPercentage));
     session.working = messages.slice(-retainCount);
 
-    // 序列化并确保不超过 20K
+    // 序列化并确保不超过 20K (hard limit: 50 iterations to prevent infinite loop)
     let result = serializeSessionMemory(session);
-    while (result.length > this.maxCompressedChars) {
+    let shrinkAttempts = 0;
+    while (result.length > this.maxCompressedChars && shrinkAttempts < 50) {
+      shrinkAttempts++;
+      const prevLen = result.length;
+
       if (session.episodic.length > 1) {
-        // 逐步截断最老的情景记忆摘要
         const oldest = session.episodic[0];
         if (oldest && oldest.summary.length > 100) {
           oldest.summary = middleTruncate(oldest.summary, Math.floor(oldest.summary.length * 0.5));
@@ -312,14 +315,15 @@ export class SessionMemoryManager {
           session.episodic.shift();
         }
       } else {
-        // 只剩1条时直接截断该摘要
         const only = session.episodic[0];
         if (only) {
-          const budget = this.maxCompressedChars - 200; // 留给 JSON 结构开销
+          const budget = this.maxCompressedChars - 200;
           only.summary = middleTruncate(only.summary, Math.max(100, budget));
         }
       }
       result = serializeSessionMemory(session);
+
+      if (result.length >= prevLen) break;
     }
 
     // Persist to SQLite after compression

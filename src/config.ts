@@ -115,10 +115,10 @@ export function loadConfig(): IPolarClawConfig {
         baseUrl: fbUrl,
         apiKey: fbKey,
         models: {
-          coding: pcEnv(`FALLBACK_${i}_MODEL_CODING`, pcEnv('MODEL_CODING', 'qwen3-coder-plus')),
+          coding: pcEnv(`FALLBACK_${i}_MODEL_CODING`, pcEnv('MODEL_CODING', 'GLM-5.1')),
           research: pcEnv(`FALLBACK_${i}_MODEL_RESEARCH`, pcEnv('MODEL_RESEARCH', 'qwen3.6-plus')),
-          vision: pcEnv(`FALLBACK_${i}_MODEL_VISION`, pcEnv('MODEL_VISION', 'qwen3.6-plus')),
-          general: pcEnv(`FALLBACK_${i}_MODEL_GENERAL`, pcEnv('MODEL_GENERAL', 'qwen3.6-plus')),
+          vision: pcEnv(`FALLBACK_${i}_MODEL_VISION`, pcEnv('MODEL_VISION', 'GLM-5.1')),
+          general: pcEnv(`FALLBACK_${i}_MODEL_GENERAL`, pcEnv('MODEL_GENERAL', 'MiniMax-M2.7-highspeed')),
         },
       });
     }
@@ -130,16 +130,16 @@ export function loadConfig(): IPolarClawConfig {
       baseUrl: pcEnv('LLM_BASE_URL', defaultV1Url),
       apiKey,
       models: {
-        coding: pcEnv('MODEL_CODING', 'qwen3-coder-plus'),
+        coding: pcEnv('MODEL_CODING', 'GLM-5.1'),
         research: pcEnv('MODEL_RESEARCH', 'qwen3.6-plus'),
-        vision: pcEnv('MODEL_VISION', 'qwen3.6-plus'),
-        general: pcEnv('MODEL_GENERAL', 'qwen3.6-plus'),
+        vision: pcEnv('MODEL_VISION', 'GLM-5.1'),
+        general: pcEnv('MODEL_GENERAL', 'MiniMax-M2.7-highspeed'),
       },
       temperature: Number(pcEnv('TEMPERATURE', '0.7')),
       maxTokens: Number(pcEnv('MAX_TOKENS', '4096')),
       maxToolRounds: Number(pcEnv('MAX_TOOL_ROUNDS', '0')),
       fallbackProviders,
-      requestTimeoutMs: Number(pcEnv('LLM_TIMEOUT_MS', '120000')),
+      requestTimeoutMs: Number(pcEnv('LLM_TIMEOUT_MS', '300000')),
       concurrencyLimit: Number(pcEnv('LLM_CONCURRENCY', '5')),
     },
     memory: {

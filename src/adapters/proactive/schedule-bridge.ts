@@ -109,7 +109,9 @@ export function createScheduleBridge(
       return parseScheduleResponse(data);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      console.error(`[ScheduleBridge] 拉取日程失败: ${msg}`);
+      if (!msg.includes('Unexpected token') && !msg.includes('abort') && !msg.includes('ECONNREFUSED')) {
+        console.error(`[ScheduleBridge] 拉取日程失败: ${msg}`);
+      }
       return [];
     }
   }

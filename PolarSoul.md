@@ -63,7 +63,7 @@
 - 飞书入口 → 对话式交互，支持群聊上下文
 - CLI 入口 → 命令式交互，适合开发者快速操作
 - Web 入口 → 可视化交互，Dashboard + 审阅界面
-- IDE 入口 → 代码感知交互，PolarCopilot 集成
+- IDE 入口 → 代码感知交互，PolarCopilot polarcop-vscode 插件调用 PolarClaw API
 - API 入口 → 程序化交互，SDK/自动化调用
 
 ### Why Self-learning
@@ -90,4 +90,4 @@
 | **digist** | 作为 PolarClaw 的内容聚合 Skill 接入 |
 | **AutoOffice** | 作为 PolarClaw 的文档生成 Skill 接入 |
 | **PolarPilot** | 作为 PolarClaw 的内置规划-执行 Skill 运行 |
-| **PolarCopilot** | 作为 PolarClaw 的 IDE 集成模块运行 |
+| **PolarCopilot** | Hub Web 和 polarcop-vscode 插件通过 HTTP API 消费 PolarClaw Agent 能力 |

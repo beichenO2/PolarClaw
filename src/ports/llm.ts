@@ -28,6 +28,8 @@ export interface ILLMResponse {
 /** 模型调用选项 */
 export interface ILLMOptions {
   model?: string;
+  /** 3-bit capability code (QCS): overrides model if set. E.g. '100' = quality, '001' = fast */
+  capability?: string;
   temperature?: number;
   maxTokens?: number;
   tools?: IToolDefinition[];

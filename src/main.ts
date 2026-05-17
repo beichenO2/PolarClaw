@@ -7,7 +7,7 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { loadConfig, loadEnvFileEarly } from './config.js';
-import { createAgent } from './core/agent.js';
+import { createAgent, type AgentProgressEvent } from './core/agent.js';
 import { createSqliteMemoryStore } from './adapters/memory/sqlite-store.js';
 import { createPersistentConversation } from './adapters/memory/persistent-conversation.js';
 import { createLLMRouter } from './adapters/llm/llm-router.js';
@@ -515,32 +515,48 @@ async function main() {
 
   async function handleChannelMessage(msg: { channel: string; userId: string; text: string }) {
     const convId = `${msg.channel}:${msg.userId}`;
+    console.error(`[handleChannelMessage] start: convId=${convId}`);
     const possibleCorrection = maybeCorrecting(msg.text);
     const prevReply = lastAssistantReply.get(convId) ?? '';
 
-    const prev = userLocks.get(convId) ?? Promise.resolve();
-    const current = prev.then(async () => {
+    try {
       tools.setContext(msg.userId, convId);
-      return agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
-    }).catch((err) => {
-      console.error(`[PolarClaw] handleChannelMessage error for ${convId}:`, err);
-      return { text: '抱歉，处理消息时出错了，请稍后再试。' };
-    });
-
-    userLocks.set(convId, current);
-    current.finally(() => {
-      if (userLocks.get(convId) === current) userLocks.delete(convId);
-    });
-
-    const result = await current;
-    lastAssistantReply.set(convId, result.text);
+      console.error(`[handleChannelMessage] calling agent.handleMessage`);
+      const result = await agent.handleMessage(msg.channel, msg.userId, msg.text, convId);
+      console.error(`[handleChannelMessage] agent returned: textLen=${result.text.length}`);
+      lastAssistantReply.set(convId, result.text);
 
     // 后台纠正分析（异步，不阻塞响应返回、不污染主对话）
-    if (possibleCorrection && prevReply) {
-      analyzeCorrection(msg.userId, msg.text, prevReply).catch(() => {});
-    }
+      if (possibleCorrection && prevReply) {
+        analyzeCorrection(msg.userId, msg.text, prevReply).catch(() => {});
+      }
 
-    return result.text;
+      return result.text;
+    } catch (err) {
+      console.error(`[handleChannelMessage] error:`, err);
+      return '抱歉，处理消息时出错了，请稍后再试。';
+    }
+  }
+
+  async function handleChannelMessageStream(
+    msg: { channel: string; userId: string; text: string },
+    onProgress: (event: AgentProgressEvent) => void,
+  ) {
+    const convId = `${msg.channel}:${msg.userId}`;
+    console.error(`[handleChannelMessageStream] start convId=${convId}`);
+    try {
+      tools.setContext(msg.userId, convId);
+      console.error(`[handleChannelMessageStream] calling agent.handleMessage`);
+      const result = await agent.handleMessage(
+        msg.channel, msg.userId, msg.text, convId, undefined, onProgress,
+      );
+      console.error(`[handleChannelMessageStream] agent returned, textLen=${result.text.length}`);
+      lastAssistantReply.set(convId, result.text);
+      return result.text;
+    } catch (err) {
+      console.error(`[handleChannelMessageStream] error:`, err);
+      return '抱歉，处理消息时出错了，请稍后再试。';
+    }
   }
 
   // 主动关怀引擎
@@ -841,6 +857,7 @@ async function main() {
     llm,
     memoryStore: memory,
     agentHandler: handleChannelMessage,
+    agentHandlerStream: handleChannelMessageStream,
     yoloEngine,
     sdk: polarClawSDK,
   });
@@ -968,8 +985,8 @@ async function main() {
     }
   }
 
-  if (config.channels.cli && process.stdin.isTTY) {
-    const cli = createCLIAdapter({ userId: 'admin' });
+  if (config.channels.cli && (process.stdin.isTTY || process.env.FORCE_CLI === '1')) {
+    const cli = createCLIAdapter({ userId: process.env.POLARCLAW_CLI_USER || 'admin' });
     cli.onMessage(async (msg) => handleChannelMessage(msg));
     await cli.start();
     channels.push(cli);
