@@ -12,32 +12,12 @@ import { fileURLToPath } from 'node:url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, '..');
 
-export interface IProviderEntry {
-  baseUrl: string;
-  apiKey: string;
-  models: {
-    coding: string;
-    research: string;
-    vision: string;
-    general: string;
-  };
-}
-
 export interface IPolarClawConfig {
   projectRoot: string;
   llm: {
-    baseUrl: string;
-    apiKey: string;
-    models: {
-      coding: string;
-      research: string;
-      vision: string;
-      general: string;
-    };
     temperature: number;
     maxTokens: number;
     maxToolRounds: number;
-    fallbackProviders: IProviderEntry[];
     requestTimeoutMs: number;
     concurrencyLimit: number;
   };
@@ -97,48 +77,12 @@ function pcEnv(suffix: string, fallback = ''): string {
 export function loadConfig(): IPolarClawConfig {
   loadEnvFile(join(ROOT, '.env'));
 
-  const ppUrl = env('POLARPRIVATE_URL', 'http://127.0.0.1:12790');
-  const defaultV1Url = `${ppUrl}/v1`;
-  const apiKey = pcEnv('LLM_API_KEY') || env('DASHSCOPE_API_KEY') || 'proxy-managed';
-  if (apiKey === 'proxy-managed' && pcEnv('LLM_BASE_URL')) {
-    // Custom base URL with proxy-managed key — valid proxy override
-  } else if (apiKey === 'proxy-managed') {
-    console.log('[Config] No API key found, defaulting to PolarPrivate /v1 gateway');
-  }
-
-  const fallbackProviders: IProviderEntry[] = [];
-  for (let i = 1; i <= 5; i++) {
-    const fbUrl = pcEnv(`FALLBACK_${i}_URL`);
-    const fbKey = pcEnv(`FALLBACK_${i}_KEY`);
-    if (fbUrl && fbKey) {
-      fallbackProviders.push({
-        baseUrl: fbUrl,
-        apiKey: fbKey,
-        models: {
-          coding: pcEnv(`FALLBACK_${i}_MODEL_CODING`, pcEnv('MODEL_CODING', 'GLM-5.1')),
-          research: pcEnv(`FALLBACK_${i}_MODEL_RESEARCH`, pcEnv('MODEL_RESEARCH', 'qwen3.6-plus')),
-          vision: pcEnv(`FALLBACK_${i}_MODEL_VISION`, pcEnv('MODEL_VISION', 'GLM-5.1')),
-          general: pcEnv(`FALLBACK_${i}_MODEL_GENERAL`, pcEnv('MODEL_GENERAL', 'MiniMax-M2.7-highspeed')),
-        },
-      });
-    }
-  }
-
   const config: IPolarClawConfig = {
     projectRoot: ROOT,
     llm: {
-      baseUrl: pcEnv('LLM_BASE_URL', defaultV1Url),
-      apiKey,
-      models: {
-        coding: pcEnv('MODEL_CODING', 'GLM-5.1'),
-        research: pcEnv('MODEL_RESEARCH', 'qwen3.6-plus'),
-        vision: pcEnv('MODEL_VISION', 'GLM-5.1'),
-        general: pcEnv('MODEL_GENERAL', 'MiniMax-M2.7-highspeed'),
-      },
       temperature: Number(pcEnv('TEMPERATURE', '0.7')),
       maxTokens: Number(pcEnv('MAX_TOKENS', '4096')),
       maxToolRounds: Number(pcEnv('MAX_TOOL_ROUNDS', '0')),
-      fallbackProviders,
       requestTimeoutMs: Number(pcEnv('LLM_TIMEOUT_MS', '300000')),
       concurrencyLimit: Number(pcEnv('LLM_CONCURRENCY', '5')),
     },

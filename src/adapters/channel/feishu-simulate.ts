@@ -130,12 +130,8 @@ async function main() {
     maxTokens: config.memory.maxTokens,
   });
   const llm = createLLMRouter({
-    baseUrl: config.llm.baseUrl,
-    apiKey: config.llm.apiKey,
-    models: config.llm.models,
     defaultTemperature: config.llm.temperature,
     defaultMaxTokens: config.llm.maxTokens,
-    fallbackProviders: config.llm.fallbackProviders,
     requestTimeoutMs: config.llm.requestTimeoutMs,
     concurrencyLimit: config.llm.concurrencyLimit,
   });
@@ -192,7 +188,7 @@ async function main() {
         if (!existsSync(p)) continue;
         let raw = readFileSync(p, 'utf8');
         if (raw.includes('{{llm_model}}')) {
-          raw = raw.replace(/\{\{llm_model\}\}/g, config.llm.models.general ?? 'qwen3.6-plus');
+          raw = raw.replace(/\{\{llm_model\}\}/g, 'capability-based (QCS)');
         }
         if (raw.includes('{{capabilities}}')) {
           const caps = [

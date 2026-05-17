@@ -1,55 +1,17 @@
 /**
  * LLM 路由器适配器
  *
- * 支持所有兼容 Chat Completions API 的服务商：
- * - 阿里云百炼 Coding Plan
- * - 本地 llama-server (llama.cpp)
- * - 其他兼容服务商
+ * 通过 LLM Proxy SDK 与 PolarPrivate 通信。
+ * 调用方只传 capability code（QCS），不传模型名。
+ * 模型选择权完全在 LLM Proxy 侧。
  *
- * 三层弹性 Provider Fallback：主模型 → 备用 → 降级
- * 每层带独立健康状态追踪（半开熔断器），避免持续请求已知不可用的 Provider。
- *
- * 包含意图路由：根据消息内容选择最合适的模型。
+ * 保留意图检测：自动将 intent 映射为 capability code，
+ * 也支持调用方直接指定 capability code。
  */
 
 import type { ILLMRouter, ILLMResponse, ILLMOptions, IntentType } from '../../ports/llm.js';
 import type { IChatMessage, IToolCall } from '../../ports/memory.js';
-import { resolveModel as resolveByCode, intentToCode } from '../../sdk/llm-proxy.js';
-
-/** 单个 Provider 的配置 */
-export interface IProviderConfig {
-  baseUrl: string;
-  apiKey: string;
-  models: Record<IntentType, string>;
-}
-
-export interface ILLMConfig {
-  baseUrl: string;
-  apiKey: string;
-  models: Record<IntentType, string>;
-  /** 默认温度 */
-  defaultTemperature?: number;
-  /** 默认最大 token */
-  defaultMaxTokens?: number;
-  /** 备用 Provider 列表（按优先级排序） */
-  fallbackProviders?: IProviderConfig[];
-  /** 单个 Provider 连续失败多少次后熔断（默认 3） */
-  circuitBreakerThreshold?: number;
-  /** 熔断后多少 ms 后尝试半开恢复（默认 60s） */
-  circuitBreakerCooldownMs?: number;
-  /** 单次请求超时 ms（默认 60s） */
-  requestTimeoutMs?: number;
-  /** 最大并发 LLM 请求数（默认 5） */
-  concurrencyLimit?: number;
-}
-
-/** Provider 健康状态（简化的半开熔断器） */
-interface IProviderHealth {
-  consecutiveFailures: number;
-  lastFailureAt: number;
-  /** closed=正常, open=熔断, half-open=尝试恢复 */
-  state: 'closed' | 'open' | 'half-open';
-}
+import { createLLMClient, intentToCode, normalizeCode, type LLMProxyClient } from '../../sdk/llm-proxy.js';
 
 /** 意图检测正则 */
 const INTENT_HINTS: Array<{ pattern: RegExp; intent: IntentType }> = [
@@ -61,125 +23,27 @@ const INTENT_HINTS: Array<{ pattern: RegExp; intent: IntentType }> = [
 function detectIntent(messages: IChatMessage[]): IntentType {
   const lastUser = [...messages].reverse().find(m => m.role === 'user');
   if (!lastUser) return 'general';
-
   for (const { pattern, intent } of INTENT_HINTS) {
     if (pattern.test(lastUser.content)) return intent;
   }
   return 'general';
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function retryDelayFromError(message: string): number | null {
-  if (!message.includes('LLM API error 429')) return null;
-
-  const jsonStart = message.indexOf('{');
-  if (jsonStart >= 0) {
-    try {
-      const payload = JSON.parse(message.slice(jsonStart)) as { retry_after_seconds?: unknown };
-      const seconds = Number(payload.retry_after_seconds);
-      if (Number.isFinite(seconds) && seconds > 0) {
-        return Math.min(seconds * 1000, 120_000);
-      }
-    } catch { /* fall back to header text below */ }
-  }
-
-  const match = message.match(/retry[_ -]?after[_ -]?seconds["']?\s*[:=]\s*(\d+)/i);
-  if (match) return Math.min(Number(match[1]) * 1000, 120_000);
-  return 60_000;
-}
-
-/** 向单个 Provider 发起请求 */
-async function callProvider(
-  provider: IProviderConfig,
-  messages: IChatMessage[],
-  model: string,
-  options: ILLMOptions,
-  defaultTemp: number,
-  defaultMaxTokens: number,
-  timeoutMs: number,
-): Promise<ILLMResponse> {
-  const startMs = Date.now();
-
-  const body: Record<string, unknown> = {
-    model,
-    messages: messages.map(m => {
-      const msg: Record<string, unknown> = { role: m.role, content: m.content };
-      if (m.toolCalls?.length) msg.tool_calls = m.toolCalls;
-      if (m.toolCallId) msg.tool_call_id = m.toolCallId;
-      return msg;
-    }),
-    temperature: options.temperature ?? defaultTemp,
-    max_tokens: options.maxTokens ?? defaultMaxTokens,
-  };
-
-  if (options.append_system_prompt) {
-    body.append_system_prompt = options.append_system_prompt;
-  }
-
-  if (options.tools?.length) {
-    body.tools = options.tools;
-    body.tool_choice = options.toolChoice ?? 'auto';
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
-    if (provider.apiKey && provider.apiKey !== 'proxy-managed') {
-      headers['Authorization'] = `Bearer ${provider.apiKey}`;
-    }
-
-    const res = await fetch(`${provider.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) {
-      const errText = await res.text().catch(() => '');
-      throw new Error(`LLM API error ${res.status}: ${errText.slice(0, 500)}`);
-    }
-
-    const data = await res.json() as {
-      choices: Array<{
-        message: {
-          content: string | null;
-          tool_calls?: Array<{
-            id: string;
-            function: { name: string; arguments: string };
-          }>;
-        };
-      }>;
-      usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-    };
-
-    const choice = data.choices?.[0]?.message;
-    const toolCalls: IToolCall[] = (choice?.tool_calls ?? []).map(tc => ({
-      id: tc.id,
-      function: { name: tc.function.name, arguments: tc.function.arguments },
-    }));
-
-    return {
-      content: choice?.content ?? null,
-      toolCalls,
-      usage: data.usage ? {
-        promptTokens: data.usage.prompt_tokens,
-        completionTokens: data.usage.completion_tokens,
-        totalTokens: data.usage.total_tokens,
-      } : undefined,
-      model,
-      latencyMs: Date.now() - startMs,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
+export interface ILLMConfig {
+  /** @deprecated — ignored, SDK hardcodes LLM Proxy address */
+  baseUrl?: string;
+  /** @deprecated — ignored, LLM Proxy manages keys */
+  apiKey?: string;
+  /** @deprecated — ignored, model selection is proxy-side */
+  models?: Record<IntentType, string>;
+  defaultTemperature?: number;
+  defaultMaxTokens?: number;
+  /** @deprecated — single gateway, no fallback needed */
+  fallbackProviders?: unknown[];
+  requestTimeoutMs?: number;
+  concurrencyLimit?: number;
+  circuitBreakerThreshold?: number;
+  circuitBreakerCooldownMs?: number;
 }
 
 class Semaphore {
@@ -203,133 +67,60 @@ class Semaphore {
     const next = this.queue.shift();
     if (next) next();
   }
-
-  get pending(): number { return this.queue.length; }
-  get running(): number { return this.active; }
 }
 
 export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const defaultTemp = config.defaultTemperature ?? 0.7;
   const defaultMaxTokens = config.defaultMaxTokens ?? 4096;
-  const cbThreshold = config.circuitBreakerThreshold ?? 3;
-  const cbCooldownMs = config.circuitBreakerCooldownMs ?? 60_000;
-  const requestTimeoutMs = config.requestTimeoutMs ?? 60_000;
-
+  const requestTimeoutMs = config.requestTimeoutMs ?? 300_000;
   const concurrencyLimit = config.concurrencyLimit ?? 5;
   const semaphore = new Semaphore(concurrencyLimit);
 
-  // 构建 Provider 链：主 → 备用们
-  const providers: IProviderConfig[] = [
-    { baseUrl: config.baseUrl, apiKey: config.apiKey, models: config.models },
-    ...(config.fallbackProviders ?? []),
-  ];
-
-  // 每个 Provider 的健康状态
-  const healthMap = new Map<number, IProviderHealth>();
-  for (let i = 0; i < providers.length; i++) {
-    healthMap.set(i, { consecutiveFailures: 0, lastFailureAt: 0, state: 'closed' });
-  }
-
-  /** 判断 Provider 当前是否可用 */
-  function isAvailable(idx: number): boolean {
-    const h = healthMap.get(idx)!;
-    if (h.state === 'closed') return true;
-    if (h.state === 'open') {
-      // 冷却期过后进入半开状态
-      if (Date.now() - h.lastFailureAt >= cbCooldownMs) {
-        h.state = 'half-open';
-        return true;
-      }
-      return false;
-    }
-    // half-open: 允许一次尝试
-    return true;
-  }
-
-  /** 记录成功：重置熔断器 */
-  function recordSuccess(idx: number): void {
-    const h = healthMap.get(idx)!;
-    h.consecutiveFailures = 0;
-    h.state = 'closed';
-  }
-
-  /** 记录失败：可能触发熔断 */
-  function recordFailure(idx: number): void {
-    const h = healthMap.get(idx)!;
-    h.consecutiveFailures++;
-    h.lastFailureAt = Date.now();
-    if (h.consecutiveFailures >= cbThreshold) {
-      h.state = 'open';
-    }
-  }
+  const client: LLMProxyClient = createLLMClient();
 
   return {
     resolveModel(messages) {
       const intent = detectIntent(messages);
-      const resolved = resolveByCode(intentToCode(intent));
-      return { model: resolved.model, intent };
+      const code = intentToCode(intent);
+      return { model: `capability:${code}`, intent };
     },
 
     async chat(messages, options = {}) {
       await semaphore.acquire();
       try {
         const intent = detectIntent(messages);
-        const errors: Array<{ provider: number; error: string }> = [];
+        const capability = options.capability
+          ?? intentToCode(intent);
 
-        for (let i = 0; i < providers.length; i++) {
-          if (!isAvailable(i)) continue;
+        const formattedMessages = messages.map(m => {
+          const msg: Record<string, unknown> = { role: m.role, content: m.content };
+          if (m.toolCalls?.length) msg.tool_calls = m.toolCalls;
+          if (m.toolCallId) msg.tool_call_id = m.toolCallId;
+          return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string };
+        });
 
-          const provider = providers[i]!;
-          const model = options.model
-            ?? (options.capability ? resolveByCode(options.capability).model : null)
-            ?? resolveByCode(intentToCode(intent)).model;
+        const result = await client.chat(formattedMessages, {
+          capability: normalizeCode(capability),
+          temperature: options.temperature ?? defaultTemp,
+          maxTokens: options.maxTokens ?? defaultMaxTokens,
+          tools: options.tools,
+          toolChoice: options.toolChoice,
+          append_system_prompt: options.append_system_prompt,
+          timeoutMs: requestTimeoutMs,
+        });
 
-          try {
-            let result: ILLMResponse | null = null;
-            let lastRateLimitError: string | null = null;
+        const toolCalls: IToolCall[] = result.toolCalls.map(tc => ({
+          id: tc.id,
+          function: { name: tc.function.name, arguments: tc.function.arguments },
+        }));
 
-            for (let attempt = 0; attempt < 3; attempt++) {
-              try {
-                result = await callProvider(
-                  provider, messages, model, options,
-                  defaultTemp, defaultMaxTokens, requestTimeoutMs,
-                );
-                break;
-              } catch (err) {
-                const errMsg = err instanceof Error ? err.message : String(err);
-                const retryDelayMs = retryDelayFromError(errMsg);
-                if (retryDelayMs == null || attempt >= 2) throw err;
-
-                lastRateLimitError = errMsg;
-                console.error(
-                  `[LLM Retry] Provider #${i} rate limited; retrying in ${Math.round(retryDelayMs / 1000)}s` +
-                  ` (attempt ${attempt + 2}/3)`
-                );
-                await sleep(retryDelayMs);
-              }
-            }
-
-            if (!result) {
-              throw new Error(lastRateLimitError ?? 'LLM provider returned no result');
-            }
-
-            recordSuccess(i);
-
-            if (i > 0) {
-              console.error(`[LLM Fallback] 使用备用 Provider #${i} (${provider.baseUrl}) 成功`);
-            }
-
-            return result;
-          } catch (err) {
-            recordFailure(i);
-            const errMsg = err instanceof Error ? err.message : String(err);
-            errors.push({ provider: i, error: errMsg });
-            console.error(`[LLM Fallback] Provider #${i} (${provider.baseUrl}) 失败: ${errMsg}`);
-          }
-        }
-
-        const summary = errors.map(e => `#${e.provider}: ${e.error}`).join(' | ');
-        throw new Error(`所有 LLM Provider 均不可用: ${summary}`);
+        return {
+          content: result.content,
+          toolCalls,
+          usage: result.usage,
+          model: result.model,
+          latencyMs: result.latencyMs,
+        };
       } finally {
         semaphore.release();
       }

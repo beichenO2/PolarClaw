@@ -1,54 +1,31 @@
 /**
  * LLM Proxy SDK — Capability-Level Based Model Selection
  *
+ * 设计原则：调用方只描述需求档次（capability code），不选模型。
+ * 模型选择权完全归 LLM Proxy（PolarPrivate），调用方无权也无需知道
+ * 背后使用的具体模型名、供应商或 Base URL。
+ *
  * 3-bit capability code: QCS (Quality, Context, Speed)
  *   - Q (质量): 0 = 普通, 1 = 高质量
  *   - C (上下文): 0 = 标准 (~200K), 1 = 长上下文 (~1M)
  *   - S (速度): 0 = 普通, 1 = 高速
  *
- * 选取规则（最左位最重要）:
- *   - 1xx → GLM-5.1（质量最强，上下文/速度一般）
- *   - xx1 → MiniMax-M2.7-highspeed（高速响应）
- *   - 其他 → qwen3.6-plus（均衡选择）
- *
  * 调用方式:
- *   import { resolveModel, LLM_MODELS } from './llm-proxy.js';
- *   const model = resolveModel('100');  // GLM-5.1
- *   const model = resolveModel('001');  // MiniMax-M2.7-highspeed
- *   const model = resolveModel('010');  // qwen3.6-plus
+ *   import { createLLMClient } from './llm-proxy.js';
+ *   const llm = createLLMClient();
+ *   const result = await llm.chat(messages, { capability: '100' });
  */
 
-export const LLM_MODELS = {
-  quality: 'GLM-5.1',
-  balanced: 'qwen3.6-plus',
-  fast: 'MiniMax-M2.7-highspeed',
-} as const;
+const LLM_PROXY_BASE = 'http://127.0.0.1:12790';
+const LLM_PROXY_V1 = `${LLM_PROXY_BASE}/v1`;
 
 export type CapabilityCode = string; // 3-char binary like '000', '101', '111'
 
-export interface ResolvedModel {
-  model: string;
-  reason: string;
-  code: CapabilityCode;
-}
-
 /**
- * Resolve a 3-bit capability code to a concrete model name.
- *
- * @param code  3-char string of 0/1 — QCS (Quality, Context, Speed)
- * @returns     model name + selection reason
+ * Normalize a capability code to 3-char 0/1 string.
  */
-export function resolveModel(code: CapabilityCode): ResolvedModel {
-  const normalized = (code ?? '000').padEnd(3, '0').slice(0, 3);
-  const [q, _c, s] = normalized;
-
-  if (q === '1') {
-    return { model: LLM_MODELS.quality, reason: 'quality-first (Q=1)', code: normalized };
-  }
-  if (s === '1') {
-    return { model: LLM_MODELS.fast, reason: 'speed-first (S=1)', code: normalized };
-  }
-  return { model: LLM_MODELS.balanced, reason: 'balanced (default)', code: normalized };
+export function normalizeCode(code?: string): CapabilityCode {
+  return (code ?? '000').padEnd(3, '0').slice(0, 3).replace(/[^01]/g, '0');
 }
 
 /**
@@ -56,17 +33,110 @@ export function resolveModel(code: CapabilityCode): ResolvedModel {
  */
 export function intentToCode(intent: string): CapabilityCode {
   switch (intent) {
-    case 'coding': return '100';   // quality matters most
-    case 'research': return '010'; // long context for papers
-    case 'vision': return '100';   // quality for image analysis
+    case 'coding': return '100';
+    case 'research': return '010';
+    case 'vision': return '100';
     case 'general':
-    default: return '001';         // fast for chat
+    default: return '001';
   }
 }
 
+export interface LLMProxyRequestOptions {
+  capability?: CapabilityCode;
+  temperature?: number;
+  maxTokens?: number;
+  tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>;
+  toolChoice?: 'auto' | 'none' | 'required';
+  append_system_prompt?: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export interface LLMProxyResponse {
+  content: string | null;
+  toolCalls: Array<{ id: string; function: { name: string; arguments: string } }>;
+  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+  model: string;
+  latencyMs: number;
+}
+
+export interface LLMProxyClient {
+  chat(messages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>, options?: LLMProxyRequestOptions): Promise<LLMProxyResponse>;
+  healthCheck(): Promise<{ status: string; vault_unlocked: boolean }>;
+}
+
 /**
- * Convenience: resolve model from a legacy intent string.
+ * Create a client that talks to LLM Proxy (PolarPrivate).
+ * The client sends capability codes — the proxy decides which model to use.
+ *
+ * No Base URL config, no model names, no API keys needed by the caller.
  */
-export function resolveFromIntent(intent: string): ResolvedModel {
-  return resolveModel(intentToCode(intent));
+export function createLLMClient(): LLMProxyClient {
+  return {
+    async chat(messages, options = {}) {
+      const startMs = Date.now();
+      const capability = normalizeCode(options.capability);
+      const timeoutMs = options.timeoutMs ?? 300_000;
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      if (options.signal) {
+        options.signal.addEventListener('abort', () => controller.abort());
+      }
+
+      const body: Record<string, unknown> = {
+        messages,
+        temperature: options.temperature ?? 0.7,
+        max_tokens: options.maxTokens ?? 4096,
+        capability,
+      };
+      if (options.append_system_prompt) {
+        body.append_system_prompt = options.append_system_prompt;
+      }
+      if (options.tools?.length) {
+        body.tools = options.tools;
+        body.tool_choice = options.toolChoice ?? 'auto';
+      }
+
+      try {
+        const res = await fetch(`${LLM_PROXY_V1}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(`LLM Proxy error ${res.status}: ${errText.slice(0, 500)}`);
+        }
+
+        const data = await res.json() as {
+          choices: Array<{ message: { content: string | null; tool_calls?: Array<{ id: string; function: { name: string; arguments: string } }> } }>;
+          usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+          model?: string;
+        };
+
+        const choice = data.choices?.[0]?.message;
+        return {
+          content: choice?.content ?? null,
+          toolCalls: choice?.tool_calls ?? [],
+          usage: data.usage ? {
+            promptTokens: data.usage.prompt_tokens,
+            completionTokens: data.usage.completion_tokens,
+            totalTokens: data.usage.total_tokens,
+          } : undefined,
+          model: data.model ?? `capability:${capability}`,
+          latencyMs: Date.now() - startMs,
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+
+    async healthCheck() {
+      const res = await fetch(`${LLM_PROXY_BASE}/health`, { method: 'GET' });
+      return res.json() as Promise<{ status: string; vault_unlocked: boolean }>;
+    },
+  };
 }
