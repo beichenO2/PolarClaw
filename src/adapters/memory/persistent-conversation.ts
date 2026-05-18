@@ -87,6 +87,20 @@ export function createPersistentConversation(config: IPersistentConversationConf
     DELETE FROM conversations WHERE conversation_id = @conversationId
   `);
 
+  const listConvs = db.prepare(`
+    SELECT conversation_id,
+           COUNT(*) as msg_count,
+           MAX(created_at) as last_at,
+           (SELECT content FROM conversations c2
+            WHERE c2.conversation_id = conversations.conversation_id
+              AND c2.role IN ('user','assistant')
+            ORDER BY c2.seq DESC LIMIT 1) as preview
+    FROM conversations
+    GROUP BY conversation_id
+    ORDER BY MAX(created_at) DESC
+    LIMIT @limit
+  `);
+
   /** 将 DB 行转为 IChatMessage */
   function rowToMessage(row: {
     role: string; content: string;
@@ -184,6 +198,24 @@ export function createPersistentConversation(config: IPersistentConversationConf
         created_at: string;
       }>;
       return rows.reduce((sum, r) => sum + estimateTokenCount(r.content), 0);
+    },
+
+    listConversations(limit = 50) {
+      const rows = listConvs.all({ limit }) as Array<{
+        conversation_id: string;
+        msg_count: number;
+        last_at: string;
+        preview: string | null;
+      }>;
+      return rows.map(r => ({
+        conversationId: r.conversation_id,
+        messageCount: r.msg_count,
+        lastMessageAt: r.last_at,
+        preview: (r.preview ?? '')
+          .replace(/<think>[\s\S]*?<\/think>\s*/g, '')
+          .trim()
+          .slice(0, 120),
+      }));
     },
   };
 }

@@ -869,6 +869,7 @@ async function main() {
     memoryStore: memory,
     agentHandler: handleChannelMessage,
     agentHandlerStream: handleChannelMessageStream,
+    conversations,
     yoloEngine,
     sdk: polarClawSDK,
   });

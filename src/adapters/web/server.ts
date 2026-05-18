@@ -28,6 +28,7 @@ export interface WebServerConfig {
   getStatus?: () => AgentStatusData;
   llm?: import('../../ports/llm.js').ILLMRouter;
   memoryStore?: import('../../ports/memory.js').IMemoryStore;
+  conversations?: import('../../ports/memory.js').IConversationHistory;
   /** Full agent handler (ReAct loop + tools + memory + privacy) */
   agentHandler?: (msg: { channel: string; userId: string; text: string }) => Promise<string>;
   /** Streaming agent handler — returns final text, pushes progress via callback */
@@ -322,6 +323,32 @@ export function createWebServer(config: WebServerConfig) {
     } finally {
       if (!closed) res.end();
     }
+  });
+
+  // ── API: conversations (list + history for IDE plugin) ──
+  app.get('/api/conversations', (_req, res) => {
+    if (!config.conversations?.listConversations) {
+      return res.json([]);
+    }
+    const limit = parseInt(String(_req.query.limit)) || 50;
+    const list = config.conversations.listConversations(limit);
+    res.json(list);
+  });
+
+  app.get('/api/conversations/:id', (req, res) => {
+    if (!config.conversations) {
+      return res.json({ messages: [] });
+    }
+    const limit = parseInt(String(req.query.limit)) || 200;
+    const messages = config.conversations.getHistory(req.params.id, { limit, fromLatest: true });
+    res.json({
+      conversationId: req.params.id,
+      messages: messages.map(m => ({
+        role: m.role,
+        content: m.content,
+        timestamp: m.timestamp?.toISOString?.() ?? null,
+      })),
+    });
   });
 
   // ── API: chat (LLM proxy for external callers) ────────
