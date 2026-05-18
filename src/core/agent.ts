@@ -378,9 +378,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           throw llmErr;
         }
       }
-      console.error(`[Agent] runLoop round ${round}: LLM responded in ${Date.now()-llmStartMs}ms, toolCalls=${response.toolCalls.length}, contentLen=${response.content?.length ?? 0}`);
+      console.error(`[Agent] runLoop round ${round}: LLM responded in ${Date.now()-llmStartMs}ms, toolCalls=${response.toolCalls.length}, contentLen=${response.content?.length ?? 0}, model=${response.model}`);
 
-      // 累计 token
       lastModel = response.model || lastModel;
       if (response.usage) {
         if (!totalUsage) {

@@ -300,13 +300,18 @@ export function createWebServer(config: WebServerConfig) {
 
     try {
       if (config.agentHandlerStream) {
+        let lastDoneEvt: AgentProgressEvent | null = null;
         const reply = await config.agentHandlerStream(
           { channel, userId: 'hub-user', text: message },
           (evt) => {
-            if (evt.type !== 'done') sendEvent(evt.type, evt);
+            if (evt.type === 'done') {
+              lastDoneEvt = evt;
+            } else {
+              sendEvent(evt.type, evt);
+            }
           },
         );
-        sendEvent('done', { type: 'done', content: reply });
+        sendEvent('done', lastDoneEvt ?? { type: 'done', content: reply });
       } else {
         sendEvent('thinking', { type: 'thinking', round: 0 });
         const reply = await config.agentHandler!({ channel, userId: 'hub-user', text: message });
@@ -323,12 +328,14 @@ export function createWebServer(config: WebServerConfig) {
   app.post('/api/chat', async (req, res) => {
     if (!config.llm) return res.status(503).json({ error: 'llm not configured' });
     try {
-      const { messages, system, context_query, max_tokens, model: requestedModel } = req.body as {
+      const { messages, system, context_query, max_tokens, model: requestedModel, memory_user_id } = req.body as {
         messages?: Array<{ role: string; content: string }>;
         system?: string;
         context_query?: string;
         max_tokens?: number;
         model?: string;
+        /** When set, scopes FTS memory recall to this user (defaults to admin). */
+        memory_user_id?: string;
       };
       if (!messages || !Array.isArray(messages)) {
         return res.status(400).json({ error: 'messages[] required' });
@@ -341,7 +348,9 @@ export function createWebServer(config: WebServerConfig) {
       }
 
       if (context_query && config.memoryStore) {
-        const memResults = config.memoryStore.search(context_query, { limit: 5 });
+        const memUser =
+          typeof memory_user_id === 'string' && memory_user_id.trim() !== '' ? memory_user_id.trim() : 'admin';
+        const memResults = config.memoryStore.search(context_query, { limit: 5, userId: memUser });
         if (memResults.entries.length > 0) {
           const memContext = memResults.entries.map(e => e.content).join('\n---\n');
           chatMessages.push({ role: 'system', content: `## 长期记忆上下文\n${memContext}` });
