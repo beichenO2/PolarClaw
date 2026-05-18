@@ -20,13 +20,26 @@ import type { IToolExecutor } from '../ports/tools.js';
 import type { IContextCompressor } from '../ports/compression.js';
 import type { SessionMemoryManager } from '../memory/SessionMemory.js';
 import { acquireLock, releaseLock } from '../sdk/project-lock.js';
+import {
+  type TaskContract,
+  extractContractFromMessage,
+  createContract,
+  buildContractInjection,
+  buildCheckpointMessage,
+  advanceStep,
+  isSimpleContract,
+  serializeContract,
+  deserializeContract,
+} from './task-contract.js';
+import { loadEcoConstraints } from './eco-constraints.js';
 
 export type AgentProgressEvent =
-  | { type: 'thinking'; round: number }
-  | { type: 'tool_call'; tool: string; args: Record<string, unknown> }
-  | { type: 'tool_result'; tool: string; result: string }
+  | { type: 'thinking'; round: number; model?: string; message_count?: number }
+  | { type: 'tool_call'; tool: string; args: Record<string, unknown>; call_id?: string; timestamp?: string }
+  | { type: 'tool_result'; tool: string; result: string; call_id?: string; success?: boolean; duration_ms?: number }
   | { type: 'chunk'; content: string }
-  | { type: 'done'; content: string };
+  | { type: 'contract'; contract: TaskContract }
+  | { type: 'done'; content: string; model?: string };
 
 export interface IPersonaResult {
   content: string;
@@ -97,6 +110,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   const memoryContextCache = new Map<string, { context: string; ts: number }>();
   const MEMORY_CACHE_TTL_MS = 1000;
 
+  /** Active TaskContracts per conversation */
+  const activeContracts = new Map<string, TaskContract>();
+
   /**
    * 处理用户消息（完整流程）
    *
@@ -156,7 +172,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       let sessionMemoryPrefix = '';
       if (sessionMemory) {
-        const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText);
+        const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText, userId);
         if (longTermBlocks.length > 0) {
           const session = sessionMemory.getOrCreateSession(convId);
           session.longTermBlocks = longTermBlocks;
@@ -164,7 +180,45 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         sessionMemoryPrefix = sessionMemory.buildMemoryInjection(convId);
       }
 
-      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, onProgress);
+      // TaskContract: load from cache → SQLite → extract from message
+      let contract = activeContracts.get(convId);
+      if (!contract && sessionMemory) {
+        const stored = sessionMemory.loadContract(convId);
+        if (stored) {
+          contract = deserializeContract(stored) ?? undefined;
+          if (contract) activeContracts.set(convId, contract);
+        }
+      }
+      if (!contract) {
+        try {
+          const simpleLlmChat = async (
+            msgs: Array<{ role: string; content: string }>,
+            opts?: { capability?: string },
+          ) => {
+            const formatted: IChatMessage[] = msgs.map(m => ({
+              role: m.role as IChatMessage['role'],
+              content: m.content,
+            }));
+            const res = await llm.chat(formatted, { capability: opts?.capability });
+            return { content: res.content };
+          };
+          const extracted = await extractContractFromMessage(sanitizedText, simpleLlmChat);
+          const ecoConstraints = loadEcoConstraints(sanitizedText);
+          contract = createContract(extracted, ecoConstraints);
+          activeContracts.set(convId, contract);
+          if (sessionMemory) {
+            sessionMemory.saveContract(convId, serializeContract(contract));
+          }
+          if (!isSimpleContract(contract)) {
+            console.error(`[Agent] TaskContract created: ${contract.constraints.length} user + ${contract.ecoConstraints.length} eco constraints, ${contract.steps.length} steps`);
+            onProgress?.({ type: 'contract', contract });
+          }
+        } catch (err) {
+          console.error('[Agent] TaskContract extraction failed, proceeding without contract:', err);
+        }
+      }
+
+      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, contract, onProgress);
 
       const rawText = result.text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
       const responseText = privacy.desanitize(userId, rawText || result.text);
@@ -244,10 +298,12 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     userId: string,
     isOngoing = false,
     sessionMemoryPrefix = '',
+    contract?: TaskContract,
     onProgress?: (event: AgentProgressEvent) => void,
   ): Promise<{ text: string; usage?: ILLMResponse['usage']; model?: string }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
     let lastModel = '';
+    const accumulatedTexts: string[] = [];
 
     // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
     const compressionBudget = (config.maxTokens ?? 4096) * 12;
@@ -276,8 +332,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         }
       }
 
+      const contractInjection = contract ? buildContractInjection(contract) : '';
+
       const systemContent = [
         basePrompt,
+        contractInjection,
         sessionMemoryPrefix ? `[记忆上下文]\n${sessionMemoryPrefix}` : '',
         isOngoing ? '[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]' : '',
       ].filter(Boolean).join('\n\n');
@@ -291,7 +350,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         ? '\n\n[INSTRUCTION] When the user gives a clear task, call relevant tools (skill_search, memory_search) before generating text. However, if the user\'s request is vague or missing critical details (format, scope, requirements), reply with clarifying questions FIRST instead of blindly executing.'
         : undefined;
 
-      onProgress?.({ type: 'thinking', round });
+      onProgress?.({ type: 'thinking', round, model: lastModel || undefined, message_count: messages.length });
       console.error(`[Agent] runLoop round ${round}: calling LLM (msgCount=${messages.length})`);
       const llmStartMs = Date.now();
       let response: Awaited<ReturnType<typeof llm.chat>>;
@@ -343,7 +402,29 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       if (response.toolCalls.length === 0) {
         const rawContent = response.content?.trim() || '（暂无文本回复）';
         const text = rawContent.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim() || rawContent;
-        onProgress?.({ type: 'done', content: text });
+
+        // TaskContract: advance step and inject checkpoint if more steps remain
+        if (contract && !isSimpleContract(contract) && !contract.completed) {
+          accumulatedTexts.push(text);
+          const hasMore = advanceStep(contract, text.slice(0, 200));
+          if (sessionMemory) {
+            sessionMemory.saveContract(convId, serializeContract(contract));
+          }
+          if (hasMore) {
+            const checkpoint = buildCheckpointMessage(contract);
+            if (checkpoint) {
+              conversations.append(convId, { role: 'system', content: checkpoint });
+              console.error(`[Agent] TaskContract: step ${contract.currentStepIndex} started, checkpoint injected`);
+              continue;
+            }
+          }
+          // All steps done — return accumulated content (last step output is primary)
+          const finalText = accumulatedTexts[accumulatedTexts.length - 1]!;
+          onProgress?.({ type: 'done', content: finalText, model: lastModel });
+          return { text: finalText, usage: totalUsage, model: lastModel };
+        }
+
+        onProgress?.({ type: 'done', content: text, model: lastModel });
         return { text, usage: totalUsage, model: lastModel };
       }
 
@@ -356,14 +437,19 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           console.error(`[Agent] Failed to parse tool args for ${tc.function.name}: ${tc.function.arguments?.slice(0, 300)}`);
         }
 
-        onProgress?.({ type: 'tool_call', tool: tc.function.name, args });
+        const callTimestamp = new Date().toISOString();
+        onProgress?.({ type: 'tool_call', tool: tc.function.name, args, call_id: tc.id, timestamp: callTimestamp });
 
+        const toolStartMs = Date.now();
         let result: unknown;
+        let toolSuccess = true;
         try {
           result = await tools.execute(tc.function.name, args);
         } catch (err) {
+          toolSuccess = false;
           result = { error: err instanceof Error ? err.message : String(err) };
         }
+        const toolDurationMs = Date.now() - toolStartMs;
 
         let payload: string;
         try {
@@ -375,7 +461,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           payload = `${payload.slice(0, maxToolOutputLen)}…(已截断)`;
         }
 
-        onProgress?.({ type: 'tool_result', tool: tc.function.name, result: payload.slice(0, 200) });
+        onProgress?.({ type: 'tool_result', tool: tc.function.name, result: payload.slice(0, 200), call_id: tc.id, success: toolSuccess, duration_ms: toolDurationMs });
 
         return { id: tc.id, payload };
       });
