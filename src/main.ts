@@ -269,14 +269,16 @@ async function main() {
       });
 
       // Also save to PolarMemory for cross-session long-term memory
+      const blockId = `${userId}/tool-mem/${Date.now()}`;
       try {
         const polarUrl = process.env.POLARMEMORY_URL || 'http://localhost:3100';
         fetch(`${polarUrl}/api/blocks/upsert`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            block_id: blockId,
             block: {
-              label: `user_${userId}_mem_${Date.now()}`,
+              label: `mem-${Date.now()}`,
               value: content,
               tokens: Math.ceil(content.length / 4),
               read_only: false,
@@ -323,7 +325,7 @@ async function main() {
         const resp = await fetch(`${polarUrl}/api/blocks/search`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query: q, top_k: limit }),
+          body: JSON.stringify({ query: q, user: userId, top_k: limit, temporal_valid: true }),
           signal: AbortSignal.timeout(3000),
         });
         if (resp.ok) {
@@ -529,7 +531,14 @@ async function main() {
       return result.text;
     } catch (err) {
       console.error(`[handleChannelMessage] error:`, err);
-      return '抱歉，处理消息时出错了，请稍后再试。';
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail.includes('timeout') || detail.includes('ETIMEDOUT') || detail.includes('ESOCKETTIMEDOUT')) {
+        return `⚠️ 请求超时（可能是 LLM 响应耗时过长）。错误详情：${detail}`;
+      }
+      if (detail.includes('ECONNREFUSED') || detail.includes('ENOTFOUND')) {
+        return `⚠️ 无法连接到 LLM 服务。错误详情：${detail}`;
+      }
+      return `⚠️ 处理消息时出错：${detail}`;
     }
   }
 
@@ -550,7 +559,14 @@ async function main() {
       return result.text;
     } catch (err) {
       console.error(`[handleChannelMessageStream] error:`, err);
-      return '抱歉，处理消息时出错了，请稍后再试。';
+      const detail = err instanceof Error ? err.message : String(err);
+      if (detail.includes('timeout') || detail.includes('ETIMEDOUT') || detail.includes('ESOCKETTIMEDOUT')) {
+        return `⚠️ 请求超时（可能是 LLM 响应耗时过长）。错误详情：${detail}`;
+      }
+      if (detail.includes('ECONNREFUSED') || detail.includes('ENOTFOUND')) {
+        return `⚠️ 无法连接到 LLM 服务。错误详情：${detail}`;
+      }
+      return `⚠️ 处理消息时出错：${detail}`;
     }
   }
 
@@ -837,7 +853,7 @@ async function main() {
           };
         }),
         uptime: process.uptime(),
-        memory: { totalEntries: memory.search('*', { limit: 0 }).total, dbSizeBytes: 0 },
+        memory: { totalEntries: memory.countAllMemories(), dbSizeBytes: 0 },
         skills: { count: skills.length, names: skills.map(s => s.name) },
         yolo: { activeSessions: 0 },
         hubWeb: hubWebStatus && typeof hubWebStatus === 'object' ? hubWebStatus as {
