@@ -776,9 +776,10 @@ async function main() {
           consecutiveNetworkFailures++;
           console.error(`[PolarClaw] Hub Web 网络错误 (连续第 ${consecutiveNetworkFailures} 次):`, err.message);
           if (consecutiveNetworkFailures >= 5) {
-            console.error('[PolarClaw] Hub Web 连续网络失败 5 次，退出主循环');
-            try { await hubClient.unregister(); } catch { /* ignore */ }
-            process.exit(1);
+            console.warn('[PolarClaw] Hub Web 连续网络失败 5 次，降级等待恢复（不退出）');
+            const backoff = Math.min(30000, 5000 * Math.pow(1.5, consecutiveNetworkFailures - 5));
+            await new Promise((r) => setTimeout(r, backoff));
+            continue;
           }
           await new Promise((r) => setTimeout(r, 5000));
           try {

@@ -48,8 +48,33 @@ export function createToolExecutor(config: IToolExecutorConfig = {}): IToolExecu
       } catch (err) {
         clearTimeout(timer);
         const errMsg = err instanceof Error ? err.message : String(err);
-        console.error(`[ToolExecutor] ${name} failed: ${errMsg}`);
-        throw err;
+        const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|reset|EPIPE/i.test(errMsg);
+
+        if (isRetriable) {
+          // Retry once with extended timeout
+          console.warn(`[ToolExecutor] ${name} failed (retriable: ${errMsg}), retrying with 2x timeout...`);
+          try {
+            const retryResult = await Promise.race([
+              Promise.resolve(tool.handler(args)),
+              new Promise<never>((_, rej) => {
+                timer = setTimeout(
+                  () => rej(new Error(`工具 ${name} 重试超时 (${timeoutMs * 2}ms)`)),
+                  timeoutMs * 2,
+                );
+              }),
+            ]);
+            clearTimeout(timer);
+            return retryResult;
+          } catch (retryErr) {
+            clearTimeout(timer);
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            console.error(`[ToolExecutor] ${name} retry also failed: ${retryMsg}`);
+            return `[ToolError] ${name} failed after retry: ${retryMsg}`;
+          }
+        }
+
+        console.error(`[ToolExecutor] ${name} failed (non-retriable): ${errMsg}`);
+        return `[ToolError] ${name}: ${errMsg}`;
       }
     },
 

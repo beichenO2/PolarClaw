@@ -69,6 +69,56 @@ class Semaphore {
   }
 }
 
+const OLLAMA_BASE = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen3:32b';
+const RESILIENCE_RETRY_DELAYS = [1000, 3000, 8000]; // exponential backoff ms
+
+async function ollamaFallback(
+  messages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>,
+  options: { temperature?: number; maxTokens?: number; timeoutMs?: number },
+): Promise<{ content: string | null; toolCalls: never[]; model: string; latencyMs: number }> {
+  const startMs = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 120_000);
+
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: OLLAMA_MODEL,
+        messages: messages.map(m => ({ role: m.role, content: m.content })),
+        stream: false,
+        options: {
+          temperature: options.temperature ?? 0.7,
+          num_predict: options.maxTokens ?? 4096,
+        },
+      }),
+      signal: controller.signal,
+    });
+
+    if (!res.ok) throw new Error(`Ollama ${res.status}`);
+    const data = await res.json() as { message?: { content?: string }; model?: string };
+    return {
+      content: data.message?.content ?? null,
+      toolCalls: [],
+      model: `ollama:${OLLAMA_MODEL}`,
+      latencyMs: Date.now() - startMs,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function isOllamaAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${OLLAMA_BASE}/api/tags`, {
+      signal: AbortSignal.timeout(3000),
+    });
+    return res.ok;
+  } catch { return false; }
+}
+
 export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const defaultTemp = config.defaultTemperature ?? 0.7;
   const defaultMaxTokens = config.defaultMaxTokens ?? 4096;
@@ -99,7 +149,7 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string };
         });
 
-        const result = await client.chat(formattedMessages, {
+        const chatOptions = {
           capability: normalizeCode(capability),
           temperature: options.temperature ?? defaultTemp,
           maxTokens: options.maxTokens ?? defaultMaxTokens,
@@ -107,20 +157,64 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           toolChoice: options.toolChoice,
           append_system_prompt: options.append_system_prompt,
           timeoutMs: requestTimeoutMs,
-        });
-
-        const toolCalls: IToolCall[] = result.toolCalls.map(tc => ({
-          id: tc.id,
-          function: { name: tc.function.name, arguments: tc.function.arguments },
-        }));
-
-        return {
-          content: result.content,
-          toolCalls,
-          usage: result.usage,
-          model: result.model,
-          latencyMs: result.latencyMs,
         };
+
+        // === ResilienceChain: Tier 1 → retry → Tier 3 (Ollama) ===
+        let lastError: Error | null = null;
+
+        // Tier 1: PolarPrivate LLM Proxy (with exponential backoff retries)
+        for (let attempt = 0; attempt <= RESILIENCE_RETRY_DELAYS.length; attempt++) {
+          try {
+            const result = await client.chat(formattedMessages, chatOptions);
+            const toolCalls: IToolCall[] = result.toolCalls.map(tc => ({
+              id: tc.id,
+              function: { name: tc.function.name, arguments: tc.function.arguments },
+            }));
+            return {
+              content: result.content,
+              toolCalls,
+              usage: result.usage,
+              model: result.model,
+              latencyMs: result.latencyMs,
+            };
+          } catch (err) {
+            lastError = err instanceof Error ? err : new Error(String(err));
+            const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|503|429|reset/i.test(lastError.message);
+            if (!isRetriable || attempt >= RESILIENCE_RETRY_DELAYS.length) break;
+            const delay = RESILIENCE_RETRY_DELAYS[attempt]!;
+            console.warn(`[LLMRouter] Tier 1 attempt ${attempt + 1} failed (${lastError.message}), retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+          }
+        }
+
+        // Tier 3: Local Ollama fallback (no tool_calls support, text-only)
+        console.warn(`[LLMRouter] Tier 1 exhausted: ${lastError?.message}. Trying Ollama fallback...`);
+        if (await isOllamaAvailable()) {
+          try {
+            const fallbackResult = await ollamaFallback(formattedMessages, {
+              temperature: chatOptions.temperature,
+              maxTokens: chatOptions.maxTokens,
+              timeoutMs: 120_000,
+            });
+            console.info(`[LLMRouter] Tier 3 Ollama succeeded (${fallbackResult.latencyMs}ms)`);
+            return {
+              content: fallbackResult.content,
+              toolCalls: [],
+              model: fallbackResult.model,
+              latencyMs: fallbackResult.latencyMs,
+            };
+          } catch (ollamaErr) {
+            console.error(`[LLMRouter] Tier 3 Ollama also failed:`, ollamaErr);
+          }
+        } else {
+          console.warn(`[LLMRouter] Ollama not available at ${OLLAMA_BASE}`);
+        }
+
+        // All tiers exhausted
+        throw new Error(
+          `[LLMRouter] All tiers exhausted. Last error: ${lastError?.message ?? 'unknown'}. ` +
+          `Tried: Tier 1 (PolarPrivate, ${RESILIENCE_RETRY_DELAYS.length} retries) → Tier 3 (Ollama).`
+        );
       } finally {
         semaphore.release();
       }

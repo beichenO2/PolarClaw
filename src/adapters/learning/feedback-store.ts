@@ -12,6 +12,7 @@ import type {
   IFeedbackRecord,
   IToolPattern,
   IArrowLogRecord,
+  IErrorPattern,
 } from '../../ports/learning.js';
 
 const SCHEMA = `
@@ -75,6 +76,22 @@ CREATE TABLE IF NOT EXISTS arrow_logs (
 
 CREATE INDEX IF NOT EXISTS idx_arrow_logs_project ON arrow_logs(project_id, target_id);
 CREATE INDEX IF NOT EXISTS idx_arrow_logs_ts ON arrow_logs(project_id, ts);
+
+CREATE TABLE IF NOT EXISTS error_patterns (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  signature TEXT NOT NULL UNIQUE,
+  source TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'internal',
+  message_template TEXT NOT NULL,
+  occurrences INTEGER NOT NULL DEFAULT 1,
+  last_seen_at TEXT NOT NULL,
+  resolutions TEXT NOT NULL DEFAULT '[]',
+  auto_fixed INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_error_patterns_sig ON error_patterns(signature);
+CREATE INDEX IF NOT EXISTS idx_error_patterns_freq ON error_patterns(occurrences DESC);
 `;
 
 export function createLearningStore(dbPath: string): ILearningStore {
@@ -124,6 +141,26 @@ export function createLearningStore(dbPath: string): ILearningStore {
 
   const queryArrowLogs = db.prepare(`
     SELECT * FROM arrow_logs WHERE project_id = ? ORDER BY ts DESC LIMIT ?
+  `);
+
+  const upsertErrorPattern = db.prepare(`
+    INSERT INTO error_patterns (signature, source, category, message_template, occurrences, last_seen_at, resolutions, auto_fixed, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(signature) DO UPDATE SET
+      occurrences = occurrences + 1,
+      last_seen_at = excluded.last_seen_at
+  `);
+
+  const queryErrorBySignature = db.prepare(`
+    SELECT * FROM error_patterns WHERE signature = ?
+  `);
+
+  const queryFrequentErrors = db.prepare(`
+    SELECT * FROM error_patterns WHERE occurrences >= ? ORDER BY occurrences DESC LIMIT ?
+  `);
+
+  const updateResolution = db.prepare(`
+    UPDATE error_patterns SET resolutions = ? WHERE signature = ?
   `);
 
   return {
@@ -264,6 +301,40 @@ export function createLearningStore(dbPath: string): ILearningStore {
       const rows = queryArrowLogs.all(projectId, limit) as any[];
       return rows.map(mapArrowLogRow);
     },
+
+    recordErrorPattern(pattern) {
+      const now = new Date().toISOString();
+      upsertErrorPattern.run(
+        pattern.signature,
+        pattern.source,
+        pattern.category,
+        pattern.messageTemplate,
+        pattern.occurrences,
+        pattern.lastSeenAt || now,
+        pattern.resolutions || '[]',
+        pattern.autoFixed ? 1 : 0,
+        now,
+      );
+    },
+
+    getErrorPattern(signature) {
+      const row = queryErrorBySignature.get(signature) as any;
+      if (!row) return undefined;
+      return mapErrorPatternRow(row);
+    },
+
+    getFrequentErrors(minOccurrences = 3, limit = 20) {
+      const rows = queryFrequentErrors.all(minOccurrences, limit) as any[];
+      return rows.map(mapErrorPatternRow);
+    },
+
+    addResolution(signature, resolution) {
+      const existing = queryErrorBySignature.get(signature) as any;
+      if (!existing) return;
+      const resolutions: string[] = JSON.parse(existing.resolutions || '[]');
+      resolutions.push(resolution);
+      updateResolution.run(JSON.stringify(resolutions), signature);
+    },
   };
 }
 
@@ -320,6 +391,21 @@ function mapArrowLogRow(r: any): IArrowLogRecord {
     outcome: r.outcome,
     delta: r.delta,
     nextAction: r.next_action,
+    createdAt: r.created_at,
+  };
+}
+
+function mapErrorPatternRow(r: any): IErrorPattern {
+  return {
+    id: r.id,
+    signature: r.signature,
+    source: r.source,
+    category: r.category,
+    messageTemplate: r.message_template,
+    occurrences: r.occurrences,
+    lastSeenAt: r.last_seen_at,
+    resolutions: r.resolutions,
+    autoFixed: r.auto_fixed === 1,
     createdAt: r.created_at,
   };
 }

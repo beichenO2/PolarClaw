@@ -90,6 +90,28 @@ export interface IArrowLogRecord {
   createdAt?: string;
 }
 
+/** 错误模式记录 — 记录重复出现的错误，辅助自动修复 */
+export interface IErrorPattern {
+  id?: number;
+  /** 错误签名（hash of code + message，用于去重） */
+  signature: string;
+  /** 错误来源模块 */
+  source: string;
+  /** 错误类别 */
+  category: 'network' | 'timeout' | 'auth' | 'validation' | 'internal' | 'dependency';
+  /** 错误消息（模板化） */
+  messageTemplate: string;
+  /** 出现次数 */
+  occurrences: number;
+  /** 最近一次出现时间 */
+  lastSeenAt: string;
+  /** 已知的修复策略（JSON 数组） */
+  resolutions: string;
+  /** 是否已有自动修复 */
+  autoFixed: boolean;
+  createdAt?: string;
+}
+
 /** 学习存储接口 */
 export interface ILearningStore {
   /** 记录一次工具调用 */
@@ -133,4 +155,16 @@ export interface ILearningStore {
 
   /** 查询项目的 arrow_logs */
   getArrowLogs(projectId: string, limit?: number): IArrowLogRecord[];
+
+  /** 记录/更新错误模式 */
+  recordErrorPattern(pattern: IErrorPattern): void;
+
+  /** 按签名查询错误模式 */
+  getErrorPattern(signature: string): IErrorPattern | undefined;
+
+  /** 查询高频错误（按出现次数降序） */
+  getFrequentErrors(minOccurrences?: number, limit?: number): IErrorPattern[];
+
+  /** 为错误模式添加修复策略 */
+  addResolution(signature: string, resolution: string): void;
 }
