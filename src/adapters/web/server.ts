@@ -150,6 +150,13 @@ function convertPptxToImages(pptxPath: string, outDir: string): string[] {
 
 export function createWebServer(config: WebServerConfig) {
   const app = express();
+  app.use((_req, res, next) => {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+    if (_req.method === 'OPTIONS') return res.sendStatus(204);
+    next();
+  });
   app.use(express.json({ limit: '50mb' }));
 
   const reviewDir = join(config.dataDir, 'reviews');
