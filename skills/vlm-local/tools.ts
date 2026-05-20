@@ -27,55 +27,12 @@ function imageToBase64Url(filePath: string): string {
   return `data:${mime};base64,${imageToBase64(filePath)}`;
 }
 
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
-const OLLAMA_VLM_MODEL = process.env.OLLAMA_VLM_MODEL || 'qwen3-vl:8b';
+const PP_BASE = (process.env.POLARPRIVATE_URL || `http://127.0.0.1:${process.env.POLARPRIVATE_PORT || '12790'}`).replace(/\/$/, '');
+const LOCAL_VLM = 'L101';
 
-async function isOllamaAvailable(): Promise<boolean> {
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (!res.ok) return false;
-    const data = await res.json() as { models?: Array<{ name: string }> };
-    return data.models?.some(m => m.name.includes('vl')) ?? false;
-  } catch {
-    return false;
-  }
-}
-
-async function callOllamaVLM(imagePath: string, query: string): Promise<string> {
-  const base64 = imageToBase64(imagePath);
+async function callProxyVLM(imageBase64Url: string, query: string): Promise<string> {
   const body = {
-    model: OLLAMA_VLM_MODEL,
-    messages: [{ role: 'user', content: query, images: [base64] }],
-    stream: false,
-  };
-
-  const res = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120000),
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Ollama VLM ${res.status}: ${text.slice(0, 300)}`);
-  }
-
-  const data = await res.json() as { message?: { content?: string } };
-  return data.message?.content ?? '(无输出)';
-}
-
-async function callOpenAIVLM(
-  imageBase64Url: string,
-  query: string,
-  baseUrl: string,
-  apiKey: string,
-  model: string,
-): Promise<string> {
-  const body = {
-    model,
+    model: LOCAL_VLM,
     messages: [
       {
         role: 'user',
@@ -89,23 +46,21 @@ async function callOpenAIVLM(
     temperature: 0.3,
   };
 
-  const res = await fetch(`${baseUrl}/v1/chat/completions`, {
+  const res = await fetch(`${PP_BASE}/v1/chat/completions`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${apiKey}`,
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(120000),
   });
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`VLM API ${res.status}: ${text.slice(0, 300)}`);
+    throw new Error(`VLM proxy ${res.status}: ${text.slice(0, 300)}`);
   }
 
   const data = await res.json() as {
     choices?: Array<{ message?: { content?: string } }>;
+    model?: string;
   };
   return data.choices?.[0]?.message?.content ?? '(无输出)';
 }
@@ -130,22 +85,9 @@ export const tools: IToolHandler[] = [
         throw new Error(`图片文件不存在: ${imagePath}`);
       }
 
-      const ollamaOk = await isOllamaAvailable();
-      if (ollamaOk) {
-        const analysis = await callOllamaVLM(imagePath, query);
-        return { image: imagePath, query, analysis, model: OLLAMA_VLM_MODEL, backend: 'ollama-local' };
-      }
-
       const base64Url = imageToBase64Url(imagePath);
-      const baseUrl = process.env.POLARCLAW_LLM_BASE_URL
-        || `${process.env.POLARPRIVATE_URL || 'http://127.0.0.1:12790'}`;
-      const apiKey = process.env.POLARCLAW_LLM_API_KEY
-        || process.env.DASHSCOPE_API_KEY
-        || 'proxy-managed';
-      const model = process.env.POLARCLAW_MODEL_VISION || 'qwen-vl-max';
-
-      const analysis = await callOpenAIVLM(base64Url, query, baseUrl, apiKey, model);
-      return { image: imagePath, query, analysis, model, backend: 'polarprivate-proxy' };
+      const analysis = await callProxyVLM(base64Url, query);
+      return { image: imagePath, query, analysis, model: LOCAL_VLM, backend: 'local-proxy' };
     },
   },
 ];

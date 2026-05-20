@@ -24,7 +24,7 @@ describe('createSqliteMemoryStore', () => {
     it('saves and retrieves by FTS', () => {
       store.save({ type: 'note', content: '今天学了 TypeScript 的类型系统' });
       store.save({ type: 'note', content: '明天要做 Python 项目' });
-      const result = store.search('TypeScript');
+      const result = store.search('TypeScript', { userId: 'admin' });
       expect(result.entries).toHaveLength(1);
       expect(result.entries[0]!.content).toContain('TypeScript');
     });
@@ -39,7 +39,7 @@ describe('createSqliteMemoryStore', () => {
 
     it('returns empty for no matches', () => {
       store.save({ type: 'note', content: 'hello world' });
-      const result = store.search('zzzznotfound');
+      const result = store.search('zzzznotfound', { userId: 'admin' });
       expect(result.entries).toHaveLength(0);
     });
 
@@ -47,14 +47,38 @@ describe('createSqliteMemoryStore', () => {
       for (let i = 0; i < 20; i++) {
         store.save({ type: 'note', content: `entry number ${i} with some shared text` });
       }
-      const result = store.search('entry', { limit: 5 });
+      const result = store.search('entry', { limit: 5, userId: 'admin' });
       expect(result.entries.length).toBeLessThanOrEqual(5);
     });
 
     it('handles empty query gracefully', () => {
       store.save({ type: 'note', content: 'something' });
-      const result = store.search('');
+      const result = store.search('', { userId: 'admin' });
       expect(result.entries).toHaveLength(0);
+    });
+
+    it('does not search without userId (isolation)', () => {
+      store.save({ type: 'note', content: 'secret alpha note' });
+      const result = store.search('secret');
+      expect(result.entries).toHaveLength(0);
+    });
+
+    it('isolates users in FTS', () => {
+      store.save({ type: 'note', content: 'user1 only banana', userId: 'u1' });
+      store.save({ type: 'note', content: 'user2 only banana', userId: 'u2' });
+      const u1 = store.search('banana', { userId: 'u1' });
+      const u2 = store.search('banana', { userId: 'u2' });
+      expect(u1.entries).toHaveLength(1);
+      expect(u2.entries).toHaveLength(1);
+      expect(u1.entries[0]!.userId).toBe('u1');
+      expect(u2.entries[0]!.userId).toBe('u2');
+    });
+
+    it('countAllMemories counts all rows', () => {
+      expect(store.countAllMemories()).toBe(0);
+      store.save({ type: 'note', content: 'a', userId: 'a' });
+      store.save({ type: 'note', content: 'b', userId: 'b' });
+      expect(store.countAllMemories()).toBe(2);
     });
   });
 

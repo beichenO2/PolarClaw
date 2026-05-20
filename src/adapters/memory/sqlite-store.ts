@@ -80,14 +80,6 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
     VALUES (@type, @content, @metadata, @tags, @userId, @createdAt, @updatedAt)
   `);
 
-  const searchFtsGlobal = db.prepare(`
-    SELECT m.* FROM memories m
-    JOIN memories_fts fts ON fts.rowid = m.id
-    WHERE memories_fts MATCH @query
-    ORDER BY rank
-    LIMIT @limit
-  `);
-
   const searchFtsByUser = db.prepare(`
     SELECT m.* FROM memories m
     JOIN memories_fts fts ON fts.rowid = m.id
@@ -96,15 +88,13 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
     LIMIT @limit
   `);
 
-  const countFtsGlobal = db.prepare(`
-    SELECT count(*) as total FROM memories_fts WHERE memories_fts MATCH @query
-  `);
-
   const countFtsByUser = db.prepare(`
     SELECT count(*) as total FROM memories m
     JOIN memories_fts fts ON fts.rowid = m.id
     WHERE memories_fts MATCH @query AND m.user_id = @userId
   `);
+
+  const countAllStmt = db.prepare(`SELECT COUNT(*) as n FROM memories`);
 
   const upsertProfile = db.prepare(`
     INSERT INTO user_profiles (user_id, key, value, updated_at)
@@ -146,7 +136,10 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
 
     search(query, options = {}) {
       const limit = options.limit ?? 10;
-      const userId = options.userId;
+      const userId = options.userId?.trim();
+      if (!userId) {
+        return { entries: [], total: 0 };
+      }
       let safeQuery = query.replace(/['"]/g, '');
       if (!safeQuery.trim()) return { entries: [], total: 0 };
 
@@ -167,13 +160,8 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
         let rows: MemRow[];
         let countRow: { total: number } | undefined;
 
-        if (userId) {
-          rows = searchFtsByUser.all({ query: safeQuery, limit, userId }) as MemRow[];
-          countRow = countFtsByUser.get({ query: safeQuery, userId }) as { total: number } | undefined;
-        } else {
-          rows = searchFtsGlobal.all({ query: safeQuery, limit }) as MemRow[];
-          countRow = countFtsGlobal.get({ query: safeQuery }) as { total: number } | undefined;
-        }
+        rows = searchFtsByUser.all({ query: safeQuery, limit, userId }) as MemRow[];
+        countRow = countFtsByUser.get({ query: safeQuery, userId }) as { total: number } | undefined;
 
         return {
           entries: rows.map(r => ({
@@ -191,6 +179,11 @@ export function createSqliteMemoryStore(dbPath: string): IMemoryStore {
       } catch {
         return { entries: [], total: 0 };
       }
+    },
+
+    countAllMemories() {
+      const row = countAllStmt.get() as { n: number } | undefined;
+      return row?.n ?? 0;
     },
 
     saveProfile(userId, key, value) {

@@ -28,27 +28,37 @@ export function normalizeCode(code?: string): CapabilityCode {
   return (code ?? '000').padEnd(3, '0').slice(0, 3).replace(/[^01]/g, '0');
 }
 
-/**
- * Resolve capability code to model name.
- * This mapping lives in the SDK (not exposed to callers),
- * because PolarPrivate's /v1/chat/completions still requires a model field.
- * When PolarPrivate adds native capability routing, this becomes a passthrough.
- */
-function resolveModelInternal(code: CapabilityCode): string {
-  const [q, , s] = code;
-  if (q === '1') return 'GLM-5.1';
-  if (s === '1') return 'MiniMax-M2.7-highspeed';
-  return 'qwen3.6-plus';
+/** Cloud: send 3-bit QCS only. PolarPrivate maps to upstream — never vendor names here. */
+export function cloudCapabilityToModelId(code: CapabilityCode): string {
+  return normalizeCode(code);
 }
 
-/**
- * Map legacy intent names to capability codes.
- */
-export function intentToCode(intent: string): CapabilityCode {
+/** Local: only L000 (8B), L100 (32B), L101 (VLM). Maps QCS → allowed L-code. */
+export function localCapabilityToModelId(code: CapabilityCode): string {
+  const qcs = normalizeCode(code);
+  if (qcs === '101') return 'L101';
+  if (qcs === '100') return 'L100';
+  return 'L000';
+}
+
+function resolveModelInternal(code: CapabilityCode, tier: 'cloud' | 'local'): string {
+  return tier === 'local' ? localCapabilityToModelId(code) : cloudCapabilityToModelId(code);
+}
+
+/** Map intent → QCS (cloud) or direct local L-code via {@link localCapabilityToModelId}. */
+export function intentToCode(intent: string, tier: 'cloud' | 'local' = 'cloud'): CapabilityCode {
+  if (tier === 'local') {
+    switch (intent) {
+      case 'vision': return '101';
+      case 'coding':
+      case 'research': return '100';
+      default: return '000';
+    }
+  }
   switch (intent) {
     case 'coding': return '100';
     case 'research': return '010';
-    case 'vision': return '100';
+    case 'vision': return '101';
     case 'general':
     default: return '001';
   }
@@ -56,6 +66,8 @@ export function intentToCode(intent: string): CapabilityCode {
 
 export interface LLMProxyRequestOptions {
   capability?: CapabilityCode;
+  /** cloud = PolarPrivate upstream; local = Ollama via L-prefix codes */
+  tier?: 'cloud' | 'local';
   temperature?: number;
   maxTokens?: number;
   tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>;
@@ -97,7 +109,8 @@ export function createLLMClient(): LLMProxyClient {
         options.signal.addEventListener('abort', () => controller.abort());
       }
 
-      const model = resolveModelInternal(capability);
+      const tier = options.tier ?? 'cloud';
+      const model = resolveModelInternal(capability, tier);
       const body: Record<string, unknown> = {
         model,
         messages,
@@ -140,7 +153,7 @@ export function createLLMClient(): LLMProxyClient {
             completionTokens: data.usage.completion_tokens,
             totalTokens: data.usage.total_tokens,
           } : undefined,
-          model: data.model ?? `capability:${capability}`,
+          model: data.model ?? model,
           latencyMs: Date.now() - startMs,
         };
       } finally {

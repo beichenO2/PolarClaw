@@ -12,6 +12,8 @@ import { join } from 'node:path';
 import type { IToolHandler } from '../../ports/tools.js';
 import type { ISkillRegistry, ISkillIndexEntry } from '../../ports/skills.js';
 import type { IMetaIndex } from './meta-index.js';
+import { buildSkillRulesAppend } from '../../rules/runtime-inject.js';
+import { setActiveSkillRules, clearActiveSkillRules } from '../../rules/active-skills.js';
 
 export interface ISkillDiscoveryDeps {
   metaIndex: IMetaIndex;
@@ -155,11 +157,15 @@ export function createSkillDiscoveryTools(deps: ISkillDiscoveryDeps): IToolHandl
       metaIndex.markActivated(name, loaded.toolNames ?? []);
       console.error(`[SkillDiscovery] 按需激活: ${name} (${loaded.toolNames?.length ?? 0} 工具)`);
 
+      const injectedRules = buildSkillRulesAppend(name);
+      if (injectedRules) setActiveSkillRules(name, injectedRules);
+
       return {
         ok: true,
         skill: loaded.name,
         tools: loaded.toolNames ?? [],
         description: loaded.description,
+        ...(injectedRules ? { injected_rules: injectedRules } : {}),
       };
     },
   };
@@ -189,6 +195,7 @@ export function createSkillDiscoveryTools(deps: ISkillDiscoveryDeps): IToolHandl
       }
 
       metaIndex.markDeactivated(name);
+      clearActiveSkillRules(name);
       console.error(`[SkillDiscovery] 已停用: ${name}`);
       return { ok: true, deactivated: name };
     },

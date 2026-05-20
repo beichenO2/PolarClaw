@@ -206,9 +206,11 @@ describe('SessionMemoryManager', () => {
       vi.stubGlobal('fetch', fetchMock);
 
       const mgr = new SessionMemoryManager({ polarMemoryBaseUrl: 'http://localhost:3100' });
-      const blocks = await mgr.fetchLongTermMemory('用户偏好');
+      const blocks = await mgr.fetchLongTermMemory('用户偏好', 'test-user');
       expect(blocks).toHaveLength(2);
       expect(blocks[0].label).toBe('用户偏好');
+      const body = JSON.parse((fetchMock.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.user).toBe('test-user');
 
       vi.restoreAllMocks();
     });
@@ -217,7 +219,7 @@ describe('SessionMemoryManager', () => {
       vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('Connection refused')));
 
       const mgr = new SessionMemoryManager({ polarMemoryBaseUrl: 'http://localhost:3100' });
-      const blocks = await mgr.fetchLongTermMemory('test');
+      const blocks = await mgr.fetchLongTermMemory('test', 'some-user');
       expect(blocks).toEqual([]);
 
       vi.restoreAllMocks();
@@ -227,7 +229,7 @@ describe('SessionMemoryManager', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500 }));
 
       const mgr = new SessionMemoryManager();
-      const blocks = await mgr.fetchLongTermMemory('test');
+      const blocks = await mgr.fetchLongTermMemory('test', 'some-user');
       expect(blocks).toEqual([]);
 
       vi.restoreAllMocks();

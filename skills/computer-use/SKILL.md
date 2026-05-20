@@ -28,14 +28,14 @@ requires:
 | 模式 | 用途 | LLM 端点 | 模型 |
 |------|------|----------|------|
 | `observe: true` | Stagehand accessibility tree 文本元素发现 | PolarPrivate proxy (`127.0.0.1:12790`) | qwen3-coder-plus |
-| `analyze: true` | 截图视觉理解 / OCR | 本地 llama-server (`127.0.0.1:8080`) | Gemma 3 4B + mmproj |
+| `analyze: true` | 截图视觉理解 / OCR | PolarPrivate 本地 L101 (`127.0.0.1:12790`) | Ollama VLM（服务端映射） |
 
 ## 依赖
 
 - `@browserbasehq/stagehand` — AI 浏览器自动化框架
 - `playwright` — 底层浏览器引擎
 - Stagehand observe/act 走 PolarPrivate proxy，自动注入 DashScope key，无需外部 API key
-- 本地 VLM 需要 llama-server 常驻（launchd `com.llama.server`，Mac Studio 端口 8080）
+- 本地 VLM 经 PolarPrivate L101 转发至 Ollama（需 Ollama 常驻 + PolarPrivate :12790）
 - Docker（可选）— 用于桌面隔离运行
 
 ## 桌面隔离（推荐部署形态）

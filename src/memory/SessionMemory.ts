@@ -350,15 +350,25 @@ export class SessionMemoryManager {
   /**
    * fetchLongTermMemory — 调用 PolarMemory /api/blocks/search 获取长期记忆 Block
    *
-   * 优雅降级：API 不可用时返回空数组
+   * 优雅降级：API 不可用时返回空数组。
+   * userId 为空或为 anonymous 时不请求（避免未过滤的 PolarMemory 搜索）。
    * 应用时间衰减：基于创建/更新时间计算衰减因子
    */
-  async fetchLongTermMemory(query: string): Promise<Block[]> {
+  async fetchLongTermMemory(query: string, userId?: string): Promise<Block[]> {
+    const u = userId?.trim();
+    if (!u || u === 'anonymous') {
+      return [];
+    }
     try {
       const response = await fetch(`${this.polarMemoryBaseUrl}/api/blocks/search`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, top_k: this.maxLongTermBlocks, temporal_valid: true }),
+        body: JSON.stringify({
+          query,
+          user: u,
+          top_k: this.maxLongTermBlocks,
+          temporal_valid: true,
+        }),
         signal: AbortSignal.timeout(5000),
       });
 
@@ -443,6 +453,14 @@ export class SessionMemoryManager {
         core_facts TEXT,
         long_term_json TEXT,
         last_accessed TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
+        updated_at TEXT DEFAULT (datetime('now'))
+      )
+    `);
+    this.episodicDb.exec(`
+      CREATE TABLE IF NOT EXISTS task_contracts (
+        conversation_id TEXT PRIMARY KEY,
+        contract_json TEXT NOT NULL,
         created_at TEXT DEFAULT (datetime('now')),
         updated_at TEXT DEFAULT (datetime('now'))
       )
@@ -557,6 +575,28 @@ export class SessionMemoryManager {
       }
     }
     return ruleBasedCompress(messages);
+  }
+
+  /** Save a TaskContract to SQLite */
+  saveContract(convId: string, contractJson: string): void {
+    if (!this.episodicDb) return;
+    const now = new Date().toISOString();
+    this.episodicDb.prepare(`
+      INSERT INTO task_contracts (conversation_id, contract_json, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(conversation_id) DO UPDATE SET
+        contract_json = excluded.contract_json,
+        updated_at = excluded.updated_at
+    `).run(convId, contractJson, now);
+  }
+
+  /** Load a TaskContract from SQLite; returns null if not found */
+  loadContract(convId: string): string | null {
+    if (!this.episodicDb) return null;
+    const row = this.episodicDb.prepare(
+      'SELECT contract_json FROM task_contracts WHERE conversation_id = ?'
+    ).get(convId) as { contract_json: string } | undefined;
+    return row?.contract_json ?? null;
   }
 
   /** Close the episodic DB, saving all sessions first */

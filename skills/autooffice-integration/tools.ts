@@ -111,7 +111,8 @@ export const autoofficeGenerateReport: IToolHandler = {
 
     if (!result.ok) return { error: result.error };
 
-    const b64 = (result.data as any).content ?? (result.data as any).file;
+    const d = result.data as Record<string, unknown>;
+    const b64 = d.base64 ?? d.content ?? d.file;
     const extMap: Record<string, string> = { pptx: 'pptx', pdf: 'pdf', docx: 'docx', latex: 'tex', 'latex-pdf': 'pdf', html: 'html' };
     const ext = extMap[format] ?? format;
 
@@ -122,7 +123,7 @@ export const autoofficeGenerateReport: IToolHandler = {
       return { format, saved: true, path: outPath, sizeBytes: Buffer.from(b64, 'base64').length };
     }
 
-    return { format, ...result.data };
+    return { format, ...d };
   },
 };
 

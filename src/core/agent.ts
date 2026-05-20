@@ -334,8 +334,27 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       const contractInjection = contract ? buildContractInjection(contract) : '';
 
+      const lastUserText = [...contextMessages].reverse().find(m => m.role === 'user')?.content ?? '';
+      let rulesAppend = '';
+      try {
+        const { appendRulesForUserMessage } = await import('../rules/runtime-inject.js');
+        rulesAppend = appendRulesForUserMessage(typeof lastUserText === 'string' ? lastUserText : JSON.stringify(lastUserText));
+      } catch {
+        /* rules 模块不可用时跳过 */
+      }
+
+      let skillRulesAppend = '';
+      try {
+        const { getActiveSkillRulesPrompt } = await import('../rules/active-skills.js');
+        skillRulesAppend = getActiveSkillRulesPrompt();
+      } catch {
+        /* active skills 不可用时跳过 */
+      }
+
       const systemContent = [
         basePrompt,
+        rulesAppend,
+        skillRulesAppend,
         contractInjection,
         sessionMemoryPrefix ? `[记忆上下文]\n${sessionMemoryPrefix}` : '',
         isOngoing ? '[对话已在进行中，无需重新自我介绍。直接回应用户最新消息。]' : '',

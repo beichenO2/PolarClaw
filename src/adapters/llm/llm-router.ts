@@ -69,55 +69,7 @@ class Semaphore {
   }
 }
 
-const OLLAMA_BASE = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL ?? 'qwen3:32b';
 const RESILIENCE_RETRY_DELAYS = [1000, 3000, 8000]; // exponential backoff ms
-
-async function ollamaFallback(
-  messages: Array<{ role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string }>,
-  options: { temperature?: number; maxTokens?: number; timeoutMs?: number },
-): Promise<{ content: string | null; toolCalls: never[]; model: string; latencyMs: number }> {
-  const startMs = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 120_000);
-
-  try {
-    const res = await fetch(`${OLLAMA_BASE}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages: messages.map(m => ({ role: m.role, content: m.content })),
-        stream: false,
-        options: {
-          temperature: options.temperature ?? 0.7,
-          num_predict: options.maxTokens ?? 4096,
-        },
-      }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) throw new Error(`Ollama ${res.status}`);
-    const data = await res.json() as { message?: { content?: string }; model?: string };
-    return {
-      content: data.message?.content ?? null,
-      toolCalls: [],
-      model: `ollama:${OLLAMA_MODEL}`,
-      latencyMs: Date.now() - startMs,
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function isOllamaAvailable(): Promise<boolean> {
-  try {
-    const res = await fetch(`${OLLAMA_BASE}/api/tags`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    return res.ok;
-  } catch { return false; }
-}
 
 export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const defaultTemp = config.defaultTemperature ?? 0.7;
@@ -187,33 +139,32 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           }
         }
 
-        // Tier 3: Local Ollama fallback (no tool_calls support, text-only)
-        console.warn(`[LLMRouter] Tier 1 exhausted: ${lastError?.message}. Trying Ollama fallback...`);
-        if (await isOllamaAvailable()) {
-          try {
-            const fallbackResult = await ollamaFallback(formattedMessages, {
-              temperature: chatOptions.temperature,
-              maxTokens: chatOptions.maxTokens,
-              timeoutMs: 120_000,
-            });
-            console.info(`[LLMRouter] Tier 3 Ollama succeeded (${fallbackResult.latencyMs}ms)`);
-            return {
-              content: fallbackResult.content,
-              toolCalls: [],
-              model: fallbackResult.model,
-              latencyMs: fallbackResult.latencyMs,
-            };
-          } catch (ollamaErr) {
-            console.error(`[LLMRouter] Tier 3 Ollama also failed:`, ollamaErr);
-          }
-        } else {
-          console.warn(`[LLMRouter] Ollama not available at ${OLLAMA_BASE}`);
+        // Tier 3: Local via PolarPrivate L-codes (Ollama behind proxy; no tool_calls)
+        console.warn(`[LLMRouter] Tier 1 exhausted: ${lastError?.message}. Trying local L-tier...`);
+        try {
+          const localCap = intent === 'vision' ? '101' : capability;
+          const fallbackResult = await client.chat(formattedMessages, {
+            ...chatOptions,
+            capability: normalizeCode(localCap),
+            tier: 'local',
+            tools: undefined,
+            toolChoice: undefined,
+            timeoutMs: 120_000,
+          });
+          console.info(`[LLMRouter] Tier 3 local (${fallbackResult.model}) succeeded (${fallbackResult.latencyMs}ms)`);
+          return {
+            content: fallbackResult.content,
+            toolCalls: [],
+            model: fallbackResult.model,
+            latencyMs: fallbackResult.latencyMs,
+          };
+        } catch (localErr) {
+          console.error(`[LLMRouter] Tier 3 local failed:`, localErr);
         }
 
-        // All tiers exhausted
         throw new Error(
           `[LLMRouter] All tiers exhausted. Last error: ${lastError?.message ?? 'unknown'}. ` +
-          `Tried: Tier 1 (PolarPrivate, ${RESILIENCE_RETRY_DELAYS.length} retries) → Tier 3 (Ollama).`
+          `Tried: cloud capability → local L-tier via PolarPrivate.`,
         );
       } finally {
         semaphore.release();

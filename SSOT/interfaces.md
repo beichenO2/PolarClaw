@@ -69,9 +69,8 @@ points at the PolarPrivate `/v1` gateway so no project ever sees an
 external LLM key.
 
 VLM image analysis (the `analyze` option in `screenshot`) is served by a
-local llama-server instance and configured via `COMPUTER_USE_VLM_URL`
-(default `http://127.0.0.1:8080`) and `COMPUTER_USE_VLM_MODEL` (default
-`gemma-3-27b-it`). llama-server runs as a launchd service
+PolarPrivate local VLM via opaque code `L101` at `http://127.0.0.1:12790/v1`
+(Ollama mapped server-side). Optional env: `POLARPRIVATE_URL`, `POLARPRIVATE_PORT`.
 (`com.llama.server`) on Mac Studio, starts automatically at login, and
 exposes an OpenAI-compatible `/v1/chat/completions` endpoint for multimodal
 requests.
