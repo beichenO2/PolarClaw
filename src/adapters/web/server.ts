@@ -203,6 +203,8 @@ export function createWebServer(config: WebServerConfig) {
     writeFileSync(deploymentsPath, JSON.stringify(list, null, 2));
   }
 
+  const distDir = config.webDistDir ?? '';
+
   app.get('/api/deployments', (_req, res) => {
     res.json(loadDeployments());
   });
@@ -241,8 +243,12 @@ export function createWebServer(config: WebServerConfig) {
     res.json({ ok: true });
   });
 
-  // ── Chat shell 占位（Phase 4 PolarDesign 替换为完整 SPA） ──
-  app.get('/chat', (_req, res) => {
+  // ── Chat shell 占位（Phase 4 React SPA 在 /mc/chat；此处重定向） ──
+  app.get('/chat', (req, res) => {
+    const q = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    if (existsSync(join(distDir, 'index.html'))) {
+      return res.redirect(`/mc/chat${q}`);
+    }
     const deployments = loadDeployments();
     const options = deployments.map(d =>
       `<option value="${d.id}">${d.display_name} (${d.workflow_id})</option>`,
@@ -286,7 +292,6 @@ document.getElementById('send').onclick=async()=>{
   });
 
   // ── Static: serve Web SPA ──────────────────────────────
-  const distDir = config.webDistDir ?? '';
   if (existsSync(distDir)) {
     app.use('/mc', express.static(distDir));
     app.get(/^\/mc\/.*/, (_req, res) => {
