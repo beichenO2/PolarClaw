@@ -5,7 +5,7 @@
 
 import express from 'express';
 import multer from 'multer';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, renameSync, copyFileSync } from 'node:fs';
 import { join, extname, basename } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -832,7 +832,7 @@ document.getElementById('send').onclick=async()=>{
   }
 
   // ── API: workflow chat（PolarUI headless execute，供统一 Chat 壳） ──
-  app.post('/api/workflow/chat', (req, res) => {
+  app.post('/api/workflow/chat', async (req, res) => {
     const body = req.body as {
       workflow_id?: string;
       conversation_id?: string;
@@ -856,14 +856,39 @@ document.getElementById('send').onclick=async()=>{
       '--message', message,
     ];
     if (user_id) args.push('--user-id', user_id);
-    const r = spawnSync(npxBin, args, {
-      cwd: polarUiRoot,
-      encoding: 'utf8',
-      env: { ...process.env, POLARCLAW_WEB_URL: `http://127.0.0.1:${config.port}` },
-      timeout: 300_000,
+    const spawnEnv = {
+      ...process.env,
+      PATH: process.env.PATH ?? '/Users/mac/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin',
+      POLARCLAW_WEB_URL: `http://127.0.0.1:${config.port}`,
+    };
+    const r = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
+      const child = spawn(npxBin, args, {
+        cwd: polarUiRoot,
+        env: spawnEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString(); });
+      child.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString(); });
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        reject(new Error('workflow chat timeout after 300s'));
+      }, 300_000);
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+      child.on('close', (status) => {
+        clearTimeout(timer);
+        resolve({ status: status ?? 1, stdout, stderr });
+      });
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { status: 1, stdout: '', stderr: msg };
     });
-    const stdout = (r.stdout ?? '').trim();
-    const stderr = (r.stderr ?? '').trim();
+    const stdout = r.stdout.trim();
+    const stderr = r.stderr.trim();
     if (!stdout) {
       return res.status(500).json({ error: stderr || 'workflow chat produced no output' });
     }
