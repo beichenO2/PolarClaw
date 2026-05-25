@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.polarclaw.web</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/mac/Polarisor/PolarClaw/scripts/run-web-daemon.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/mac/Polarisor/PolarClaw</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/Users/mac/.polarclaw/logs/launchd-stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mac/.polarclaw/logs/launchd-stderr.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>POLARISOR_ROOT</key>
+    <string>/Users/mac/Polarisor</string>
+    <key>PATH</key>
+    <string>/Users/mac/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>NODE</key>
+    <string>/Users/mac/.nvm/versions/node/v20.20.2/bin/node</string>
+  </dict>
+</dict>
+</plist>

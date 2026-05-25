@@ -12,7 +12,10 @@ function polarisorRoot(): string {
   return process.env.POLARISOR_ROOT ?? join(homedir(), 'Polarisor')
 }
 
-type RuntimeInject = typeof import('../../../../Agent_core/rules/engine/runtime-inject.mjs')
+type RuntimeInject = {
+  buildClawAppend: (userText: string) => string
+  buildSkillPrompt?: (skillId: string) => string | null | undefined
+}
 
 let _mod: RuntimeInject | null = null
 
@@ -29,6 +32,6 @@ export function appendRulesForUserMessage(userText: string): string {
 }
 
 export function buildSkillRulesAppend(skillId: string): string {
-  const p = mod().buildSkillPrompt(skillId)
+  const p = mod().buildSkillPrompt?.(skillId)
   return p ?? ''
 }
