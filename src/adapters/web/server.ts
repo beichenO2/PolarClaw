@@ -5,6 +5,7 @@
 
 import express from 'express';
 import multer from 'multer';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, renameSync, copyFileSync } from 'node:fs';
 import { join, extname, basename } from 'node:path';
 import { execSync } from 'node:child_process';
@@ -722,6 +723,52 @@ export function createWebServer(config: WebServerConfig) {
       }
     });
   }
+
+  // ── API: workflow chat（PolarUI headless execute，供统一 Chat 壳） ──
+  app.post('/api/workflow/chat', (req, res) => {
+    const body = req.body as {
+      workflow_id?: string;
+      conversation_id?: string;
+      message?: string;
+      user_id?: string;
+    };
+    const { workflow_id, conversation_id, message, user_id } = body;
+    if (!workflow_id || !conversation_id || !message) {
+      return res.status(400).json({ error: 'workflow_id, conversation_id, message required' });
+    }
+    const polarUiRoot = join(config.dataDir, '..', 'PolarUI');
+    const script = join(polarUiRoot, 'scripts', 'run-workflow-chat-once.mjs');
+    if (!existsSync(script)) {
+      return res.status(503).json({ error: `PolarUI chat script not found: ${script}` });
+    }
+    const args = [
+      'tsx', script,
+      '--workflow', workflow_id,
+      '--conversation-id', conversation_id,
+      '--message', message,
+    ];
+    if (user_id) args.push('--user-id', user_id);
+    const r = spawnSync('npx', args, {
+      cwd: polarUiRoot,
+      encoding: 'utf8',
+      env: { ...process.env, POLARCLAW_WEB_URL: `http://127.0.0.1:${config.port}` },
+      timeout: 300_000,
+    });
+    const stdout = (r.stdout ?? '').trim();
+    const stderr = (r.stderr ?? '').trim();
+    if (!stdout) {
+      return res.status(500).json({ error: stderr || 'workflow chat produced no output' });
+    }
+    try {
+      const parsed = JSON.parse(stdout.split('\n').filter(Boolean).pop() ?? stdout) as Record<string, unknown>;
+      if (r.status !== 0 && !parsed.content) {
+        return res.status(500).json({ ...parsed, stderr: stderr.slice(-500) });
+      }
+      res.json(parsed);
+    } catch {
+      res.status(500).json({ error: 'invalid workflow chat JSON', stdout: stdout.slice(-800), stderr: stderr.slice(-400) });
+    }
+  });
 
   // ── SDK API routes (/api/sdk/*) ──────────────────────────
   if (config.sdk) {
