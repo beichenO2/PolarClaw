@@ -871,6 +871,7 @@ async function main() {
     agentHandler: handleChannelMessage,
     agentHandlerStream: handleChannelMessageStream,
     conversations,
+    sessionMemory,
     yoloEngine,
     sdk: polarClawSDK,
   });

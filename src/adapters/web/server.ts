@@ -29,6 +29,8 @@ export interface WebServerConfig {
   llm?: import('../../ports/llm.js').ILLMRouter;
   memoryStore?: import('../../ports/memory.js').IMemoryStore;
   conversations?: import('../../ports/memory.js').IConversationHistory;
+  /** SessionMemoryManager — working/episodic/coreFacts/longTermBlocks（对外暴露 /api/session-memory/*） */
+  sessionMemory?: import('../../memory/SessionMemory.js').SessionMemoryManager;
   /** Full agent handler (ReAct loop + tools + memory + privacy) */
   agentHandler?: (msg: { channel: string; userId: string; text: string }) => Promise<string>;
   /** Streaming agent handler — returns final text, pushes progress via callback */
@@ -615,6 +617,111 @@ export function createWebServer(config: WebServerConfig) {
 
     res.json({ ok: true });
   });
+
+  // ── API: session-memory (PolarUI WorkingMemory 节点消费) ──
+  if (config.sessionMemory) {
+    const sm = config.sessionMemory;
+
+    app.get('/api/session-memory/:convId', (req, res) => {
+      const convId = req.params.convId;
+      try {
+        const session = sm.getOrCreateSession(convId);
+        const context = sm.buildMemoryInjection(convId);
+        res.json({
+          conversation_id: convId,
+          context,
+          working_count: session.working.length,
+          episodic_count: session.episodic.length,
+          long_term_count: session.longTermBlocks.length,
+          core_facts: session.coreFacts || '',
+        });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+
+    app.post('/api/session-memory/:convId/messages', (req, res) => {
+      const convId = req.params.convId;
+      const body = req.body as {
+        messages?: Array<{ role: string; content: string }>;
+        message?: string;
+        role?: 'user' | 'assistant' | 'system' | 'tool';
+        replace?: boolean;
+      };
+      try {
+        const session = sm.getOrCreateSession(convId);
+        const incoming = body.messages
+          ? body.messages.map(m => ({
+              role: m.role as 'system' | 'user' | 'assistant' | 'tool',
+              content: String(m.content ?? ''),
+            }))
+          : body.message
+          ? [{ role: (body.role ?? 'user') as 'system' | 'user' | 'assistant' | 'tool', content: String(body.message) }]
+          : [];
+        if (incoming.length === 0) {
+          return res.status(400).json({ error: 'messages[] or message required' });
+        }
+        const next = body.replace ? incoming : [...session.working, ...incoming];
+        sm.updateWorkingMemory(convId, next);
+        res.json({ conversation_id: convId, working_count: next.length });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+
+    app.post('/api/session-memory/:convId/compress', async (req, res) => {
+      const convId = req.params.convId;
+      try {
+        const compressed = await sm.compressForNextTurn(convId);
+        const session = sm.getOrCreateSession(convId);
+        res.json({
+          conversation_id: convId,
+          compressed_chars: compressed.length,
+          episodic_count: session.episodic.length,
+          working_count: session.working.length,
+        });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+
+    app.post('/api/session-memory/:convId/fetch', async (req, res) => {
+      const convId = req.params.convId;
+      const { query, user_id } = req.body as { query?: string; user_id?: string };
+      if (!query || !user_id) {
+        return res.status(400).json({ error: 'query + user_id required' });
+      }
+      try {
+        const blocks = await sm.fetchLongTermMemory(String(query), String(user_id));
+        const session = sm.getOrCreateSession(convId);
+        session.longTermBlocks = blocks;
+        res.json({ conversation_id: convId, blocks_count: blocks.length });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+
+    app.post('/api/session-memory/:convId/core-facts', (req, res) => {
+      const convId = req.params.convId;
+      const { facts } = req.body as { facts?: string };
+      try {
+        sm.updateCoreFacts(convId, String(facts ?? ''));
+        res.json({ conversation_id: convId, ok: true });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+
+    app.delete('/api/session-memory/:convId', (req, res) => {
+      const convId = req.params.convId;
+      try {
+        sm.clearSession(convId);
+        res.json({ conversation_id: convId, ok: true });
+      } catch (err) {
+        res.status(500).json({ error: String(err) });
+      }
+    });
+  }
 
   // ── SDK API routes (/api/sdk/*) ──────────────────────────
   if (config.sdk) {
