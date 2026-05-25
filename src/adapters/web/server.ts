@@ -183,6 +183,108 @@ export function createWebServer(config: WebServerConfig) {
     writeFileSync(join(reviewDir, 'index.json'), JSON.stringify(records, null, 2));
   }
 
+  // ── Chat deployments（统一 Chat 壳 workflow 注册表） ──
+  const deploymentsPath = join(config.dataDir, 'chat-deployments.json');
+  interface ChatDeployment {
+    id: string;
+    workflow_id: string;
+    library: 'WF' | 'LG';
+    display_name: string;
+    deployed_at: string;
+    memory?: string;
+  }
+  function loadDeployments(): ChatDeployment[] {
+    if (!existsSync(deploymentsPath)) return [];
+    try {
+      return JSON.parse(readFileSync(deploymentsPath, 'utf8')) as ChatDeployment[];
+    } catch { return []; }
+  }
+  function saveDeployments(list: ChatDeployment[]) {
+    writeFileSync(deploymentsPath, JSON.stringify(list, null, 2));
+  }
+
+  app.get('/api/deployments', (_req, res) => {
+    res.json(loadDeployments());
+  });
+
+  app.get('/api/deployments/:id/manifest', (req, res) => {
+    const item = loadDeployments().find(d => d.id === req.params.id);
+    if (!item) return res.status(404).json({ error: 'not found' });
+    res.json(item);
+  });
+
+  app.put('/api/deployments', (req, res) => {
+    const body = req.body as Partial<ChatDeployment>;
+    if (!body.workflow_id || !body.display_name) {
+      return res.status(400).json({ error: 'workflow_id and display_name required' });
+    }
+    const list = loadDeployments();
+    const id = body.id ?? body.workflow_id;
+    const entry: ChatDeployment = {
+      id,
+      workflow_id: body.workflow_id,
+      library: (body.library === 'LG' ? 'LG' : 'WF'),
+      display_name: body.display_name,
+      deployed_at: new Date().toISOString(),
+      memory: body.memory ?? 'WorkingMemory',
+    };
+    const idx = list.findIndex(d => d.id === id);
+    if (idx >= 0) list[idx] = entry;
+    else list.push(entry);
+    saveDeployments(list);
+    res.json({ ok: true, deployment: entry, chat_url: `/chat?workflow=${encodeURIComponent(id)}` });
+  });
+
+  app.delete('/api/deployments/:id', (req, res) => {
+    const list = loadDeployments().filter(d => d.id !== req.params.id);
+    saveDeployments(list);
+    res.json({ ok: true });
+  });
+
+  // ── Chat shell 占位（Phase 4 PolarDesign 替换为完整 SPA） ──
+  app.get('/chat', (_req, res) => {
+    const deployments = loadDeployments();
+    const options = deployments.map(d =>
+      `<option value="${d.id}">${d.display_name} (${d.workflow_id})</option>`,
+    ).join('');
+    res.type('html').send(`<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"/><title>PolarUI Chat</title>
+<style>
+body{font-family:system-ui;background:#212121;color:#ececec;margin:0;min-height:100vh;display:flex;flex-direction:column}
+header{padding:12px 16px;border-bottom:1px solid #444;display:flex;gap:12px;align-items:center}
+select,button{background:#2f2f2f;color:#ececec;border:1px solid #555;border-radius:8px;padding:8px 12px}
+main{flex:1;display:flex;flex-direction:column;max-width:768px;margin:0 auto;width:100%;padding:16px;box-sizing:border-box}
+#log{flex:1;overflow:auto;margin-bottom:12px}
+.msg{padding:12px;margin:8px 0;border-radius:12px;max-width:85%}
+.msg.user{background:#2f2f2f;margin-left:auto}
+.msg.assistant{background:#343541}
+footer{display:flex;gap:8px}
+textarea{flex:1;background:#2f2f2f;color:#ececec;border:1px solid #555;border-radius:12px;padding:12px;resize:none;min-height:52px}
+.note{font-size:12px;color:#888;margin-top:8px}
+</style></head><body>
+<header><strong>PolarUI Chat</strong>
+<select id="wf"><option value="">— 选择 workflow —</option>${options}</select>
+<button id="newChat">新对话</button></header>
+<main><div id="log"></div>
+<footer><textarea id="input" placeholder="输入消息…" rows="2"></textarea><button id="send">发送</button></footer>
+<p class="note">Phase 3 占位 UI · Phase 4 由 PolarDesign 复刻 ChatGPT 完整界面</p></main>
+<script>
+const wf=document.getElementById('wf'), log=document.getElementById('log'), input=document.getElementById('input');
+let convId=localStorage.getItem('polarui_chat_conv')||('chat_'+Date.now());
+localStorage.setItem('polarui_chat_conv', convId);
+const q=new URLSearchParams(location.search); if(q.get('workflow')) wf.value=q.get('workflow');
+document.getElementById('newChat').onclick=()=>{convId='chat_'+Date.now();localStorage.setItem('polarui_chat_conv',convId);log.innerHTML='';};
+function add(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;log.appendChild(d);log.scrollTop=log.scrollHeight;}
+document.getElementById('send').onclick=async()=>{
+  const w=wf.value, t=input.value.trim(); if(!w||!t) return;
+  add('user',t); input.value='';
+  const r=await fetch('/api/workflow/chat',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({workflow_id:w,conversation_id:convId,message:t})});
+  const j=await r.json(); add('assistant', j.content||j.error||'（无回复）');
+};
+</script></body></html>`);
+  });
+
   // ── Static: serve Web SPA ──────────────────────────────
   const distDir = config.webDistDir ?? '';
   if (existsSync(distDir)) {
