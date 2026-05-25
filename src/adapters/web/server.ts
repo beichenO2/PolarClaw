@@ -843,11 +843,12 @@ document.getElementById('send').onclick=async()=>{
     if (!workflow_id || !conversation_id || !message) {
       return res.status(400).json({ error: 'workflow_id, conversation_id, message required' });
     }
-    const polarUiRoot = join(config.dataDir, '..', 'PolarUI');
+    const polarUiRoot = join(config.dataDir, '..', '..', 'PolarUI');
     const script = join(polarUiRoot, 'scripts', 'run-workflow-chat-once.mjs');
     if (!existsSync(script)) {
       return res.status(503).json({ error: `PolarUI chat script not found: ${script}` });
     }
+    const npxBin = process.env.NPX ?? 'npx';
     const args = [
       'tsx', script,
       '--workflow', workflow_id,
@@ -855,7 +856,7 @@ document.getElementById('send').onclick=async()=>{
       '--message', message,
     ];
     if (user_id) args.push('--user-id', user_id);
-    const r = spawnSync('npx', args, {
+    const r = spawnSync(npxBin, args, {
       cwd: polarUiRoot,
       encoding: 'utf8',
       env: { ...process.env, POLARCLAW_WEB_URL: `http://127.0.0.1:${config.port}` },
