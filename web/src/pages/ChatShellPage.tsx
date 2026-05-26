@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import clsx from 'clsx'
 import { MessageList } from '../components/chat/MessageList'
 import { ChatComposer } from '../components/chat/ChatComposer'
+import { WorkflowPicker } from '../components/chat/WorkflowPicker'
 import {
   type ChatAnnotation,
   type ChatDeployment,
@@ -173,18 +174,11 @@ export function ChatShellPage() {
           >
             ☰
           </button>
-          <select
+          <WorkflowPicker
+            deployments={deployments}
             value={workflowId}
-            onChange={e => startNewChat(e.target.value)}
-            className="bg-[#2f2f2f] border border-[#565869] rounded-lg px-3 py-1.5 text-sm text-[#ececec] max-w-xs"
-          >
-            <option value="">— 选择 workflow —</option>
-            {deployments.map(d => (
-              <option key={d.id} value={d.id}>
-                {d.display_name}
-              </option>
-            ))}
-          </select>
+            onChange={id => startNewChat(id)}
+          />
           {selectedDeployment && (
             <span className="text-xs text-[#8e8ea0] hidden sm:inline">
               {selectedDeployment.library} · 模型在工作流内配置
