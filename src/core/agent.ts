@@ -55,6 +55,8 @@ export interface IAgentConfig {
   skillCatalog?: string;
   /** 按 userId 返回 persona 内容和可用技能列表 */
   personaResolver?: (userId: string) => IPersonaResult;
+  /** 默认 WorkSpace 项目根（记忆 scoped） */
+  defaultProjectRoot?: string;
   /** 温度 */
   temperature?: number;
   /** 最大输出 token */
@@ -172,7 +174,12 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
       let sessionMemoryPrefix = '';
       if (sessionMemory) {
-        const longTermBlocks = await sessionMemory.fetchLongTermMemory(sanitizedText, userId);
+        const longTermBlocks = await sessionMemory.fetchLongTermMemory(
+          sanitizedText,
+          userId,
+          config.defaultProjectRoot,
+          convId,
+        );
         if (longTermBlocks.length > 0) {
           const session = sessionMemory.getOrCreateSession(convId);
           session.longTermBlocks = longTermBlocks;
@@ -228,6 +235,13 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         if (sessionMemory) {
           const currentHistory = conversations.getHistory(convId);
           sessionMemory.updateWorkingMemory(convId, currentHistory);
+          if (config.defaultProjectRoot) {
+            sessionMemory.captureWorkSpaceTurn(
+              config.defaultProjectRoot,
+              convId,
+              sanitizedText,
+            );
+          }
           sessionMemory.compressForNextTurn(convId).catch((err) => {
             console.error(`[Agent] session memory compression failed:`, err);
           });

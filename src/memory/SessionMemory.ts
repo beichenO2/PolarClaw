@@ -15,6 +15,8 @@ import Database from 'better-sqlite3';
 import { mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import type { IChatMessage } from '../ports/memory.js';
+import { retrieveWorkSpaceMemory } from '../workspace-memory/retrieval.js';
+import { WorkSpaceFileMemoryStore } from '../workspace-memory/file-store.js';
 
 // ─── 类型定义 ───
 
@@ -61,6 +63,10 @@ export interface SessionMemory {
   coreFacts: string;
   /** 从 PolarMemory 获取的长期记忆 Block */
   longTermBlocks: Block[];
+  /** WorkSpace 级 Markdown 记忆条目 */
+  workspaceEntries: import('../workspace-memory/types.js').MemoryEntry[];
+  /** 最近一次 WorkSpace 检索 trace */
+  lastWorkSpaceTraceId?: string;
 }
 
 /** 压缩模式（对齐 MemGPT SummarizationMode） */
@@ -85,6 +91,8 @@ export interface ISessionMemoryManagerConfig {
   maxCompressedChars?: number;
   /** PolarMemory API 基础 URL（默认 http://localhost:3100） */
   polarMemoryBaseUrl?: string;
+  /** 解析 WorkSpace memoryDataDir（可选） */
+  resolveWorkSpaceMemoryDir?: (projectRoot: string) => string | undefined;
   /** fetchLongTermMemory 返回的最大 Block 数（默认 5） */
   maxLongTermBlocks?: number;
   /** LLM 摘要函数（可选，不提供则使用规则压缩） */
@@ -187,6 +195,7 @@ export class SessionMemoryManager {
   private readonly partialEvictPercentage: number;
   private readonly maxCompressedChars: number;
   private readonly polarMemoryBaseUrl: string;
+  private readonly resolveWorkSpaceMemoryDir?: (projectRoot: string) => string | undefined;
   private readonly maxLongTermBlocks: number;
   private readonly summarize?: (text: string) => Promise<string>;
 
@@ -208,6 +217,7 @@ export class SessionMemoryManager {
     this.partialEvictPercentage = config.partialEvictPercentage ?? 0.3;
     this.maxCompressedChars = config.maxCompressedChars ?? 20000;
     this.polarMemoryBaseUrl = config.polarMemoryBaseUrl ?? 'http://localhost:3100';
+    this.resolveWorkSpaceMemoryDir = config.resolveWorkSpaceMemoryDir;
     this.maxLongTermBlocks = config.maxLongTermBlocks ?? 5;
     this.summarize = config.summarize;
     const explicitDbPath = config.dbPath ?? (process.env.POLARCLAW_DATA_DIR ? join(process.env.POLARCLAW_DATA_DIR, 'session_episodic.db') : null);
@@ -232,6 +242,7 @@ export class SessionMemoryManager {
           episodic: [],
           coreFacts: '',
           longTermBlocks: [],
+          workspaceEntries: [],
         };
       }
       this.sessions.set(convId, session);
@@ -354,7 +365,23 @@ export class SessionMemoryManager {
    * userId 为空或为 anonymous 时不请求（避免未过滤的 PolarMemory 搜索）。
    * 应用时间衰减：基于创建/更新时间计算衰减因子
    */
-  async fetchLongTermMemory(query: string, userId?: string): Promise<Block[]> {
+  async fetchLongTermMemory(
+    query: string,
+    userId?: string,
+    projectRoot?: string,
+    convId?: string,
+  ): Promise<Block[]> {
+    const root = projectRoot?.trim();
+    if (root && this.resolveWorkSpaceMemoryDir && convId) {
+      const memoryDir = this.resolveWorkSpaceMemoryDir(root);
+      if (memoryDir) {
+        const ws = retrieveWorkSpaceMemory(memoryDir, query, { limit: this.maxLongTermBlocks });
+        const session = this.getOrCreateSession(convId);
+        session.workspaceEntries = ws.entries;
+        session.lastWorkSpaceTraceId = ws.traceId;
+      }
+    }
+
     const u = userId?.trim();
     if (!u || u === 'anonymous') {
       return [];
@@ -419,14 +446,44 @@ export class SessionMemoryManager {
     }
 
     if (session.longTermBlocks.length > 0) {
-      parts.push('## 长期记忆');
+      parts.push('## 长期记忆 (PolarMemory)');
       for (const block of session.longTermBlocks) {
         parts.push(`### ${block.label}`);
         parts.push(block.value.slice(0, 800));
       }
     }
 
+    if (session.workspaceEntries.length > 0) {
+      parts.push('## WorkSpace 记忆');
+      if (session.lastWorkSpaceTraceId) {
+        parts.push(`trace: ${session.lastWorkSpaceTraceId}`);
+      }
+      for (const entry of session.workspaceEntries) {
+        parts.push(`### ${entry.frontmatter.name}`);
+        parts.push(entry.preview);
+      }
+    }
+
     return parts.length > 0 ? parts.join('\n') : '';
+  }
+
+  captureWorkSpaceTurn(
+    projectRoot: string,
+    convId: string,
+    userText: string,
+    projectId?: string,
+  ): void {
+    const memoryDir = this.resolveWorkSpaceMemoryDir?.(projectRoot);
+    if (!memoryDir || userText.trim().length < 8) return;
+    const store = new WorkSpaceFileMemoryStore(memoryDir);
+    store.writeEntry({
+      name: `turn-${Date.now()}`,
+      description: `Captured from ${convId}`,
+      type: 'feedback',
+      body: userText.slice(0, 2000),
+      projectId,
+      sourceSessionKey: convId,
+    });
   }
 
   /** 清除会话记忆 */

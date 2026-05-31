@@ -21,6 +21,7 @@ import {
 } from '../../sdk/project-lock.js';
 
 import type { AgentProgressEvent } from '../../core/agent.js';
+import { createWorkSpaceMemoryRouter } from '../../workspace-memory/routes.js';
 
 export interface WebServerConfig {
   port: number;
@@ -47,6 +48,8 @@ export interface WebServerConfig {
   };
   /** PolarClaw SDK instance (provides /api/sdk/* routes) */
   sdk?: import('../../sdk/index.js').PolarClawSDK;
+  /** WorkSpace registry for project-scoped memory API */
+  workSpaceRegistry?: import('../../workspace/registry.js').WorkSpaceRegistry;
 }
 
 export interface AgentStatusData {
@@ -161,6 +164,10 @@ export function createWebServer(config: WebServerConfig) {
     next();
   });
   app.use(express.json({ limit: '50mb' }));
+
+  if (config.workSpaceRegistry) {
+    app.use('/api/workspace-memory', createWorkSpaceMemoryRouter(config.workSpaceRegistry));
+  }
 
   const reviewDir = join(config.dataDir, 'reviews');
   const uploadsDir = join(config.dataDir, 'uploads');
@@ -838,8 +845,9 @@ document.getElementById('send').onclick=async()=>{
       conversation_id?: string;
       message?: string;
       user_id?: string;
+      stream?: boolean;
     };
-    const { workflow_id, conversation_id, message, user_id } = body;
+    const { workflow_id, conversation_id, message, user_id, stream } = body;
     if (!workflow_id || !conversation_id || !message) {
       return res.status(400).json({ error: 'workflow_id, conversation_id, message required' });
     }
@@ -856,11 +864,44 @@ document.getElementById('send').onclick=async()=>{
       '--message', message,
     ];
     if (user_id) args.push('--user-id', user_id);
+    if (stream) args.push('--stream');
     const spawnEnv = {
       ...process.env,
       PATH: process.env.PATH ?? '/Users/mac/.nvm/versions/node/v20.20.2/bin:/usr/bin:/bin',
       POLARCLAW_WEB_URL: `http://127.0.0.1:${config.port}`,
     };
+
+    if (stream) {
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      res.flushHeaders?.();
+      const child = spawn(npxBin, args, {
+        cwd: polarUiRoot,
+        env: spawnEnv,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      child.stdout?.on('data', (chunk: Buffer) => { res.write(chunk); });
+      child.stderr?.on('data', (chunk: Buffer) => {
+        res.write(JSON.stringify({ type: 'error', message: chunk.toString().slice(-500) }) + '\n');
+      });
+      const timer = setTimeout(() => {
+        child.kill('SIGTERM');
+        res.write(JSON.stringify({ type: 'error', message: 'workflow chat timeout after 300s' }) + '\n');
+        res.end();
+      }, 300_000);
+      child.on('close', () => {
+        clearTimeout(timer);
+        res.end();
+      });
+      child.on('error', (err) => {
+        clearTimeout(timer);
+        res.write(JSON.stringify({ type: 'error', message: String(err) }) + '\n');
+        res.end();
+      });
+      return;
+    }
+
     const r = await new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve, reject) => {
       const child = spawn(npxBin, args, {
         cwd: polarUiRoot,

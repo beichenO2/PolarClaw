@@ -73,6 +73,7 @@ async function main() {
     await workSpaceRegistry.register(projectRoot);
     console.error(`[PolarClaw] WorkSpace registered: ${projectRoot}`);
   }
+  const effectiveProjectRoot = projectRoot || config.projectRoot;
 
   // 确保数据目录存在
   const dataDir = dirname(config.memory.dbPath);
@@ -88,6 +89,7 @@ async function main() {
       ? join(process.env.POLARCLAW_DATA_DIR, 'session_episodic.db')
       : join(config.projectRoot, 'data', 'session_episodic.db'),
     maxSessions: 50,
+    resolveWorkSpaceMemoryDir: (root) => workSpaceRegistry.getByProjectRoot(root)?.memoryDataDir,
     summarize: async (text: string) => {
       try {
         const resp = await llm.chat([{ role: 'user', content: `请简要总结以下对话的核心内容（100字以内）:\n${text}` }]);
@@ -446,6 +448,7 @@ async function main() {
       maxToolRounds: config.llm.maxToolRounds,
       temperature: config.llm.temperature,
       maxTokens: config.llm.maxTokens,
+      defaultProjectRoot: effectiveProjectRoot,
     },
     { llm, memory, conversations, tools, privacy, compressor, sessionMemory },
   );
@@ -882,6 +885,7 @@ async function main() {
     sessionMemory,
     yoloEngine,
     sdk: polarClawSDK,
+    workSpaceRegistry,
   });
   await webServer.start();
 
