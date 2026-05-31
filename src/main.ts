@@ -41,6 +41,10 @@ import { HubClient, HubPromptTimeoutError, HubPromptInvalidError, HubNetworkErro
 import { SessionMemoryManager } from './memory/SessionMemory.js';
 import { WorkSpaceRegistry } from './workspace/index.js';
 import type { IChannelAdapter } from './ports/channel.js';
+import { parseAlwaysOnConfig } from './always-on/config/parseAlwaysOnConfig.js';
+import { createAlwaysOnManager } from './always-on/runtime/AlwaysOnManager.js';
+import { createAlwaysOnDiscoveryPlanTool } from './always-on/tool/AlwaysOnDiscoveryPlanTool.js';
+import { createAlwaysOnReportTool } from './always-on/tool/AlwaysOnReportTool.js';
 
 async function main() {
   // 先加载 .env（确保 POLARPRIVATE_URL 等基础配置可用）
@@ -111,6 +115,8 @@ async function main() {
     concurrencyLimit: config.llm.concurrencyLimit,
   });
   const rawTools = createToolExecutor();
+  rawTools.register(createAlwaysOnDiscoveryPlanTool());
+  rawTools.register(createAlwaysOnReportTool());
 
   // 学习系统：包装工具执行器以追踪使用记录
   const learningStore = createLearningStore(config.memory.dbPath);
@@ -1028,6 +1034,25 @@ async function main() {
   // 启动主动关怀引擎
   let clockSseBridge: ReturnType<typeof createClockSseBridge> | null = null;
   let scheduleBridge: ReturnType<typeof createScheduleBridge> | null = null;
+  let alwaysOnManager: ReturnType<typeof createAlwaysOnManager> | null = null;
+
+  const alwaysOnConfig = parseAlwaysOnConfig();
+  if (alwaysOnConfig.enabled) {
+    for (const projectKey of Object.keys(alwaysOnConfig.projects)) {
+      if (alwaysOnConfig.projects[projectKey]?.enabled) {
+        await workSpaceRegistry.register(projectKey);
+      }
+    }
+    alwaysOnManager = createAlwaysOnManager({
+      config: alwaysOnConfig,
+      agent,
+      workSpaceRegistry,
+      setToolContext: (userId, convId) => tools.setContext(userId, convId),
+    });
+    alwaysOnManager.bindBusyCheck(() => agent.isSessionInFlight());
+    await alwaysOnManager.start();
+    console.error('[PolarClaw] Always-On manager started');
+  }
 
   if (process.env.POLARCLAW_PROACTIVE === '1') {
     careEngine.start();
@@ -1072,6 +1097,7 @@ async function main() {
     webServer.stop();
     scheduleBridge?.stop();
     clockSseBridge?.stop();
+    alwaysOnManager?.stop();
     careEngine.stop();
     skillRegistry.unwatch();
     for (const ch of channels) {

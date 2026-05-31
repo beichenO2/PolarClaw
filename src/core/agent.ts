@@ -114,6 +114,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
   /** Active TaskContracts per conversation */
   const activeContracts = new Map<string, TaskContract>();
+  /** Tracks in-flight sessions for Always-On busy gate */
+  const inFlightSessions = new Map<string, string>();
 
   /**
    * 处理用户消息（完整流程）
@@ -130,9 +132,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     conversationId?: string,
     projectId?: string,
     onProgress?: (event: AgentProgressEvent) => void,
+    workSpaceProjectRoot?: string,
   ): Promise<IAgentResponse> {
     const convId = conversationId ?? `${channel}:${userId}`;
     const holder = projectId ? `agent/solo-${userId}` : '';
+    const memoryRoot = workSpaceProjectRoot ?? config.defaultProjectRoot;
 
     // Acquire project lock if projectId provided (Solo Agent task)
     if (projectId) {
@@ -146,6 +150,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       }
     }
 
+    inFlightSessions.set(convId, channel);
     try {
       const sanitizeResult = await privacy.sanitize(userId, text);
       if (sanitizeResult.blocked) {
@@ -177,7 +182,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         const longTermBlocks = await sessionMemory.fetchLongTermMemory(
           sanitizedText,
           userId,
-          config.defaultProjectRoot,
+          memoryRoot,
           convId,
         );
         if (longTermBlocks.length > 0) {
@@ -196,7 +201,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           if (contract) activeContracts.set(convId, contract);
         }
       }
-      if (!contract) {
+      if (!contract && !channel.startsWith('always-on/')) {
         try {
           const simpleLlmChat = async (
             msgs: Array<{ role: string; content: string }>,
@@ -235,9 +240,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         if (sessionMemory) {
           const currentHistory = conversations.getHistory(convId);
           sessionMemory.updateWorkingMemory(convId, currentHistory);
-          if (config.defaultProjectRoot) {
+          if (memoryRoot) {
             sessionMemory.captureWorkSpaceTurn(
-              config.defaultProjectRoot,
+              memoryRoot,
               convId,
               sanitizedText,
             );
@@ -257,10 +262,18 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         usage: responseUsage,
       };
     } finally {
+      inFlightSessions.delete(convId);
       if (projectId) {
         releaseLock(projectId, holder);
       }
     }
+  }
+
+  function isSessionInFlight(): boolean {
+    for (const channel of inFlightSessions.values()) {
+      if (!channel.startsWith('always-on/')) return true;
+    }
+    return false;
   }
 
   /** 构建注入的记忆上下文（用户画像 + FTS 相关记忆），带短窗口缓存避免高频消息重复查询 */
@@ -584,6 +597,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
   return {
     handleMessage,
+    isSessionInFlight,
     /** 获取 Agent 状态 */
     getStatus() {
       return {

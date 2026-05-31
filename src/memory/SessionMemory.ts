@@ -563,6 +563,7 @@ export class SessionMemoryManager {
         episodic: JSON.parse(row.episodic_json) as CompressedMemory[],
         coreFacts: row.core_facts || '',
         longTermBlocks: JSON.parse(row.long_term_json) as Block[],
+        workspaceEntries: [],
       };
     } catch {
       return null;
