@@ -39,6 +39,7 @@ import { createPolarUserRegistry } from './core/polar-user.js';
 import { createPolarClawSDK } from './sdk/index.js';
 import { HubClient, HubPromptTimeoutError, HubPromptInvalidError, HubNetworkError } from './adapters/web/hub-client.js';
 import { SessionMemoryManager } from './memory/SessionMemory.js';
+import { WorkSpaceRegistry } from './workspace/index.js';
 import type { IChannelAdapter } from './ports/channel.js';
 
 async function main() {
@@ -65,6 +66,13 @@ async function main() {
   });
 
   const config = loadConfig();
+
+  const workSpaceRegistry = new WorkSpaceRegistry();
+  const projectRoot = process.env.POLARCLAW_PROJECT_ROOT?.trim();
+  if (projectRoot) {
+    await workSpaceRegistry.register(projectRoot);
+    console.error(`[PolarClaw] WorkSpace registered: ${projectRoot}`);
+  }
 
   // 确保数据目录存在
   const dataDir = dirname(config.memory.dbPath);

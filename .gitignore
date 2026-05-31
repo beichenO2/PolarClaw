@@ -19,5 +19,6 @@ tsconfig.tsbuildinfo
 
 # Compiled ecosystem artifacts (regenerable from KnowLever)
 reference/KnowLever/
+reference/PilotDeck/
 # Vendor reference (gnhf project mirror)
 reference/gnhf/
