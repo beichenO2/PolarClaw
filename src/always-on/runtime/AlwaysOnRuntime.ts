@@ -8,9 +8,13 @@ import {
   runReportTurn,
   type DiscoveryAgent,
 } from './discovery-runner.js';
+import { runExecuteTurn, runReportTurnAfterExecute } from './execute-runner.js';
 import { resolveAlwaysOnPaths } from '../storage/AlwaysOnPaths.js';
 import { DiscoveryStateStore } from '../storage/DiscoveryStateStore.js';
 import { AlwaysOnEventStore } from '../storage/AlwaysOnEventStore.js';
+import { GitWorktreeProvider, isGitRepo } from '../workspace/GitWorktreeProvider.js';
+import { findCanonicalProjectRoot } from '../../workspace/canonical-root.js';
+import { join } from 'node:path';
 
 export type AlwaysOnRuntimeDeps = {
   projectKey: string;
@@ -125,6 +129,58 @@ export class AlwaysOnRuntime {
         outcome: discovery.outcome,
       });
 
+      const planPath = join(this.paths.plansDir, `${runId}.md`);
+      const projectCfg = this.deps.config.projects[this.deps.projectKey];
+      const executeEnabled =
+        this.deps.config.execute.enabled || projectCfg?.execute === true;
+
+      let executeText = '';
+      if (executeEnabled && existsSync(planPath)) {
+        const gitRoot = await findCanonicalProjectRoot(this.deps.projectRoot);
+        if (await isGitRepo(gitRoot)) {
+          const worktrees = new GitWorktreeProvider(gitRoot);
+          let handle: Awaited<ReturnType<GitWorktreeProvider['create']>> | undefined;
+          try {
+            this.events.append({
+              ts: now.toISOString(),
+              projectKey: this.deps.projectKey,
+              runId,
+              phase: 'execute_started',
+            });
+            handle = await worktrees.create(runId);
+            const execSessionKey = `always-on/execute:project=${this.deps.projectKey}:run=${runId}`;
+            this.deps.setToolContext?.('always-on', execSessionKey);
+            const executed = await runExecuteTurn({
+              agent: this.deps.agent,
+              projectRoot: this.deps.projectRoot,
+              worktreePath: handle.worktreePath,
+              runId,
+              planPath,
+              language: this.deps.config.language,
+            });
+            executeText = executed.text;
+            this.events.append({
+              ts: now.toISOString(),
+              projectKey: this.deps.projectKey,
+              runId,
+              phase: 'execute_completed',
+              detail: executeText.slice(0, 200),
+            });
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.events.append({
+              ts: now.toISOString(),
+              projectKey: this.deps.projectKey,
+              runId,
+              phase: 'error',
+              detail: `execute: ${msg}`,
+            });
+          } finally {
+            if (handle) await worktrees.remove(handle);
+          }
+        }
+      }
+
       this.events.append({
         ts: now.toISOString(),
         projectKey: this.deps.projectKey,
@@ -135,14 +191,26 @@ export class AlwaysOnRuntime {
       const reportSessionKey = `always-on/report:project=${this.deps.projectKey}:run=${runId}`;
       this.deps.setToolContext?.('always-on', reportSessionKey);
 
-      await runReportTurn({
-        agent: this.deps.agent,
-        projectRoot: this.deps.projectRoot,
-        runId,
-        reportsDir: this.paths.reportsDir,
-        discoveryText: discovery.text,
-        language: this.deps.config.language,
-      });
+      if (executeText) {
+        await runReportTurnAfterExecute({
+          agent: this.deps.agent,
+          projectRoot: this.deps.projectRoot,
+          runId,
+          reportsDir: this.paths.reportsDir,
+          discoveryText: discovery.text,
+          executeText,
+          language: this.deps.config.language,
+        });
+      } else {
+        await runReportTurn({
+          agent: this.deps.agent,
+          projectRoot: this.deps.projectRoot,
+          runId,
+          reportsDir: this.paths.reportsDir,
+          discoveryText: discovery.text,
+          language: this.deps.config.language,
+        });
+      }
 
       this.events.append({
         ts: now.toISOString(),

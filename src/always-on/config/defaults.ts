@@ -16,6 +16,11 @@ export type AlwaysOnDormancyConfig = {
 
 export type AlwaysOnProjectConfig = {
   enabled: boolean;
+  execute?: boolean;
+};
+
+export type AlwaysOnExecuteConfig = {
+  enabled: boolean;
 };
 
 export type AlwaysOnConfig = {
@@ -23,6 +28,7 @@ export type AlwaysOnConfig = {
   language?: 'en' | 'zh-CN';
   trigger: AlwaysOnTriggerConfig;
   dormancy: AlwaysOnDormancyConfig;
+  execute: AlwaysOnExecuteConfig;
   projects: Record<string, AlwaysOnProjectConfig>;
 };
 
@@ -48,6 +54,9 @@ export function defaultAlwaysOnConfig(): AlwaysOnConfig {
         '**/node_modules/**',
         '**/dist/**',
       ],
+    },
+    execute: {
+      enabled: false,
     },
     projects: {},
   };

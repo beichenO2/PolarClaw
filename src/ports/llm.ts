@@ -36,6 +36,10 @@ export interface ILLMOptions {
   toolChoice?: 'auto' | 'none' | 'required';
   /** Extra system prompt appended via PolarPrivate's append_system_prompt mechanism. */
   append_system_prompt?: string;
+  /** Optional channel hint for smart routing (e.g. always-on/discovery) */
+  channel?: string;
+  /** Session key for token stats */
+  sessionKey?: string;
 }
 
 /** 工具定义（function calling 格式） */

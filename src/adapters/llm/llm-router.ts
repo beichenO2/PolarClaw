@@ -12,6 +12,8 @@
 import type { ILLMRouter, ILLMResponse, ILLMOptions, IntentType } from '../../ports/llm.js';
 import type { IChatMessage, IToolCall } from '../../ports/memory.js';
 import { createLLMClient, intentToCode, normalizeCode, type LLMProxyClient } from '../../sdk/llm-proxy.js';
+import { classifyAndRoute } from '../../router/classifyAndRoute.js';
+import { recordTokenStats } from '../../router/TokenStatsCollector.js';
 
 /** 意图检测正则 */
 const INTENT_HINTS: Array<{ pattern: RegExp; intent: IntentType }> = [
@@ -91,7 +93,11 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
       await semaphore.acquire();
       try {
         const intent = detectIntent(messages);
+        const route = !options.capability
+          ? classifyAndRoute(messages, { channel: options.channel })
+          : null;
         const capability = options.capability
+          ?? route?.capability
           ?? intentToCode(intent);
 
         const formattedMessages = messages.map(m => {
@@ -122,13 +128,26 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
               id: tc.id,
               function: { name: tc.function.name, arguments: tc.function.arguments },
             }));
-            return {
+            const response: ILLMResponse = {
               content: result.content,
               toolCalls,
               usage: result.usage,
               model: result.model,
               latencyMs: result.latencyMs,
             };
+            if (response.usage) {
+              recordTokenStats({
+                sessionKey: options.sessionKey ?? 'unknown',
+                tier: route?.tier ?? 'standard',
+                capability: normalizeCode(capability),
+                model: response.model,
+                promptTokens: response.usage.promptTokens,
+                completionTokens: response.usage.completionTokens,
+                totalTokens: response.usage.totalTokens,
+                channel: options.channel,
+              });
+            }
+            return response;
           } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
             const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|503|429|reset/i.test(lastError.message);

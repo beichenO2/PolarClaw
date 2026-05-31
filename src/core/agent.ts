@@ -230,7 +230,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         }
       }
 
-      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, contract, onProgress);
+      const result = await runLoop(convId, userId, channel, isOngoing, sessionMemoryPrefix, contract, onProgress);
 
       const rawText = result.text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
       const responseText = privacy.desanitize(userId, rawText || result.text);
@@ -323,6 +323,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   async function runLoop(
     convId: string,
     userId: string,
+    channel: string,
     isOngoing = false,
     sessionMemoryPrefix = '',
     contract?: TaskContract,
@@ -407,6 +408,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           temperature: config.temperature,
           maxTokens: config.maxTokens,
           append_system_prompt: toolCallReminder,
+          channel,
+          sessionKey: convId,
         });
       } catch (llmErr) {
         const errMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
@@ -419,6 +422,8 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
             temperature: config.temperature,
             maxTokens: config.maxTokens,
             append_system_prompt: toolCallReminder,
+            channel,
+            sessionKey: convId,
           });
         } else {
           throw llmErr;

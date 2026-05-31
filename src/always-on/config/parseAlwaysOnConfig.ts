@@ -110,6 +110,16 @@ function str(v: unknown, fallback: string): string {
   return typeof v === 'string' && v.trim() ? v : fallback;
 }
 
+function mergeExecute(
+  base: AlwaysOnConfig['execute'],
+  patch?: Record<string, unknown>,
+): AlwaysOnConfig['execute'] {
+  if (!patch) return base;
+  return {
+    enabled: typeof patch.enabled === 'boolean' ? patch.enabled : base.enabled,
+  };
+}
+
 function mergeProjects(
   base: AlwaysOnConfig['projects'],
   patch?: Record<string, unknown>,
@@ -130,6 +140,10 @@ function applyEnvOverrides(config: AlwaysOnConfig): AlwaysOnConfig {
   if (envOn === '1' || envOn === 'true') {
     config.enabled = true;
     config.trigger.enabled = true;
+  }
+  const execOn = process.env.POLARCLAW_ALWAYS_ON_EXECUTE?.trim();
+  if (execOn === '1' || execOn === 'true') {
+    config.execute.enabled = true;
   }
   const tick = process.env.POLARCLAW_ALWAYS_ON_TICK_MIN?.trim();
   if (tick) config.trigger.tickIntervalMinutes = Number(tick) || config.trigger.tickIntervalMinutes;
@@ -153,6 +167,7 @@ export function parseAlwaysOnConfig(polarHome = POLARCLAW_HOME): AlwaysOnConfig 
       if (parsed.language) config.language = parsed.language;
       config.trigger = mergeTrigger(config.trigger, parsed.trigger as Record<string, unknown>);
       config.dormancy = mergeDormancy(config.dormancy, parsed.dormancy as Record<string, unknown>);
+      config.execute = mergeExecute(config.execute, parsed.execute as Record<string, unknown>);
       config.projects = mergeProjects(config.projects, parsed.projects as Record<string, unknown>);
     } catch {
       // ignore corrupt json
@@ -170,6 +185,7 @@ export function parseAlwaysOnConfig(polarHome = POLARCLAW_HOME): AlwaysOnConfig 
         }
         config.trigger = mergeTrigger(config.trigger, block.trigger as Record<string, unknown>);
         config.dormancy = mergeDormancy(config.dormancy, block.dormancy as Record<string, unknown>);
+        config.execute = mergeExecute(config.execute, block.execute as Record<string, unknown>);
         config.projects = mergeProjects(config.projects, block.projects as Record<string, unknown>);
       }
     } catch {

@@ -6,6 +6,8 @@ export type AlwaysOnEventPhase =
   | 'gate_blocked'
   | 'discovery_started'
   | 'discovery_completed'
+  | 'execute_started'
+  | 'execute_completed'
   | 'report_started'
   | 'report_completed'
   | 'no_actionable_task'
