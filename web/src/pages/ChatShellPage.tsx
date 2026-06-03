@@ -17,6 +17,12 @@ import {
   saveMessages,
   sendWorkflowChat,
 } from '../lib/chat-api'
+import {
+  sendWorkflowChatStream,
+  streamEventToTraceLine,
+  type TraceLine,
+} from '../lib/chat-stream'
+import { RunTracePanel } from '../components/chat/RunTracePanel'
 
 function buildUserPayload(text: string, annotations: ChatAnnotation[]): string {
   if (annotations.length === 0) return text
@@ -40,6 +46,8 @@ export function ChatShellPage() {
   const [pendingAnnotations, setPendingAnnotations] = useState<ChatAnnotation[]>([])
   const [sending, setSending] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [traceLines, setTraceLines] = useState<TraceLine[]>([])
+  const [streamPreview, setStreamPreview] = useState('')
 
   useEffect(() => {
     fetchDeployments().then(list => {
@@ -105,20 +113,50 @@ export function ChatShellPage() {
     setPendingAnnotations([])
     persistConversationMeta(text)
     setSending(true)
+    setTraceLines([])
+    setStreamPreview('')
 
-    const { content, error } = await sendWorkflowChat({
-      workflow_id: workflowId,
-      conversation_id: conversationId,
-      message: userMsg.content,
+    let assistantContent = ''
+    const { content, error } = await sendWorkflowChatStream(
+      {
+        workflow_id: workflowId,
+        conversation_id: conversationId,
+        message: userMsg.content,
+      },
+      {
+        onEvent: (ev) => {
+          const result = streamEventToTraceLine(ev)
+          if (result) {
+            const lines = Array.isArray(result) ? result : [result]
+            setTraceLines(prev => [...prev, ...lines].slice(-200))
+          }
+          if (ev.type === 'text_delta') {
+            setStreamPreview(prev => prev + ev.delta)
+            assistantContent += ev.delta
+          }
+          if (ev.type === 'final' && ev.content) assistantContent = ev.content
+        },
+      },
+    ).catch(async () => {
+      return sendWorkflowChat({
+        workflow_id: workflowId,
+        conversation_id: conversationId,
+        message: userMsg.content,
+      })
     })
+
+    const finalText = error
+      ? `错误：${error}`
+      : (content ?? (assistantContent || streamPreview || '（无回复）'))
 
     const assistantMsg: ChatMessage = {
       id: `m_${Date.now()}_a`,
       role: 'assistant',
-      content: error ? `错误：${error}` : (content ?? '（无回复）'),
+      content: finalText,
     }
     setMessages(prev => [...prev, assistantMsg])
     setSending(false)
+    setStreamPreview('')
   }
 
   function handleAnnotate(_messageId: string, annotation: ChatAnnotation) {
@@ -191,6 +229,14 @@ export function ChatShellPage() {
           pending={sending}
           onAnnotate={handleAnnotate}
         />
+
+        {streamPreview && sending && (
+          <div className="px-4 py-2 text-sm text-[#8b949e] border-t border-[#444654] max-h-24 overflow-auto whitespace-pre-wrap">
+            {streamPreview}
+          </div>
+        )}
+
+        <RunTracePanel lines={traceLines} />
 
         <ChatComposer
           value={input}
