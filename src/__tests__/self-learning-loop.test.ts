@@ -147,6 +147,6 @@ describe('Self-Learning Loop', () => {
     expect(DEFAULT_LOOP_CONFIG.patternThreshold).toBe(5);
     expect(DEFAULT_LOOP_CONFIG.promotionThreshold).toBe(3);
     expect(DEFAULT_LOOP_CONFIG.demotionThreshold).toBe(3);
-    expect(DEFAULT_LOOP_CONFIG.enabled).toBe(false);
+    expect(DEFAULT_LOOP_CONFIG.enabled).toBe(true);
   });
 });

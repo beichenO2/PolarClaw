@@ -2,7 +2,7 @@
  * Self-Learning Loop — 自进化闭环控制器
  *
  * 完整闭环：工具使用追踪 → 模式检测 → 候选技能生成 → 晋升/降级
- * 自学习循环是可选的 — PolarClaw 在未启用时正常工作。
+ * Curator：后台巡检（7天周期），评分/合并/清理技能库，生成 REPORT.md
  */
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
@@ -18,6 +18,9 @@ export interface ISelfLearningLoopConfig {
   promotionThreshold: number;
   demotionThreshold: number;
   cycleIntervalMs: number;
+  curatorCycleMs: number;
+  curatorReportDir: string;
+  curatorStaleDays: number;
   enabled: boolean;
 }
 
@@ -28,7 +31,10 @@ export const DEFAULT_LOOP_CONFIG: ISelfLearningLoopConfig = {
   promotionThreshold: 3,
   demotionThreshold: 3,
   cycleIntervalMs: 60_000,
-  enabled: false,
+  curatorCycleMs: 7 * 24 * 3600 * 1000,
+  curatorReportDir: 'logs/curator',
+  curatorStaleDays: 30,
+  enabled: true,
 };
 
 export interface ICandidateRecord {
@@ -49,6 +55,13 @@ export interface ILoopCycleResult {
   demotions: Array<{ id: string; reason: string }>;
 }
 
+export interface ICuratorResult {
+  evaluated: number;
+  merged: number;
+  cleaned: number;
+  reportPath: string | null;
+}
+
 export interface ISelfLearningLoop {
   readonly config: ISelfLearningLoopConfig;
   analyzeUsagePatterns(): IToolPattern[];
@@ -56,6 +69,7 @@ export interface ISelfLearningLoop {
   promoteCandidateSkill(skillId: string): boolean;
   demoteSkill(skillId: string, reason: string): boolean;
   runCycle(): ILoopCycleResult;
+  runCuratorCycle(): ICuratorResult;
   getCandidates(): ICandidateRecord[];
   getCandidate(skillId: string): ICandidateRecord | undefined;
   start(): void;
@@ -69,7 +83,8 @@ export function createSelfLearningLoop(
 ): ISelfLearningLoop {
   const config: ISelfLearningLoopConfig = { ...DEFAULT_LOOP_CONFIG, ...partialConfig };
   const candidates = new Map<string, ICandidateRecord>();
-  let timer: ReturnType<typeof setInterval> | null = null;
+  let cycleTimer: ReturnType<typeof setInterval> | null = null;
+  let curatorTimer: ReturnType<typeof setInterval> | null = null;
   const skillGenerator = createSkillGenerator({ outputDir: config.candidatesDir });
 
   loadCandidatesFromDisk();
@@ -179,6 +194,125 @@ export function createSelfLearningLoop(
     return result;
   }
 
+  /**
+   * Curator 周期：评估所有技能、合并重复、清理过期。
+   * 类似 Hermes 的 Autonomous Curator。
+   */
+  function runCuratorCycle(): ICuratorResult {
+    if (!config.enabled) return { evaluated: 0, merged: 0, cleaned: 0, reportPath: null };
+
+    const allSkills = skillRegistry.listSkills();
+    const result: ICuratorResult = { evaluated: allSkills.length, merged: 0, cleaned: 0, reportPath: null };
+
+    interface SkillScore {
+      id: string;
+      uses: number;
+      lastUsed: string | null;
+      status: string;
+      origin: string;
+      score: number;
+    }
+
+    const scored: SkillScore[] = allSkills.map(skill => {
+      const uses = learningStore.getSkillUseCount(skill.name);
+      const history = skill.toolNames?.length
+        ? learningStore.getUsageHistory('anonymous', skill.toolNames[0]!, 1)
+        : [];
+      const lastUsed = history.length > 0 ? (history[0]!.createdAt ?? null) : null;
+      const daysSinceUse = lastUsed
+        ? (Date.now() - new Date(lastUsed).getTime()) / (24 * 3600 * 1000)
+        : Infinity;
+      const recency = daysSinceUse < 7 ? 3 : daysSinceUse < 30 ? 1 : 0;
+      const score = uses * 2 + recency;
+      return {
+        id: skill.name,
+        uses,
+        lastUsed,
+        status: skill.status ?? 'draft',
+        origin: skill.origin ?? 'static',
+        score,
+      };
+    });
+
+    scored.sort((a, b) => b.score - a.score);
+
+    // Merge: candidates with same pattern name → keep highest scored
+    const patternGroups = new Map<string, ICandidateRecord[]>();
+    for (const rec of candidates.values()) {
+      if (rec.status !== 'candidate') continue;
+      const group = patternGroups.get(rec.patternName) ?? [];
+      group.push(rec);
+      patternGroups.set(rec.patternName, group);
+    }
+    for (const [, group] of patternGroups) {
+      if (group.length < 2) continue;
+      group.sort((a, b) => b.successCount - a.successCount);
+      for (let i = 1; i < group.length; i++) {
+        removeCandidateFile(group[i]!.id);
+        candidates.delete(group[i]!.id);
+        result.merged++;
+      }
+    }
+
+    // Clean: stale skills (>N days unused + more failures than successes)
+    const staleMs = config.curatorStaleDays * 24 * 3600 * 1000;
+    for (const rec of Array.from(candidates.values())) {
+      if (rec.status !== 'candidate') continue;
+      const age = Date.now() - new Date(rec.createdAt).getTime();
+      if (age > staleMs && rec.failureCount > rec.successCount) {
+        demoteSkill(rec.id, `Curator: stale (${Math.round(age / (24 * 3600 * 1000))}d) with ${rec.failureCount}F > ${rec.successCount}S`);
+        result.cleaned++;
+      }
+    }
+
+    // Generate report
+    try {
+      if (!existsSync(config.curatorReportDir)) mkdirSync(config.curatorReportDir, { recursive: true });
+      const now = new Date().toISOString().slice(0, 10);
+      const reportPath = join(config.curatorReportDir, `REPORT-${now}.md`);
+
+      const lines: string[] = [
+        `# Curator Report — ${now}`,
+        '',
+        `## Summary`,
+        `- Evaluated: ${result.evaluated} skills`,
+        `- Merged: ${result.merged} duplicates`,
+        `- Cleaned: ${result.cleaned} stale candidates`,
+        `- Active candidates: ${getCandidates().length}`,
+        '',
+        `## Skill Rankings`,
+        '',
+        '| Rank | Skill | Uses | Last Used | Status | Score |',
+        '|------|-------|------|-----------|--------|-------|',
+      ];
+
+      scored.slice(0, 20).forEach((s, i) => {
+        lines.push(`| ${i + 1} | ${s.id} | ${s.uses} | ${s.lastUsed ?? 'never'} | ${s.status} | ${s.score.toFixed(1)} |`);
+      });
+
+      if (getCandidates().length > 0) {
+        lines.push('', `## Candidates (${getCandidates().length})`);
+        lines.push('', '| ID | Pattern | Created | Success | Failure |');
+        lines.push('|----|---------|---------|---------|---------|');
+        for (const c of getCandidates()) {
+          lines.push(`| ${c.id} | ${c.patternName} | ${c.createdAt.slice(0, 10)} | ${c.successCount} | ${c.failureCount} |`);
+        }
+      }
+
+      writeFileSync(reportPath, lines.join('\n') + '\n');
+      result.reportPath = reportPath;
+      console.error(`[Curator] Report → ${reportPath}`);
+    } catch (e) {
+      console.error(`[Curator] Failed to write report:`, e);
+    }
+
+    if (result.merged > 0 || result.cleaned > 0) {
+      console.error(`[Curator] Evaluated ${result.evaluated}, merged ${result.merged}, cleaned ${result.cleaned}`);
+    }
+
+    return result;
+  }
+
   function getCandidates(): ICandidateRecord[] {
     return Array.from(candidates.values()).filter(c => c.status === 'candidate');
   }
@@ -188,13 +322,19 @@ export function createSelfLearningLoop(
   }
 
   function start(): void {
-    if (!config.enabled || timer) return;
-    timer = setInterval(() => { try { runCycle(); } catch { /* non-critical */ } }, config.cycleIntervalMs);
+    if (!config.enabled || cycleTimer) return;
+    cycleTimer = setInterval(() => { try { runCycle(); } catch { /* non-critical */ } }, config.cycleIntervalMs);
+    curatorTimer = setInterval(() => { try { runCuratorCycle(); } catch { /* non-critical */ } }, config.curatorCycleMs);
+    console.error(`[SelfLearning] Started — cycle ${config.cycleIntervalMs}ms, curator ${config.curatorCycleMs}ms`);
   }
 
   function stop(): void {
-    if (timer) { clearInterval(timer); timer = null; }
+    if (cycleTimer) { clearInterval(cycleTimer); cycleTimer = null; }
+    if (curatorTimer) { clearInterval(curatorTimer); curatorTimer = null; }
   }
 
-  return { config, analyzeUsagePatterns, generateCandidateSkill, promoteCandidateSkill, demoteSkill, runCycle, getCandidates, getCandidate, start, stop };
+  return {
+    config, analyzeUsagePatterns, generateCandidateSkill, promoteCandidateSkill,
+    demoteSkill, runCycle, runCuratorCycle, getCandidates, getCandidate, start, stop,
+  };
 }
