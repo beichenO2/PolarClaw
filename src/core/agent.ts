@@ -357,6 +357,16 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
             `[Compression] ${result.originalTokens} → ${result.compressedTokens} tokens` +
             ` (phases: ${result.phasesUsed.join(',')})`
           );
+          // Phase 2+ 压缩后恢复项目关键文档（类似 Claude Code 压缩后恢复 CLAUDE.md）
+          if (result.phasesUsed.some(p => p >= 2)) {
+            try {
+              const { restoreProjectContext } = await import('../adapters/compression/post-compact-restore.js');
+              const restoreMsg = await restoreProjectContext(config.defaultProjectRoot);
+              if (restoreMsg) {
+                contextMessages.push({ role: 'system', content: restoreMsg });
+              }
+            } catch { /* non-fatal */ }
+          }
         }
       }
 
