@@ -35,6 +35,8 @@ export interface WebServerConfig {
   sessionMemory?: import('../../memory/SessionMemory.js').SessionMemoryManager;
   /** Full agent handler (ReAct loop + tools + memory + privacy) */
   agentHandler?: (msg: { channel: string; userId: string; text: string }) => Promise<string>;
+  /** Proactive notify: send a message to a user via their original channel (for task-complete callbacks) */
+  proactiveNotify?: (userId: string, channel: string, text: string) => Promise<void>;
   /** Streaming agent handler — returns final text, pushes progress via callback */
   agentHandlerStream?: (
     msg: { channel: string; userId: string; text: string },
@@ -447,6 +449,48 @@ document.getElementById('send').onclick=async()=>{
     } finally {
       if (!closed) res.end();
     }
+  });
+
+  // ── API: task-callback (PolarProcess completion webhook) ──
+  app.post('/api/task-callback', async (req, res) => {
+    const { task_id, task_type, status, error, meta } = req.body as {
+      task_id?: string;
+      task_type?: string;
+      status?: string;
+      error?: string | null;
+      meta?: { userId?: string; channel?: string; conversationId?: string };
+    };
+
+    console.error(`[WebServer] task-callback: task=${task_id} status=${status} type=${task_type}`);
+
+    if (!task_id || !status) {
+      return res.status(400).json({ error: 'task_id and status required' });
+    }
+
+    const userId = meta?.userId ?? 'admin';
+    const channel = meta?.channel ?? 'proactive';
+
+    if (config.proactiveNotify) {
+      const statusEmoji = status === 'done' ? '✅' : '❌';
+      const summary = error
+        ? `${statusEmoji} 任务 ${task_type ?? task_id} 执行失败：${error}`
+        : `${statusEmoji} 任务 ${task_type ?? task_id} 已完成`;
+
+      try {
+        await config.proactiveNotify(userId, channel, summary);
+      } catch (err) {
+        console.error(`[WebServer] proactiveNotify failed:`, err);
+      }
+    } else if (config.agentHandler) {
+      const prompt = `[系统提示：后台任务已完成。任务ID: ${task_id}，类型: ${task_type ?? 'unknown'}，状态: ${status}${error ? `，错误: ${error}` : ''}。请用自然的语气向用户汇报这个结果。]`;
+      try {
+        await config.agentHandler({ channel: 'proactive:task-complete', userId, text: prompt });
+      } catch (err) {
+        console.error(`[WebServer] task-callback agentHandler failed:`, err);
+      }
+    }
+
+    res.json({ ok: true });
   });
 
   // ── API: conversations (list + history for IDE plugin) ──

@@ -887,6 +887,20 @@ async function main() {
     memoryStore: memory,
     agentHandler: handleChannelMessage,
     agentHandlerStream: handleChannelMessageStream,
+    proactiveNotify: async (userId: string, channel: string, text: string) => {
+      const reply = await handleChannelMessage({
+        channel: 'proactive:task-complete',
+        userId,
+        text: `[系统提示：${text}。请用自然的语气向用户汇报。]`,
+      });
+      const adapter = channels.find(ch => ch.name === channel);
+      if (adapter) {
+        await adapter.send({ userId, text: reply });
+        console.error(`[ProactiveNotify] → ${channel}/${userId}: ${reply.slice(0, 80)}...`);
+      } else {
+        console.error(`[ProactiveNotify] channel ${channel} not found, reply logged: ${reply.slice(0, 80)}...`);
+      }
+    },
     conversations,
     sessionMemory,
     yoloEngine,
@@ -919,6 +933,7 @@ async function main() {
     const feishuDataDir = join(config.projectRoot, '.data');
 
     const debounceMs = Number(process.env.FEISHU_DEBOUNCE_MS) || 3000;
+    const fileDebounceMs = Number(process.env.FEISHU_FILE_DEBOUNCE_MS) || 60000;
     const fileReceiveRoot = process.env.FEISHU_FILE_ROOT
       || join(process.env.HOME ?? '~', 'Polarisor', 'macbook');
 
@@ -946,6 +961,7 @@ async function main() {
         channelName: 'feishu:admin',
         dedup: adminDedup,
         debounceMs,
+        fileDebounceMs,
         fileReceiveRoot,
         resolveUser,
       });
@@ -990,6 +1006,7 @@ async function main() {
           channelName: 'feishu:girlfriend',
           dedup: gfDedup,
           debounceMs,
+          fileDebounceMs,
           fileReceiveRoot,
           resolveUser,
         });

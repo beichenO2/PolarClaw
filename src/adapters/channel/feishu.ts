@@ -26,6 +26,8 @@ export interface IFeishuAdapterOptions {
   dedup?: IFeishuDedup;
   /** 消息聚合窗口 ms（同一用户连续消息在窗口内合并为一条）。0 = 关闭。默认 3000 */
   debounceMs?: number;
+  /** 含文件消息的聚合窗口 ms。检测到文件时自动延长等待。默认 60000 */
+  fileDebounceMs?: number;
   /** 接收到文件时的本地存放根目录（默认 ~/Polarisor/macbook） */
   fileReceiveRoot?: string;
   /** PolarPrivate 用户解析函数（可选，启用后将飞书 openId 映射为 Polarisor userId） */
@@ -114,6 +116,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
     channelName = 'feishu',
     dedup,
     debounceMs = 3000,
+    fileDebounceMs = 60000,
     fileReceiveRoot,
     resolveUser,
   } = options;
@@ -185,7 +188,10 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
     }
 
     const batch = pendingBatches.get(key)!;
-    batch.timer = setTimeout(() => void flushBatch(key), debounceMs);
+    const batchHasFile = (attachments?.length ?? 0) > 0
+      || batch.messages.some(m => (m.attachments?.length ?? 0) > 0);
+    const effectiveDebounce = batchHasFile ? fileDebounceMs : debounceMs;
+    batch.timer = setTimeout(() => void flushBatch(key), effectiveDebounce);
   }
 
   async function flushBatch(key: string) {
@@ -226,6 +232,16 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
   ) {
     if (!messageHandler || (!text && !attachments?.length)) return;
     lastEventAt = Date.now();
+
+    // Embed file metadata into text so LLM/Agent can locate downloaded files
+    if (attachments?.length) {
+      const lines = attachments
+        .filter(a => a.url)
+        .map(a => `- path: ${a.url} type: ${a.type} name: ${a.filename ?? 'unknown'}`);
+      if (lines.length > 0) {
+        text = `${text}\n[ATTACHED_FILES]\n${lines.join('\n')}`;
+      }
+    }
 
     let resolvedUserId = openId ?? chatId;
     if (resolveUser && openId) {
@@ -279,11 +295,12 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
 
       const root = fileReceiveRoot ?? join(homedir(), 'Polarisor', 'macbook');
       const userDir = userId || 'unresolved';
-      const inboxDir = join(root, '_feishu_inbox', userDir);
+      const dateDir = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const inboxDir = join(root, '_feishu_inbox', userDir, dateDir);
       if (!fsExists(inboxDir)) mkdirSync(inboxDir, { recursive: true });
 
       const safeName = fileName?.replace(/[/\\:*?"<>|]/g, '_') ?? `${fileKey}.dat`;
-      const localPath = pathResolve(inboxDir, `${Date.now()}_${safeName}`);
+      const localPath = pathResolve(inboxDir, safeName);
 
       const res = await client.im.messageResource.get({
         path: { message_id: messageId, file_key: fileKey },
