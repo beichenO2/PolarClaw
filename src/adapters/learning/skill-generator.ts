@@ -160,21 +160,27 @@ function generateSkillMd(
   toolNames: string[],
   pattern?: IToolPattern,
 ): string {
+  const triggerKeywords = pattern?.trigger
+    ? pattern.trigger.split(/[,\s]+/).filter(Boolean).slice(0, 5)
+    : toolNames;
+
   const lines = [
     '---',
     `name: ${name}`,
     `description: ${description}`,
     'version: 0.1.0',
     `origin: generated`,
+    `status: draft`,
+    `trigger: [${triggerKeywords.map(t => `"${t}"`).join(', ')}]`,
+    `tools: [${toolNames.map(t => `"${t}"`).join(', ')}]`,
+    `created: ${new Date().toISOString().slice(0, 10)}`,
     '---',
     '',
     `# ${name}`,
     '',
-    `## 能力`,
+    description,
     '',
-    `- ${description}`,
-    '',
-    `## 工具列表`,
+    `## 提供的工具`,
     '',
     ...toolNames.map(t => `- \`${t}\``),
   ];
@@ -183,11 +189,11 @@ function generateSkillMd(
     const steps = JSON.parse(pattern.sequence) as { tool: string }[];
     lines.push(
       '',
-      '## 源模式',
+      '## 工作流程',
       '',
-      `触发条件: ${pattern.trigger}`,
-      `出现次数: ${pattern.occurrences}`,
-      `工具序列: ${steps.map(s => s.tool).join(' → ')}`,
+      ...steps.map((s, i) => `${i + 1}. 调用 \`${s.tool}\``),
+      '',
+      `> 源模式: ${pattern.trigger}（出现 ${pattern.occurrences} 次）`,
     );
   }
 
