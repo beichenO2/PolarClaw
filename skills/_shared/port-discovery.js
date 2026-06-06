@@ -14,7 +14,7 @@ function getSDK() {
     const home = process.env.HOME ?? '/Users/mac';
     const candidates = [
         process.env.PORT_SDK_PATH,
-        resolve(home, 'Polarisor/SOTAgent/sdk-port/index.js'),
+        resolve(home, 'Polarisor/PolarPort/src/sdk/index.cjs'),
     ].filter(Boolean);
     for (const p of candidates) {
         try {

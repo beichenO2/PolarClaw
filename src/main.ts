@@ -56,7 +56,7 @@ async function main() {
       const { createRequire } = await import('node:module');
       const { resolve, dirname } = await import('node:path');
       const _req = createRequire(import.meta.url);
-      const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+      const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'PolarPort', 'src', 'sdk', 'index.cjs');
       const { getPort } = _req(sdkPath);
       const ppPort = await getPort('polarprivate');
       if (ppPort) process.env.POLARPRIVATE_URL = `http://127.0.0.1:${ppPort}`;
@@ -834,7 +834,7 @@ async function main() {
     const { createRequire } = await import('node:module');
     const { resolve, dirname } = await import('node:path');
     const _req = createRequire(import.meta.url);
-    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'PolarPort', 'src', 'sdk', 'index.cjs');
     const { claimPort } = _req(sdkPath);
     webPort = await claimPort({ service: 'polarclaw-web', project: 'PolarClaw', preferred: 3910 });
   } catch (err) {

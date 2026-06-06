@@ -542,7 +542,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
     const { createRequire } = await import('node:module');
     const { resolve: resolvePath, dirname } = await import('node:path');
     const _req = createRequire(import.meta.url);
-    const sdkPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+    const sdkPath = resolvePath(dirname(new URL(import.meta.url).pathname), '..', '..', '..', '..', 'PolarPort', 'src', 'sdk', 'index.cjs');
     const { claimPort, registerCapabilities } = _req(sdkPath);
     const port = await claimPort({ service: `polarclaw-feishu-${channelName}`, project: 'PolarClaw', preferred: config.webhookPort });
 
