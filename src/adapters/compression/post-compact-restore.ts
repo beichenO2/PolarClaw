@@ -9,7 +9,7 @@
  *   1. polaris.json — 项目需求/功能/状态 SSoT
  *   2. roadmap.md — 项目路线图
  *   3. PolarSoul.md — 生态灵魂文档
- *   4. SOUL.md — Agent 身份定义（PolarClaw 自身）
+ *   4. worker.md — Agent 身份定义与项目级约束（对标 CLAUDE.md）
  */
 
 import { readFile } from 'node:fs/promises';
@@ -38,7 +38,7 @@ export async function restoreProjectContext(
 ): Promise<string | null> {
   const root = projectRoot || process.env.POLARCLAW_PROJECT_ROOT?.trim() || process.cwd();
 
-  const polarClawRoot = existsSync(join(root, 'SOUL.md'))
+  const polarClawRoot = existsSync(join(root, 'worker.md'))
     ? root
     : dirname(new URL(import.meta.url).pathname).replace(/\/dist\/.*/, '').replace(/\/src\/.*/, '');
 
@@ -62,8 +62,8 @@ export async function restoreProjectContext(
       maxChars: 500,
     },
     {
-      label: 'Agent 身份 (SOUL.md)',
-      paths: [join(polarClawRoot, 'SOUL.md')],
+      label: 'Agent 身份 (worker.md)',
+      paths: [join(polarClawRoot, 'worker.md')],
       maxChars: 400,
     },
   ];

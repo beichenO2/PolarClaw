@@ -129,10 +129,10 @@ async function main() {
     enableSecretInterception: config.privacy.enableSecretInterception,
   });
 
-  // 读取 SOUL.md 作为 system prompt 基础（优先 skills/SOUL.md 生态地图）
+  // 读取 worker.md 作为 system prompt 基础（优先 skills/SOUL.md 生态地图）
   let soulPrompt = 'You are PolarClaw, a helpful AI assistant.';
   const soulEcosystemPath = join(config.projectRoot, 'skills', 'SOUL.md');
-  const soulRootPath = join(config.projectRoot, 'SOUL.md');
+  const soulRootPath = join(config.projectRoot, 'worker.md');
   if (existsSync(soulEcosystemPath)) {
     const ecosystem = readFileSync(soulEcosystemPath, 'utf8');
     const identity = existsSync(soulRootPath) ? readFileSync(soulRootPath, 'utf8') : '';

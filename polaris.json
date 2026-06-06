@@ -519,7 +519,7 @@
           "status": "done",
           "behavior": [
             "skills/SOUL.md 包含生态全景：项目表、用户体系、文件系统约定、工具链寻路",
-            "SOUL.md（根目录）包含 Agent 身份和沟通风格",
+            "worker.md（根目录）包含 Agent 身份和项目级约束（对标 CLAUDE.md）",
             "Agent 启动时合并两者注入 system prompt"
           ],
           "test_status": "passed",
@@ -535,7 +535,7 @@
             "personas/{userId}.md 匹配具体用户，fallback 到 personas/default.md",
             "Admin persona：专业高效，自述时包含 LLM 模型名和 R1-R6 能力列表",
             "Default persona：轻松有趣，穿插对 Admin 设计的赞赏",
-            "persona 与 SOUL.md 合并注入，SOUL 是生态地图，persona 是人格风格",
+            "persona 与 worker.md 合并注入，skills/SOUL.md 是生态地图，worker.md 是 Agent 身份约束，persona 是人格风格",
             "支持模板变量 {{llm_model}} 和 {{capabilities}} 动态替换",
             "文件级缓存，persona 修改后自动热更新"
           ],
