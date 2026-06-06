@@ -92,6 +92,11 @@ export interface IAgentResponse {
     completionTokens: number;
     totalTokens: number;
   };
+  /** RetryLoop 检测结果（触发时返回） */
+  retryLoop?: {
+    count: number;
+    awaitingConfirmation: boolean;
+  };
 }
 
 function filterSkillCatalog(catalog: string | undefined, allowedSkills: string[] | undefined): string {
@@ -162,6 +167,17 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       }
 
       const sanitizedText = sanitizeResult.sanitized;
+
+      // RetryLoop 智能路由：检测显式 "RetryLoop N 次" 命令
+      const { detectRetryLoop, buildRetryLoopClarification } = await import('./retryloop-detector.js');
+      const retryDetect = detectRetryLoop(sanitizedText);
+      if (retryDetect.triggered && retryDetect.count) {
+        return {
+          text: buildRetryLoopClarification(retryDetect.count),
+          blocked: false,
+          retryLoop: { count: retryDetect.count, awaitingConfirmation: true },
+        };
+      }
 
       memory.saveProfile(userId, 'lastActiveAt', new Date().toISOString());
       memory.saveProfile(userId, 'lastChannel', channel);
@@ -550,6 +566,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
   const USAGE_LOG_DIR = join(homedir(), '.polarcop', 'logs');
   const USAGE_LOG_PATH = join(USAGE_LOG_DIR, 'llm-usage.jsonl');
   const USAGE_RETENTION_DAYS = 30;
+  const USAGE_MAX_ENTRIES = 65535;
   let usageLogDirCreated = false;
 
   const MODEL_PRICING: Record<string, { prompt: number; completion: number }> = {
@@ -573,10 +590,25 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
 
   function rotateUsageLogs() {
     try {
-      const { readdirSync, unlinkSync, statSync } = require('node:fs') as typeof import('node:fs');
+      const fsSync = require('node:fs') as typeof import('node:fs');
+      const { readdirSync, unlinkSync, statSync, renameSync, existsSync: fExistsSync, readFileSync: fReadFileSync } = fsSync;
+
+      // Rotate by entry count: if current file exceeds USAGE_MAX_ENTRIES, archive it
+      if (fExistsSync(USAGE_LOG_PATH)) {
+        const content = fReadFileSync(USAGE_LOG_PATH, 'utf-8');
+        const lineCount = content.split('\n').filter((l: string) => l.trim()).length;
+        if (lineCount >= USAGE_MAX_ENTRIES) {
+          const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const archivePath = join(USAGE_LOG_DIR, `llm-usage-${ts}.jsonl`);
+          renameSync(USAGE_LOG_PATH, archivePath);
+        }
+      }
+
+      // Rotate by age: delete archived files older than USAGE_RETENTION_DAYS
       const cutoff = Date.now() - USAGE_RETENTION_DAYS * 86400000;
       for (const f of readdirSync(USAGE_LOG_DIR)) {
         if (!f.startsWith('llm-usage') || !f.endsWith('.jsonl')) continue;
+        if (f === 'llm-usage.jsonl') continue;
         const fp = join(USAGE_LOG_DIR, f);
         if (statSync(fp).mtimeMs < cutoff) unlinkSync(fp);
       }
