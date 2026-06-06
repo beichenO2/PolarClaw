@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import type { AgentStatus } from '../lib/api'
+import { fetchEcosystemStatus, fetchLatestLGRun, type EcosystemStatus, type LGRunSummary } from '../lib/polarui-run'
 
 export function DashboardPage() {
   const [status, setStatus] = useState<AgentStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [eco, setEco] = useState<EcosystemStatus | null>(null)
+  const [lgRun, setLgRun] = useState<LGRunSummary | null>(null)
 
   useEffect(() => {
     const load = async () => {
@@ -14,13 +17,15 @@ export function DashboardPage() {
       } catch {
         setError('Agent 未连接')
       }
+      setEco(await fetchEcosystemStatus())
+      setLgRun(await fetchLatestLGRun())
     }
     load()
     const iv = setInterval(load, 5000)
     return () => clearInterval(iv)
   }, [])
 
-  if (error) {
+  if (error && !eco && !lgRun) {
     return (
       <div className="text-center py-16 space-y-4">
         <div className="w-3 h-3 rounded-full bg-mc-red mx-auto" />
@@ -30,12 +35,40 @@ export function DashboardPage() {
     )
   }
 
-  if (!status) {
+  if (!status && !eco) {
     return <p className="text-center text-mc-text-muted py-8">连接中...</p>
   }
 
   return (
     <div className="space-y-6">
+      {(eco || lgRun) && (
+        <div className="bg-mc-surface border border-mc-border rounded-xl p-5">
+          <h3 className="text-sm font-semibold text-mc-accent mb-3">PolarUI LG Run</h3>
+          {lgRun?.run_id ? (
+            <div className="text-xs text-mc-text-muted space-y-1 font-mono">
+              <div>run: {lgRun.run_id}</div>
+              <div>workflow: {lgRun.workflow_id ?? '—'}</div>
+              <div>status: {lgRun.status ?? '—'} · steps: {lgRun.steps ?? '—'}</div>
+            </div>
+          ) : eco?.last_lg_run ? (
+            <div className="text-xs text-mc-text-muted font-mono">
+              {eco.last_lg_run.workflow_id} · {eco.last_lg_run.status}
+            </div>
+          ) : (
+            <p className="text-xs text-mc-text-muted">暂无 LG run 摘要（启动 run-trace-bridge :3922）</p>
+          )}
+          {eco?.updated_at && (
+            <p className="text-[10px] text-mc-text-muted mt-2">ecosystem-status: {eco.updated_at}</p>
+          )}
+        </div>
+      )}
+
+      {error && (
+        <div className="text-center py-4 text-mc-text-muted text-sm">{error}</div>
+      )}
+
+      {status && (
+        <>
       <div className="flex items-center gap-3">
         <div className="w-3 h-3 rounded-full bg-mc-green shadow-[0_0_8px_#3fb950]" />
         <h2 className="text-lg font-semibold text-mc-text">{status.name}</h2>
@@ -85,6 +118,8 @@ export function DashboardPage() {
           <p className="text-xs text-mc-text-muted">暂无已注册的技能。Skills 在 Agent 启动通道后自动加载。</p>
         )}
       </div>
+        </>
+      )}
     </div>
   )
 }

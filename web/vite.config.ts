@@ -16,6 +16,10 @@ export default defineConfig(({ command }) => ({
     port: 5181,
     strictPort: true,
     proxy: {
+      '/api/runs': {
+        target: 'http://127.0.0.1:3922',
+        changeOrigin: true,
+      },
       '/api': {
         target: `http://127.0.0.1:${polarClawPort}`,
         changeOrigin: true,

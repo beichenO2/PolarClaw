@@ -812,7 +812,7 @@
     "health_endpoint": "http://127.0.0.1:3000/api/health"
   },
   "depends_on": [
-    "SOTAgent/sdk-port",
+    "PolarPort/sdk",
     "PolarPrivate",
     "Clock"
   ],

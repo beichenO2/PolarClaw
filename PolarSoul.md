@@ -37,7 +37,7 @@
 - **PolarPilot 是 PolarClaw 的一个内置 Skill**：因复杂度高单拎为独立项目，但本质上是 PolarClaw 的内置能力。PolarPilot 的规划-执行循环在 PolarClaw 的 ReAct 框架内运行。
 - **记忆功能由 PolarClaw 提供**：通过 PolarMemory 模块实现，PolarPilot R7 集成调用 PolarMemory 的语义检索能力。
 - **知识功能由 KnowLever 提供**：作为 PolarClaw 的知识检索 Skill，通过 `KnowledgePort` 接口接入。
-- **SOTAgent 提供基础设施**：端口分配、进程守护、事件总线，PolarClaw 通过 `sdk-port` 接口消费。
+- **SOTAgent 提供基础设施**：进程守护、事件总线；端口分配通过 PolarPort SDK 接口消费。
 - **PolarPrivate 提供 LLM 代理**：密钥管理与请求代理，PolarClaw 通过 `LLMPort` 接口调用，密钥永不进入 PolarClaw 进程。
 
 ---
@@ -78,7 +78,7 @@
 
 | 依赖项 | 接口 | 说明 |
 |---|---|---|
-| **SOTAgent** | `sdk-port` | 端口分配、进程守护、事件总线 |
+| **PolarPort** | SDK | 端口分配与服务发现 |
 | **PolarPrivate** | `LLMPort` | LLM 代理与密钥管理 |
 | **Clock** | `ClockPort` | 定时调度，SSE 桥接 CareEngine |
 
