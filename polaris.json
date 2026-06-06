@@ -806,9 +806,14 @@
   },
   "service_management": {
     "install_command": "npm ci",
-    "start_command": "npm start",
-    "restart_command": "bash Start/start.sh",
-    "health_endpoint": "http://127.0.0.1:3000/api/health"
+    "build_command": "npm run build",
+    "start_command": "bash Start/start.sh start",
+    "stop_command": "bash Start/stop.sh",
+    "restart_command": "bash Start/restart.sh",
+    "health_endpoint": "http://127.0.0.1:3910/api/status",
+    "start_script_dir": "Start/",
+    "service_id": "polarclaw",
+    "port": 3910
   },
   "depends_on": [
     "PolarPort/sdk",
