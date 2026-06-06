@@ -119,16 +119,15 @@
           ]
         },
         {
-          "name": "双入口提示词分层",
-          "description": "飞书入口（产品经理角色）和 IDE 入口（开发者角色）差异化 system prompt",
+          "name": "多入口提示词分层",
+          "description": "各入口差异化 system prompt，但能力完全等效",
           "status": "done",
           "behavior": [
-            "prompts/entry-feishu.md 定义产品经理角色，能力受限（仅重复工作流 + 新建 Demo）",
-            "prompts/entry-ide.md 定义开发者角色，无限制",
+            "prompts/entry-feishu.md 定义飞书入口角色，能力与其他入口等效",
+            "prompts/entry-ide.md 定义开发者角色",
             "prompts/entry-web.md 定义 Web 入口角色，通过 Hub Web UI 交互",
             "src/core/entry-prompt.ts 检测入口类型（feishu/cli/web/ide/api）并加载对应模板",
-            "llm-router.ts 调用 PolarPrivate 时携带 append_system_prompt",
-            "飞书入口超出范围时拒绝并引导到 IDE"
+            "llm-router.ts 调用 PolarPrivate 时携带 append_system_prompt"
           ],
           "evidence": [
             "260508_compiled/PolarClaw.md Step2",

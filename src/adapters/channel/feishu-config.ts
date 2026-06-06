@@ -1,12 +1,8 @@
 /**
  * 飞书 Bot 配置加载器
  *
- * 从环境变量加载飞书应用凭证。
- * 凭证通常由 PolarPrivate secrets-loader 注入到 process.env。
- *
- * 环境变量名沿用旧版的 SECRET_TO_ENV 映射：
- *   feishu.admin.app_id → FEISHU_ADMIN_APP_ID
- *   等等
+ * 从 process.env 加载飞书应用凭证。
+ * 凭证由 secrets-loader 通过 PolarPrivate D-class grant 注入。
  */
 
 export type FeishuDomain = 'feishu' | 'lark';

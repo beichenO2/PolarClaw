@@ -4,9 +4,9 @@
 
 1. **一体两面**：飞书入口和 IDE 入口共享同一个 Agent 核心（ReAct 循环 + 工具注册 + 记忆系统），仅通过 system prompt 差异化实现角色分离。这是最经济的架构——零代码分叉，零同步成本。
 
-2. **Prompt 即产品**：提示词模板是用户体验的直接载体。`prompts/entry-feishu.md` 定义产品经理视角，`prompts/entry-ide.md` 定义开发者视角。修改提示词 = 修改产品行为，无需改代码。
+2. **Prompt 即产品**：提示词模板是用户体验的直接载体。各入口有差异化的交互风格（飞书精炼、IDE 技术向），但能力完全等效。修改提示词 = 修改产品行为，无需改代码。
 
-3. **Append 而非 Replace**：入口特化 Prompt 通过 PolarPrivate 的 `append_system_prompt` 机制注入，叠加在 persona 和 SOUL.md 之上，不替换它们。层次：SOUL.md（生态地图）→ persona（人格风格）→ entry prompt（角色边界）。
+3. **Append 而非 Replace**：入口特化 Prompt 通过 PolarPrivate 的 `append_system_prompt` 机制注入，叠加在 persona 和 SOUL.md 之上，不替换它们。层次：SOUL.md（生态地图）→ persona（人格风格）→ entry prompt（交互风格，不限能力）。
 
 ## 计费优化策略
 
