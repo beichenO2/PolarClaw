@@ -11,7 +11,7 @@
 
 import type { ILLMRouter, ILLMResponse, ILLMOptions, IntentType } from '../../ports/llm.js';
 import type { IChatMessage, IToolCall } from '../../ports/memory.js';
-import { createLLMClient, intentToCode, normalizeCode, type LLMProxyClient } from '../../sdk/llm-proxy.js';
+import { createLLMClient, intentToCode, normalizeCode, type LLMProxyClient, type LLMClientOptions } from '../../sdk/llm-proxy.js';
 import { classifyAndRoute } from '../../router/classifyAndRoute.js';
 import { recordTokenStats } from '../../router/TokenStatsCollector.js';
 
@@ -32,7 +32,7 @@ function detectIntent(messages: IChatMessage[]): IntentType {
 }
 
 export interface ILLMConfig {
-  /** @deprecated — ignored, SDK hardcodes LLM Proxy address */
+  /** LLM Proxy base URL (testing backdoor). Production uses PolarPrivate default. */
   baseUrl?: string;
   /** @deprecated — ignored, LLM Proxy manages keys */
   apiKey?: string;
@@ -80,7 +80,8 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const concurrencyLimit = config.concurrencyLimit ?? 5;
   const semaphore = new Semaphore(concurrencyLimit);
 
-  const client: LLMProxyClient = createLLMClient();
+  const clientOpts: LLMClientOptions | undefined = config.baseUrl ? { baseUrl: config.baseUrl } : undefined;
+  const client: LLMProxyClient = createLLMClient(clientOpts);
 
   return {
     resolveModel(messages) {

@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createAgent, type IAgentDeps, type IAgentConfig } from '../core/agent.js';
 
+const TASK_CONTRACT_RESPONSE = JSON.stringify({
+  constraints: [],
+  steps: [{ description: 'single step', dependsOn: [] }],
+  artifacts: [],
+});
+
 function makeConfig(overrides: Partial<IAgentConfig> = {}): IAgentConfig {
   return {
     maxToolRounds: 5,
@@ -15,11 +21,17 @@ function makeDeps(overrides: Partial<IAgentDeps> = {}): IAgentDeps {
   const history: Array<{ role: string; content: string }> = [];
   return {
     llm: {
-      chat: vi.fn().mockResolvedValue({
-        content: 'test reply',
-        toolCalls: [],
-        usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
-      }),
+      chat: vi.fn()
+        .mockResolvedValueOnce({
+          content: TASK_CONTRACT_RESPONSE,
+          toolCalls: [],
+          usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+        })
+        .mockResolvedValue({
+          content: 'test reply',
+          toolCalls: [],
+          usage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
+        }),
     } as any,
     memory: {
       saveProfile: vi.fn(),
@@ -91,8 +103,11 @@ describe('createAgent', () => {
     const agent = createAgent(makeConfig(), deps);
     await agent.handleMessage('cli', 'user1', 'followup');
     const chatCalls = (deps.llm.chat as any).mock.calls;
-    const systemMsg = chatCalls[0][0][0];
-    expect(systemMsg.content).toContain('无需重新自我介绍');
+    const mainLoopCall = chatCalls.find((c: any) => {
+      const msgs = c[0] as Array<{ role: string; content: string }>;
+      return msgs.some(m => m.content?.includes('无需重新自我介绍'));
+    });
+    expect(mainLoopCall).toBeDefined();
   });
 
   it('executes tool calls and feeds results back', async () => {
@@ -102,6 +117,13 @@ describe('createAgent', () => {
         chat: vi.fn().mockImplementation(() => {
           callCount++;
           if (callCount === 1) {
+            return {
+              content: TASK_CONTRACT_RESPONSE,
+              toolCalls: [],
+              usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+            };
+          }
+          if (callCount === 2) {
             return {
               content: '',
               toolCalls: [{
@@ -129,15 +151,26 @@ describe('createAgent', () => {
   });
 
   it('respects maxToolRounds limit', async () => {
+    let callCount = 0;
     const deps = makeDeps({
       llm: {
-        chat: vi.fn().mockResolvedValue({
-          content: '',
-          toolCalls: [{
-            id: 'tc',
-            function: { name: 'loop', arguments: '{}' },
-          }],
-          usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+        chat: vi.fn().mockImplementation(() => {
+          callCount++;
+          if (callCount === 1) {
+            return {
+              content: TASK_CONTRACT_RESPONSE,
+              toolCalls: [],
+              usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+            };
+          }
+          return {
+            content: '',
+            toolCalls: [{
+              id: 'tc',
+              function: { name: 'loop', arguments: '{}' },
+            }],
+            usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+          };
         }),
       } as any,
       tools: {
@@ -151,7 +184,7 @@ describe('createAgent', () => {
     const agent = createAgent(makeConfig({ maxToolRounds: 2 }), deps);
     const result = await agent.handleMessage('cli', 'user1', 'loop');
     expect(result.text).toContain('工具调用轮数上限');
-    expect(deps.llm.chat).toHaveBeenCalledTimes(2);
+    expect(deps.llm.chat).toHaveBeenCalledTimes(3);
   });
 
   it('accumulates token usage across rounds', async () => {
@@ -161,6 +194,13 @@ describe('createAgent', () => {
         chat: vi.fn().mockImplementation(() => {
           callCount++;
           if (callCount === 1) {
+            return {
+              content: TASK_CONTRACT_RESPONSE,
+              toolCalls: [],
+              usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+            };
+          }
+          if (callCount === 2) {
             return {
               content: '',
               toolCalls: [{ id: 'tc1', function: { name: 't', arguments: '{}' } }],

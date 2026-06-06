@@ -96,7 +96,15 @@ export interface LLMProxyClient {
  *
  * No Base URL config, no model names, no API keys needed by the caller.
  */
-export function createLLMClient(): LLMProxyClient {
+export interface LLMClientOptions {
+  /** Override LLM Proxy base URL (for testing). Defaults to PolarPrivate. */
+  baseUrl?: string;
+}
+
+export function createLLMClient(clientOptions?: LLMClientOptions): LLMProxyClient {
+  const proxyBase = clientOptions?.baseUrl ?? LLM_PROXY_BASE;
+  const proxyV1 = `${proxyBase}/v1`;
+
   return {
     async chat(messages, options = {}) {
       const startMs = Date.now();
@@ -126,7 +134,7 @@ export function createLLMClient(): LLMProxyClient {
       }
 
       try {
-        const res = await fetch(`${LLM_PROXY_V1}/chat/completions`, {
+        const res = await fetch(`${proxyV1}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -162,7 +170,7 @@ export function createLLMClient(): LLMProxyClient {
     },
 
     async healthCheck() {
-      const res = await fetch(`${LLM_PROXY_BASE}/health`, { method: 'GET' });
+      const res = await fetch(`${proxyBase}/health`, { method: 'GET' });
       return res.json() as Promise<{ status: string; vault_unlocked: boolean }>;
     },
   };
