@@ -56,8 +56,8 @@ export function intentToCode(intent: string, tier: 'cloud' | 'local' = 'cloud'):
     }
   }
   switch (intent) {
-    case 'coding': return '000';
-    case 'research': return '010';
+    case 'coding': return '100';
+    case 'research': return '111';
     case 'vision': return '101';
     case 'general':
     default: return '001';

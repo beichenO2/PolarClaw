@@ -31,11 +31,11 @@ export function classifyAndRoute(
   const toolHeavy = messages.some((m) => m.role === 'tool');
 
   if (RESEARCH_PATTERN.test(text) || len > 4000) {
-    return { tier: 'heavy', capability: '010', reason: 'research or long context' };
+    return { tier: 'heavy', capability: '111', reason: 'research or long context' };
   }
 
   if (CODING_PATTERN.test(text) || toolHeavy) {
-    return { tier: 'standard', capability: '000', reason: 'coding or tool loop' };
+    return { tier: 'standard', capability: '100', reason: 'coding or tool loop' };
   }
 
   if (len < 80 && !CODING_PATTERN.test(text) && !toolHeavy) {
