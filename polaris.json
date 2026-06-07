@@ -29,7 +29,7 @@
           "behavior": [
             "多 Bot（管理/女友应用），WebSocket/Webhook 事件驱动",
             "消息聚合：同一用户连续消息在 debounceMs 窗口内合并为一条（默认 3s）",
-            "文件/图片接收：处理 file/image 消息类型，自动下载到 _feishu_inbox/{userId}/",
+            "文件/图片接收：处理 file/image 消息类型，自动下载到 PolarClaw/UserDocs/{userId}/{date}/",
             "file_organize 工具：Agent 根据上下文将文件从收件箱移到正确位置",
             "file_inbox_list 工具：列出当前用户收件箱中待归档文件",
             "用户身份解析：通过 PolarPrivate resolveFeishuUser() 将飞书 openId 映射为 Polarisor userId"

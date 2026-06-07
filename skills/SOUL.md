@@ -22,7 +22,7 @@
 每个用户拥有独立的数据空间：
 
 - **记忆隔离**：memories 表按 user_id 隔离，搜索强制过滤
-- **文件隔离**：收件箱 `_feishu_inbox/{userId}/`，工作区按用户分目录
+- **文件隔离**：收件箱 `PolarClaw/UserDocs/{userId}/{date}/`，工作区按用户分目录
 - **跨项目隔离**：调用 KnowLever、Clock 时传递 userId，各项目按用户 namespace 隔离
 - **身份解析**：飞书消息通过 PolarPrivate resolveFeishuUser() 映射到 Polarisor userId
 
@@ -33,7 +33,7 @@
 ├── macbook/                    # 用户文件根目录
 │   ├── Class/<科目>/           # 学习类文件（课件、实验报告）
 │   ├── <项目名>/               # 科研/项目文件
-│   └── _feishu_inbox/{userId}/ # 飞书收件箱（按用户隔离）
+│   └── UserDocs/{userId}/{date}/ # 用户文档（飞书收件箱等，按用户/日期隔离）
 ├── PolarClaw/                  # PolarClaw 项目
 │   ├── skills/                 # 技能目录
 │   │   ├── SOUL.md             # 生态地图（本文件）

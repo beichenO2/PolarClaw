@@ -22,3 +22,5 @@ reference/KnowLever/
 reference/PilotDeck/
 # Vendor reference (gnhf project mirror)
 reference/gnhf/
+# User uploaded documents (feishu inbox etc.)
+UserDocs/

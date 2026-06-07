@@ -293,10 +293,10 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
       const { join, resolve: pathResolve } = await import('node:path');
       const { homedir } = await import('node:os');
 
-      const root = fileReceiveRoot ?? join(homedir(), 'Polarisor', 'macbook');
+      const root = fileReceiveRoot ?? join(homedir(), 'Polarisor', 'PolarClaw', 'UserDocs');
       const userDir = userId || 'unresolved';
       const dateDir = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-      const inboxDir = join(root, '_feishu_inbox', userDir, dateDir);
+      const inboxDir = join(root, userDir, dateDir);
       if (!fsExists(inboxDir)) mkdirSync(inboxDir, { recursive: true });
 
       const safeName = fileName?.replace(/[/\\:*?"<>|]/g, '_') ?? `${fileKey}.dat`;

@@ -28,7 +28,7 @@
 
 **文件**: `feishu.ts` L218-235, L280-286
 
-- 存储路径改为 `_feishu_inbox/{userId}/{YYYY-MM-DD}/{filename}`
+- 存储路径改为 `PolarClaw/UserDocs/{userId}/{YYYY-MM-DD}/{filename}`
 - 在 `dispatchSingle()` 中将文件元信息嵌入 text：`[ATTACHED_FILES]\n- path: file:///... type: file name: xxx.zip`
 - Agent 的 LLM 看到这个标记，自然会用 shell_exec / doc_read 去操作文件
 - 不需要改 agent.ts 接口（最小侵入性）
@@ -81,7 +81,7 @@ SKILL.md 包含完整工作流编排指导，让 Agent 的 LLM 知道收到文�
 ```
 用户(飞书) → 发送 zip + "放到KnowLever"
   ↓
-feishu.ts: 下载文件 → _feishu_inbox/userId/2026-06-07/data.zip
+feishu.ts: 下载文件 → PolarClaw/UserDocs/userId/2026-06-07/data.zip
   ↓
 debounce(60s): 等待更多消息/文件...
   ↓

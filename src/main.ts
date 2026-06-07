@@ -194,7 +194,7 @@ async function main() {
     parameters: {
       type: 'object',
       properties: {
-        source: { type: 'string', description: '源文件路径（通常是 _feishu_inbox 中的文件）' },
+        source: { type: 'string', description: '源文件路径（通常是 PolarClaw/UserDocs 中的文件）' },
         destination: { type: 'string', description: '目标目录路径（如 ~/Polarisor/macbook/Class/雷达实验/）' },
         filename: { type: 'string', description: '目标文件名（可选，默认保留原名）' },
       },
@@ -234,8 +234,7 @@ async function main() {
 
       const userId = tools.getCurrentUserId();
       const baseInbox = process.env.FEISHU_FILE_ROOT
-        ? pjoin(process.env.FEISHU_FILE_ROOT, '_feishu_inbox')
-        : pjoin(homedir(), 'Polarisor', 'macbook', '_feishu_inbox');
+        || pjoin(config.projectRoot, 'UserDocs');
       const inboxDir = pjoin(baseInbox, userId);
 
       if (!existsSync(inboxDir)) mkdirSync(inboxDir, { recursive: true });
@@ -935,7 +934,7 @@ async function main() {
     const debounceMs = Number(process.env.FEISHU_DEBOUNCE_MS) || 3000;
     const fileDebounceMs = Number(process.env.FEISHU_FILE_DEBOUNCE_MS) || 60000;
     const fileReceiveRoot = process.env.FEISHU_FILE_ROOT
-      || join(process.env.HOME ?? '~', 'Polarisor', 'macbook');
+      || join(config.projectRoot, 'UserDocs');
 
     const { createPolarPrivateClient } = await import('./adapters/privacy/polar-private-client.js');
     const ppClient = createPolarPrivateClient({
