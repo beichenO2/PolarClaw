@@ -31,12 +31,12 @@ function parseModeFromArgs(): CLISimulationMode {
   const idx = process.argv.indexOf('--mode');
   if (idx >= 0 && idx + 1 < process.argv.length) {
     const mode = process.argv[idx + 1]!.trim().toLowerCase();
-    if (mode === 'web' || mode === 'ide') {
+    if (mode === 'web') {
       return mode;
     }
-    console.warn(`[PolarClaw] 未知模式 "${mode}"，使用默认 "ide"`);
+    console.warn(`[PolarClaw] 未知模式 "${mode}"，使用默认 "web"`);
   }
-  return 'ide';
+  return 'web';
 }
 
 export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdapter {
@@ -64,7 +64,7 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
         terminal: process.stdin.isTTY === true,
       });
 
-      const modeLabel = mode === 'web' ? 'Web (产品经理)' : 'IDE (开发者)';
+      const modeLabel = 'Web (产品经理)';
 
       console.log('');
       console.log('╭──────────────────────────────────────────╮');
@@ -72,7 +72,6 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
       console.log(`│  用户: ${userId.padEnd(33)}│`);
       console.log(`│  模式: ${modeLabel.padEnd(33)}│`);
       console.log('│  输入 /quit 退出                         │');
-      console.log('│  使用 --mode web/ide 切换模拟模式        │');
       console.log('╰──────────────────────────────────────────╯');
       console.log('');
 
@@ -102,12 +101,11 @@ export function createCLIAdapter(options: ICLIAdapterOptions = {}): IChannelAdap
             // 支持运行时切换模式
             if (text.startsWith('/mode ')) {
               const newMode = text.slice(6).trim().toLowerCase();
-              if (newMode === 'web' || newMode === 'ide') {
+              if (newMode === 'web') {
                 setCLISimulationMode(newMode);
-                const newLabel = newMode === 'web' ? 'Web (产品经理)' : 'IDE (开发者)';
-                console.log(`\n[PolarClaw] 已切换到 ${newLabel} 模式\n`);
+                console.log(`\n[PolarClaw] 已切换到 Web (产品经理) 模式\n`);
               } else {
-                console.log('\n[PolarClaw] 无效模式，请使用 /mode web 或 /mode ide\n');
+                console.log('\n[PolarClaw] 当前只支持 web 模式\n');
               }
               askNext();
               return;

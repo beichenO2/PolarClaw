@@ -5,18 +5,17 @@ import { fileURLToPath } from 'node:url';
 /**
  * Entry types for PolarClaw
  *
- * - feishu: Feishu/Lark bot integration (Product Manager Assistant)
+ * - feishu: Feishu/Lark bot integration (全能助手)
  * - web: Web Dashboard (Product Manager Assistant)
- * - ide: IDE plugin like VSCode/Cursor (Developer Collaborator)
- * - cli: Command-line interface (Debugger, can simulate web/ide via --mode)
- * - api: HTTP API calls (Developer Collaborator)
+ * - cli: Command-line interface (can simulate web via --mode)
+ * - api: HTTP API calls (same as web)
  */
-export type EntryType = 'feishu' | 'cli' | 'web' | 'ide' | 'api';
+export type EntryType = 'feishu' | 'cli' | 'web' | 'api';
 
 /**
  * CLI simulation mode for --mode parameter
  */
-export type CLISimulationMode = 'web' | 'ide';
+export type CLISimulationMode = 'web';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROMPTS_DIR = join(__dirname, '../../prompts');
@@ -39,23 +38,21 @@ function loadPromptFile(filename: string): string {
 /**
  * Map entry types to their prompt template files.
  *
- * - feishu: entry-feishu.md (Product Manager Assistant)
+ * - feishu: entry-feishu.md (全能助手)
  * - web: entry-web.md (Product Manager Assistant)
- * - ide: entry-ide.md (Developer Collaborator)
- * - cli: Uses cliSimulationMode to determine template (default: ide)
- * - api: entry-ide.md (Developer Collaborator)
+ * - cli: Uses cliSimulationMode to determine template (default: web)
+ * - api: entry-web.md (same as web)
  */
 const ENTRY_PROMPT_MAP: Record<Exclude<EntryType, 'cli'>, string> = {
   feishu: 'entry-feishu.md',
   web: 'entry-web.md',
-  ide: 'entry-ide.md',
-  api: 'entry-ide.md',
+  api: 'entry-web.md',
 };
 
 /**
  * CLI simulation mode storage (set via --mode parameter)
  */
-let cliSimulationMode: CLISimulationMode = 'ide';
+let cliSimulationMode: CLISimulationMode = 'web';
 
 /**
  * Set CLI simulation mode for --mode parameter support
@@ -77,7 +74,6 @@ export function getCLISimulationMode(): CLISimulationMode {
  * Detection heuristic:
  *   - channel === 'feishu' or source contains feishu identifiers → feishu
  *   - channel === 'web' or source contains 'web' → web
- *   - channel === 'ide' or source contains 'ide'/'vscode'/'cursor' → ide
  *   - channel === 'cli' or source is TTY → cli (uses simulation mode)
  *   - everything else (HTTP API calls) → api
  */
@@ -94,9 +90,6 @@ export function detectEntryPoint(context: {
   if (ch === 'web' || src.includes('web') || src.includes('dashboard')) {
     return 'web';
   }
-  if (ch === 'ide' || src.includes('ide') || src.includes('vscode') || src.includes('cursor')) {
-    return 'ide';
-  }
   if (ch === 'cli' || src.includes('tty') || src.includes('cli')) {
     return 'cli';
   }
@@ -109,9 +102,7 @@ export function detectEntryPoint(context: {
  */
 export function loadEntryPrompt(entryType: EntryType): string {
   if (entryType === 'cli') {
-    // CLI uses simulation mode to determine which prompt to load
-    const simulatedEntry: 'web' | 'ide' = cliSimulationMode;
-    const file = ENTRY_PROMPT_MAP[simulatedEntry];
+    const file = ENTRY_PROMPT_MAP[cliSimulationMode];
     return loadPromptFile(file);
   }
   const file = ENTRY_PROMPT_MAP[entryType];
