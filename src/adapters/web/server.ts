@@ -6,8 +6,9 @@
 import express from 'express';
 import multer from 'multer';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, renameSync, copyFileSync } from 'node:fs';
-import { join, extname, basename } from 'node:path';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync, unlinkSync, renameSync, copyFileSync, statSync } from 'node:fs';
+import { join, extname, basename, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { execSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { fetchEcosystemHealth } from '../../sdk/ecosystem-health.js';
@@ -392,17 +393,99 @@ document.getElementById('send').onclick=async()=>{
     }
   });
 
+  // ── API: chat file upload ──────────────────────────────
+  const CHAT_UPLOAD_ACCEPT = new Set([
+    '.pdf', '.ppt', '.pptx', '.doc', '.docx', '.xls', '.xlsx',
+    '.md', '.txt', '.csv', '.json', '.xml', '.html', '.htm',
+    '.zip', '.tar', '.gz', '.tgz',
+    '.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg',
+    '.py', '.js', '.ts', '.tsx', '.jsx', '.c', '.cpp', '.h', '.java', '.go', '.rs',
+    '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.sh', '.bash',
+  ]);
+
+  app.post('/api/chat/upload', upload.array('files', 20), async (req, res) => {
+    const files = req.files as Express.Multer.File[] | undefined;
+    if (!files?.length) return res.status(400).json({ error: 'no files' });
+
+    const dateDir = new Date().toISOString().slice(0, 10);
+    const userDir = join(homedir(), 'Polarisor', 'PolarClaw', 'UserDocs', 'web-user', dateDir);
+    mkdirSync(userDir, { recursive: true });
+
+    const uploaded: { name: string; path: string; type: string; size: number }[] = [];
+
+    for (const file of files) {
+      const decoded = Buffer.from(file.originalname, 'latin1').toString('utf8');
+      const ext = extname(decoded).toLowerCase();
+      if (!CHAT_UPLOAD_ACCEPT.has(ext)) {
+        unlinkSync(file.path);
+        continue;
+      }
+
+      const safeName = `${Date.now()}_${decoded.replace(/[\/\\:*?"<>|]/g, '_')}`;
+      const destPath = resolve(userDir, safeName);
+
+      try { renameSync(file.path, destPath); } catch { copyFileSync(file.path, destPath); unlinkSync(file.path); }
+
+      if (ext === '.zip') {
+        const extractDir = resolve(userDir, safeName.replace(/\.zip$/i, ''));
+        mkdirSync(extractDir, { recursive: true });
+        try {
+          execSync(`unzip -o -q "${destPath}" -d "${extractDir}"`, { timeout: 30000 });
+          const entries = listFilesRecursive(extractDir, 3);
+          uploaded.push({ name: decoded, path: extractDir, type: 'directory(zip-extracted)', size: entries.length });
+        } catch {
+          uploaded.push({ name: decoded, path: destPath, type: 'zip(extract-failed)', size: file.size });
+        }
+      } else if (ext === '.tar' || ext === '.gz' || ext === '.tgz') {
+        const extractDir = resolve(userDir, safeName.replace(/\.(tar|gz|tgz)$/i, ''));
+        mkdirSync(extractDir, { recursive: true });
+        try {
+          execSync(`tar -xf "${destPath}" -C "${extractDir}"`, { timeout: 30000 });
+          const entries = listFilesRecursive(extractDir, 3);
+          uploaded.push({ name: decoded, path: extractDir, type: 'directory(tar-extracted)', size: entries.length });
+        } catch {
+          uploaded.push({ name: decoded, path: destPath, type: ext.slice(1), size: file.size });
+        }
+      } else {
+        uploaded.push({ name: decoded, path: destPath, type: ext.slice(1), size: file.size });
+      }
+    }
+
+    res.json({ ok: true, files: uploaded });
+  });
+
+  function listFilesRecursive(dir: string, maxDepth: number, depth = 0): string[] {
+    if (depth >= maxDepth || !existsSync(dir)) return [];
+    const results: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        results.push(...listFilesRecursive(full, maxDepth, depth + 1));
+      } else {
+        results.push(full);
+      }
+    }
+    return results;
+  }
+
   // ── API: agent chat SSE (streaming progress) ──────────
   app.post('/api/agent/chat/stream', async (req, res) => {
     const handler = config.agentHandlerStream ?? config.agentHandler;
     if (!handler) return res.status(503).json({ error: 'agent not available' });
 
-    const { message, conversation_id } = req.body as {
+    const { message, conversation_id, attachments } = req.body as {
       message?: string;
       conversation_id?: string;
+      attachments?: { name: string; path: string; type: string }[];
     };
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'message (string) required' });
+    }
+
+    let augmentedMessage = message;
+    if (attachments?.length) {
+      const lines = attachments.map(a => `- path: ${a.path} type: ${a.type} name: ${a.name}`);
+      augmentedMessage = `${message}\n[ATTACHED_FILES]\n${lines.join('\n')}`;
     }
 
     req.socket?.setNoDelay(true);
@@ -429,7 +512,7 @@ document.getElementById('send').onclick=async()=>{
       if (config.agentHandlerStream) {
         let lastDoneEvt: AgentProgressEvent | null = null;
         const reply = await config.agentHandlerStream(
-          { channel, userId: 'hub-user', text: message },
+          { channel, userId: 'hub-user', text: augmentedMessage },
           (evt) => {
             if (evt.type === 'done') {
               lastDoneEvt = evt;
@@ -441,7 +524,7 @@ document.getElementById('send').onclick=async()=>{
         sendEvent('done', lastDoneEvt ?? { type: 'done', content: reply });
       } else {
         sendEvent('thinking', { type: 'thinking', round: 0 });
-        const reply = await config.agentHandler!({ channel, userId: 'hub-user', text: message });
+        const reply = await config.agentHandler!({ channel, userId: 'hub-user', text: augmentedMessage });
         sendEvent('done', { type: 'done', content: reply });
       }
     } catch (err) {

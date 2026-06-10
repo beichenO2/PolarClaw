@@ -92,6 +92,21 @@ function postToPlainText(post: Record<string, unknown>): string {
   return parts.join('').trim();
 }
 
+// ─── Rich-text reply helpers ─────────────────────────────────────────
+const MD_PATTERN = /(?:^#{1,6}\s|^\*\s|^\d+\.\s|\*\*|__|``|^\s*[-*] |\[.+\]\(.+\)|^\s*>\s)/m;
+
+function hasMarkdown(text: string): boolean {
+  return MD_PATTERN.test(text);
+}
+
+function buildPostContent(text: string): string {
+  return JSON.stringify({
+    zh_cn: {
+      content: [[{ tag: 'md', text }]],
+    },
+  });
+}
+
 function parseJsonContent(raw: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(raw);
@@ -143,11 +158,19 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
   let lastError: { code: string; message: string } | null = null;
 
   // ─── Message Aggregation Buffer ───────────────────────────────────────
+  interface PendingFileRef {
+    messageId: string;
+    fileKey: string;
+    fileName: string | undefined;
+    fileType: 'image' | 'file';
+    userId?: string;
+  }
   interface PendingMsg {
     messageId: string;
     text: string;
     createTime?: string;
     attachments?: IAttachment[];
+    pendingFiles?: PendingFileRef[];
   }
   interface PendingBatch {
     chatId: string;
@@ -164,6 +187,7 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
     text: string,
     createTime?: string,
     attachments?: IAttachment[],
+    pendingFiles?: PendingFileRef[],
   ) {
     if (dedup?.isProcessed(messageId)) return;
 
@@ -177,20 +201,22 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
 
     if (existing) {
       clearTimeout(existing.timer);
-      existing.messages.push({ messageId, text, createTime, attachments });
+      existing.messages.push({ messageId, text, createTime, attachments, pendingFiles });
     } else {
       pendingBatches.set(key, {
         chatId,
         openId,
-        messages: [{ messageId, text, createTime, attachments }],
+        messages: [{ messageId, text, createTime, attachments, pendingFiles }],
         timer: undefined as unknown as ReturnType<typeof setTimeout>,
       });
     }
 
     const batch = pendingBatches.get(key)!;
-    const batchHasFile = (attachments?.length ?? 0) > 0
-      || batch.messages.some(m => (m.attachments?.length ?? 0) > 0);
-    const effectiveDebounce = batchHasFile ? fileDebounceMs : debounceMs;
+    const hasPendingFile = (pendingFiles?.length ?? 0) > 0
+      || (attachments?.length ?? 0) > 0
+      || batch.messages.some(m =>
+        (m.attachments?.length ?? 0) > 0 || (m.pendingFiles?.length ?? 0) > 0);
+    const effectiveDebounce = hasPendingFile ? fileDebounceMs : debounceMs;
     batch.timer = setTimeout(() => void flushBatch(key), effectiveDebounce);
   }
 
@@ -198,6 +224,19 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
     const batch = pendingBatches.get(key);
     if (!batch || batch.messages.length === 0) return;
     pendingBatches.delete(key);
+
+    // Resolve pending file downloads before dispatching
+    for (const msg of batch.messages) {
+      if (msg.pendingFiles?.length) {
+        const results = await Promise.all(
+          msg.pendingFiles.map(f =>
+            downloadFeishuFile(f.messageId, f.fileKey, f.fileName, f.fileType, f.userId)),
+        );
+        const resolved = results.filter((a): a is IAttachment => a !== null);
+        msg.attachments = [...(msg.attachments ?? []), ...resolved];
+        msg.pendingFiles = undefined;
+      }
+    }
 
     const mergedText = batch.messages.map(m => m.text).filter(Boolean).join('\n');
     const allAttachments = batch.messages.flatMap(m => m.attachments ?? []);
@@ -266,18 +305,24 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
 
     try {
       const reply = await messageHandler(inbound);
-      await client.im.message.reply({
-        path: { message_id: messageId },
-        data: {
-          msg_type: 'text',
-          content: JSON.stringify({ text: reply }),
-        },
-      });
+      await replyToFeishu(messageId, reply, resolvedUserId);
       dedup?.markProcessed(messageId, createTime);
     } catch (err) {
       console.error(`[${channelName}] dispatchSingle error:`, err);
       dedup?.markProcessed(messageId, createTime);
     }
+  }
+
+  async function replyToFeishu(messageId: string, text: string, userId?: string): Promise<void> {
+    const usePost = hasMarkdown(text);
+    await client.im.message.reply({
+      path: { message_id: messageId },
+      data: {
+        msg_type: usePost ? 'post' : 'text',
+        content: usePost ? buildPostContent(text) : JSON.stringify({ text }),
+      },
+    });
+
   }
 
   // ─── File Download ────────────────────────────────────────────────────
@@ -295,13 +340,14 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
 
       const root = fileReceiveRoot ?? join(homedir(), 'Polarisor', 'PolarClaw', 'UserDocs');
       const userDir = userId || 'unresolved';
-      const dateDir = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const dateDir = new Date().toISOString().slice(0, 10);
       const inboxDir = join(root, userDir, dateDir);
       if (!fsExists(inboxDir)) mkdirSync(inboxDir, { recursive: true });
 
       const safeName = fileName?.replace(/[/\\:*?"<>|]/g, '_') ?? `${fileKey}.dat`;
       const localPath = pathResolve(inboxDir, safeName);
 
+      console.error(`[${channelName}] 下载文件 msg=${messageId} key=${fileKey} type=${fileType}`);
       const res = await client.im.messageResource.get({
         path: { message_id: messageId, file_key: fileKey },
         params: { type: fileType },
@@ -329,8 +375,14 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
         url: `file://${localPath}`,
         filename: safeName,
       };
-    } catch (err) {
-      console.error(`[${channelName}] 文件下载失败 (${fileKey}):`, err);
+    } catch (err: unknown) {
+      const axErr = err as { response?: { status?: number; data?: unknown; headers?: unknown }; code?: string; message?: string };
+      if (axErr.response) {
+        console.error(`[${channelName}] 文件下载失败 (${fileKey}): HTTP ${axErr.response.status}`,
+          JSON.stringify(axErr.response.data ?? '(no body)', null, 2));
+      } else {
+        console.error(`[${channelName}] 文件下载失败 (${fileKey}): ${axErr.code ?? ''} ${axErr.message ?? err}`);
+      }
       return null;
     }
   }
@@ -458,10 +510,10 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
         const fileName = parsed && typeof parsed.file_name === 'string' ? parsed.file_name : undefined;
         if (!fileKey) return;
 
-        const attachment = await downloadFeishuFile(messageId, fileKey, fileName, 'file', openId);
         const label = fileName ? `[文件] ${fileName}` : '[文件]';
         enqueueMessage(chatId, messageId, openId, label, createTime,
-          attachment ? [attachment] : undefined);
+          undefined,
+          [{ messageId, fileKey, fileName, fileType: 'file', userId: openId }]);
         return;
       }
 
@@ -471,9 +523,9 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
         const imageKey = parsed && typeof parsed.image_key === 'string' ? parsed.image_key : '';
         if (!imageKey) return;
 
-        const attachment = await downloadFeishuFile(messageId, imageKey, `${imageKey}.png`, 'image', openId);
         enqueueMessage(chatId, messageId, openId, '[图片]', createTime,
-          attachment ? [attachment] : undefined);
+          undefined,
+          [{ messageId, fileKey: imageKey, fileName: `${imageKey}.png`, fileType: 'image', userId: openId }]);
         return;
       }
 
@@ -628,14 +680,29 @@ export function createFeishuAdapter(options: IFeishuAdapterOptions): IFeishuChan
     },
 
     async send(message: IOutboundMessage) {
+      if (message.card) {
+        const res = await client.im.message.create({
+          params: { receive_id_type: 'open_id' },
+          data: {
+            receive_id: message.userId,
+            msg_type: 'interactive',
+            content: JSON.stringify(message.card),
+          },
+        });
+        if (isRecord(res) && res.code !== undefined && res.code !== 0) {
+          throw new Error(`Feishu send failed: ${res.msg} (code ${res.code})`);
+        }
+        return;
+      }
+
+      const text = message.text;
+      const usePost = hasMarkdown(text);
       const res = await client.im.message.create({
         params: { receive_id_type: 'open_id' },
         data: {
           receive_id: message.userId,
-          msg_type: message.card ? 'interactive' : 'text',
-          content: message.card
-            ? JSON.stringify(message.card)
-            : JSON.stringify({ text: message.text }),
+          msg_type: usePost ? 'post' : 'text',
+          content: usePost ? buildPostContent(text) : JSON.stringify({ text }),
         },
       });
       if (isRecord(res) && res.code !== undefined && res.code !== 0) {

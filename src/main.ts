@@ -151,6 +151,22 @@ async function main() {
   await skillRegistry.init(config.skills.scanDirs, { loadTools: false });
   skillRegistry.watch();
 
+  // 核心技能预加载：这些技能的工具始终可用，无需 Agent 手动 skill_activate
+  const PRELOAD_SKILLS = ['autooffice-integration'];
+  for (const skillName of PRELOAD_SKILLS) {
+    for (const dir of config.skills.scanDirs) {
+      const skillDir = join(dir, skillName);
+      if (existsSync(join(skillDir, 'SKILL.md'))) {
+        const meta = await skillRegistry.loadSkill(skillDir);
+        if (meta) {
+          metaIndex.markActivated(meta.name, meta.toolNames ?? []);
+          console.error(`[PolarClaw] 预加载核心技能: ${meta.name} (${meta.toolNames?.length ?? 0} 工具)`);
+        }
+        break;
+      }
+    }
+  }
+
   // 学习子系统
   const patternDetector = createPatternDetector(learningStore);
   const skillGenerator = createSkillGenerator({

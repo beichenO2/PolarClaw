@@ -94,7 +94,7 @@ export async function extractContractFromMessage(
         { role: 'system', content: EXTRACT_PROMPT },
         { role: 'user', content: userMessage },
       ],
-      { capability: '001' },
+      { capability: '0001' },
     );
 
     const raw = (result.content ?? '').trim();

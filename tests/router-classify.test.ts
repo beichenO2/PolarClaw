@@ -8,7 +8,7 @@ describe('classifyAndRoute', () => {
       { channel: 'always-on/discovery' },
     );
     expect(decision.tier).toBe('light');
-    expect(decision.capability).toBe('001');
+    expect(decision.capability).toBe('0011');
   });
 
   it('routes short messages to light tier', () => {
@@ -21,7 +21,7 @@ describe('classifyAndRoute', () => {
       { role: 'user', content: 'fix the bug in src/agent.ts and add a test' },
     ]);
     expect(decision.tier).toBe('standard');
-    expect(decision.capability).toBe('100');
+    expect(decision.capability).toBe('1001');
   });
 
   it('routes research to heavy tier', () => {
@@ -29,6 +29,6 @@ describe('classifyAndRoute', () => {
       { role: 'user', content: '写一篇关于多 Agent 架构的调研综述' },
     ]);
     expect(decision.tier).toBe('heavy');
-    expect(decision.capability).toBe('111');
+    expect(decision.capability).toBe('1110');
   });
 });

@@ -1,22 +1,22 @@
 import { useEffect, useRef, useState } from 'react'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 import type { ChatAnnotation, ChatMessage } from '../../lib/chat-api'
+import { renderMarkdown } from '../../lib/render-markdown'
 
 interface Props {
   messages: ChatMessage[]
   pending?: boolean
+  streamPreview?: string
   onAnnotate?: (messageId: string, annotation: ChatAnnotation) => void
 }
 
-export function MessageList({ messages, pending, onAnnotate }: Props) {
+export function MessageList({ messages, pending, streamPreview, onAnnotate }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<{ messageId: string; text: string; x: number; y: number } | null>(null)
   const [note, setNote] = useState('')
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, pending])
+  }, [messages, pending, streamPreview])
 
   function handleMouseUp(messageId: string) {
     if (!onAnnotate) return
@@ -60,9 +60,7 @@ export function MessageList({ messages, pending, onAnnotate }: Props) {
             {m.role === 'assistant' ? (
               <div
                 className="markdown-body prose-invert"
-                dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(marked.parse(m.content, { async: false }) as string),
-                }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
               />
             ) : (
               <p className="whitespace-pre-wrap">{m.content}</p>
@@ -83,7 +81,17 @@ export function MessageList({ messages, pending, onAnnotate }: Props) {
           </div>
         </div>
       ))}
-      {pending && (
+      {streamPreview && pending && (
+        <div className="max-w-3xl mx-auto w-full">
+          <div className="rounded-2xl px-4 py-3 text-[15px] leading-relaxed bg-transparent text-[#ececec] w-full">
+            <div
+              className="markdown-body prose-invert"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(streamPreview) }}
+            />
+          </div>
+        </div>
+      )}
+      {pending && !streamPreview && (
         <div className="max-w-3xl mx-auto text-[#8e8ea0] text-sm animate-pulse">思考中…</div>
       )}
       <div ref={bottomRef} />

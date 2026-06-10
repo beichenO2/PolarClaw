@@ -5,7 +5,14 @@ import { YoloPage } from './pages/YoloPage'
 import { ReviewPage } from './pages/ReviewPage'
 import { ChatShellPage } from './pages/ChatShellPage'
 
-const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
+function detectBasename(): string {
+  const path = window.location.pathname
+  const idx = path.indexOf('/mc')
+  if (idx >= 0) return path.slice(0, idx + 3)
+  return '/mc'
+}
+
+const basename = detectBasename()
 
 export default function App() {
   return (

@@ -1,3 +1,5 @@
+import { API_BASE } from './base-url'
+
 export type TraceLineKind =
   | 'step_start'
   | 'step_done'
@@ -69,7 +71,7 @@ export async function sendWorkflowChatStream(
     onEvent: (ev: ChatStreamEvent) => void
   },
 ): Promise<{ content: string | null; error?: string }> {
-  const res = await fetch('/api/workflow/chat', {
+  const res = await fetch(`${API_BASE}/api/workflow/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...opts, stream: true }),

@@ -1,3 +1,5 @@
+import { API_BASE } from './base-url'
+
 export interface ChatDeployment {
   id: string
   workflow_id: string
@@ -31,7 +33,7 @@ const STORAGE_CONVERSATIONS = 'polarui_chat_conversations'
 const STORAGE_MESSAGES_PREFIX = 'polarui_chat_messages_'
 
 export async function fetchDeployments(): Promise<ChatDeployment[]> {
-  const res = await fetch('/api/deployments')
+  const res = await fetch(`${API_BASE}/api/deployments`)
   if (!res.ok) return []
   return res.json()
 }
@@ -42,7 +44,7 @@ export async function sendWorkflowChat(opts: {
   message: string
   user_id?: string
 }): Promise<{ content: string | null; error?: string }> {
-  const res = await fetch('/api/workflow/chat', {
+  const res = await fetch(`${API_BASE}/api/workflow/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(opts),

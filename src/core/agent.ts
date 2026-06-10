@@ -32,6 +32,7 @@ import {
   deserializeContract,
 } from './task-contract.js';
 import { loadEcoConstraints } from './eco-constraints.js';
+import { loadEntryPrompt, detectEntryPoint } from './entry-prompt.js';
 
 export type AgentProgressEvent =
   | { type: 'thinking'; round: number; model?: string; message_count?: number }
@@ -349,8 +350,9 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     let lastModel = '';
     const accumulatedTexts: string[] = [];
 
-    // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
-    const compressionBudget = (config.maxTokens ?? 4096) * 12;
+    // 上下文压缩的 token 预算：基于模型上下文窗口（非输出 token）
+    // 大部分云端模型上下文窗口 128k+，保守取 120k，留余量给 system prompt
+    const compressionBudget = 120000;
 
     const personaResult = config.personaResolver?.(userId);
     const personaText = personaResult?.content ?? '';
@@ -405,8 +407,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         /* active skills 不可用时跳过 */
       }
 
+      const entryPrompt = loadEntryPrompt(detectEntryPoint({ channel }));
+
       const systemContent = [
         basePrompt,
+        entryPrompt,
         rulesAppend,
         skillRulesAppend,
         contractInjection,

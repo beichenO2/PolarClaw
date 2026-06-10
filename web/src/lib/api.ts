@@ -64,7 +64,9 @@ export interface YoloSession {
   stopReason?: string
 }
 
-const BASE = ''
+import { API_BASE } from './base-url'
+
+const BASE = API_BASE
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`)

@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 const polarClawPort = process.env.POLARCLAW_WEB_PORT || '3910'
 
 export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/mc/' : '/',
+  base: command === 'build' ? './' : '/',
   plugins: [react()],
   resolve: {
     alias: {

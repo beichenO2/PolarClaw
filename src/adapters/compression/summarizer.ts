@@ -33,11 +33,11 @@ export interface ICompressorConfig {
   summarize?: (text: string) => Promise<string>;
 }
 
-/** 粗略 token 估算 */
+/** 粗略 token 估算（中文约 2.5 token/字，英文约 0.3 token/char） */
 function estimateTokens(text: string): number {
   const cjkChars = (text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g) || []).length;
   const nonCjk = text.length - cjkChars;
-  return Math.ceil(cjkChars * 1.5 + nonCjk * 0.3);
+  return Math.ceil(cjkChars * 2.5 + nonCjk * 0.3);
 }
 
 function totalTokens(messages: IChatMessage[]): number {
