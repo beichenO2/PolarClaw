@@ -40,7 +40,7 @@ describe('createLLMRouter', () => {
     const result = await router.chat([
       { role: 'user', content: 'debug this function and fix the bug' },
     ]);
-    expect(result.content).toContain('100');
+    expect(result.content).toContain('1001');
     expect(result.usage?.totalTokens).toBe(15);
   });
 
@@ -61,7 +61,7 @@ describe('createLLMRouter', () => {
 
     const coding = router.resolveModel([{ role: 'user', content: '写代码实现排序' }]);
     expect(coding.intent).toBe('coding');
-    expect(coding.model).toBe('capability:100');
+    expect(coding.model).toBe('capability:1001');
 
     const research = router.resolveModel([{ role: 'user', content: '研究一下这篇论文' }]);
     expect(research.intent).toBe('research');
@@ -102,6 +102,6 @@ describe('createLLMRouter', () => {
     const result = await router.chat([
       { role: 'user', content: '帮我写代码' },
     ]);
-    expect(result.model).toBe('100');
+    expect(result.model).toBe('1001');
   });
 });

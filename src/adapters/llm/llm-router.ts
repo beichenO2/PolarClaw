@@ -2,7 +2,7 @@
  * LLM 路由器适配器
  *
  * 通过 LLM Proxy SDK 与 PolarPrivate 通信。
- * 调用方只传 capability code（QCS），不传模型名。
+ * 调用方只传 capability code（4-bit QCSA），不传模型名。
  * 模型选择权完全在 LLM Proxy 侧。
  *
  * 保留意图检测：自动将 intent 映射为 capability code，
