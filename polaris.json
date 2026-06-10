@@ -108,6 +108,9 @@
             "fetchLongTermMemory 按 temporal decay 加权排序",
             "main.ts 注入 sessionMemory 到 agent deps",
             "bootstrap dependency-checker 自动检测/拉起依赖服务"
+          ],
+          "evidence": [
+            "2026-05-13: tests added/extended in src/__tests__/"
           ]
         },
         {
