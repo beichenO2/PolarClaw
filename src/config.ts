@@ -100,7 +100,7 @@ export function loadConfig(): IPolarClawConfig {
       cli: pcEnv('CLI', '0') === '1',
     },
     skills: {
-      scanDirs: [join(ROOT, 'skills')],
+      scanDirs: [join(ROOT, 'PolarSkills')],
     },
   };
 

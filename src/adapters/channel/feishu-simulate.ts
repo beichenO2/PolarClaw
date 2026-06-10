@@ -144,7 +144,7 @@ async function main() {
   });
 
   let soulPrompt = 'You are PolarClaw, a helpful AI assistant.';
-  const soulEcosystemPath = join(config.projectRoot, 'skills', 'SOUL.md');
+  const soulEcosystemPath = join(config.projectRoot, 'PolarSkills', 'SOUL.md');
   const soulRootPath = join(config.projectRoot, 'SOUL.md');
   if (existsSync(soulEcosystemPath)) {
     const ecosystem = readFileSync(soulEcosystemPath, 'utf8');

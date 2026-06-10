@@ -39,8 +39,11 @@ export function createSkillDiscoveryTools(deps: ISkillDiscoveryDeps): IToolHandl
       if (!statSync(projectDir).isDirectory()) continue;
       if (SKIP.has(project)) continue;
 
-      const skillsDir = join(projectDir, 'skills');
-      if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) continue;
+      let skillsDir = join(projectDir, 'PolarSkills');
+      if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) {
+        skillsDir = join(projectDir, 'skills');
+        if (!existsSync(skillsDir) || !statSync(skillsDir).isDirectory()) continue;
+      }
 
       const isLocal = localSkillDirs.some(d => d === skillsDir || d.startsWith(skillsDir));
       if (isLocal) continue;

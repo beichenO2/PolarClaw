@@ -22,8 +22,8 @@ export interface ISelfLearningLoopConfig {
 }
 
 export const DEFAULT_LOOP_CONFIG: ISelfLearningLoopConfig = {
-  skillsDir: 'skills',
-  candidatesDir: 'skills/_candidates',
+  skillsDir: 'PolarSkills',
+  candidatesDir: 'PolarSkills/_candidates',
   patternThreshold: 5,
   promotionThreshold: 3,
   demotionThreshold: 3,

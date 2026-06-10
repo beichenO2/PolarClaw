@@ -516,10 +516,10 @@
       "features": [
         {
           "name": "生态地图",
-          "description": "skills/SOUL.md 中嵌入 Polarisor 生态全景：项目、能力、接口、文件系统约定",
+          "description": "PolarSkills/SOUL.md 中嵌入 Polarisor 生态全景：项目、能力、接口、文件系统约定",
           "status": "done",
           "behavior": [
-            "skills/SOUL.md 包含生态全景：项目表、用户体系、文件系统约定、工具链寻路",
+            "PolarSkills/SOUL.md 包含生态全景：项目表、用户体系、文件系统约定、工具链寻路",
             "SOUL.md（根目录）包含 Agent 身份和沟通风格",
             "Agent 启动时合并两者注入 system prompt"
           ],
@@ -551,7 +551,7 @@
           "description": "任务类型元认知：实验+报告等思维框架",
           "status": "done",
           "behavior": [
-            "skills/_meta/ 目录存放 .md 格式元技能",
+            "PolarSkills/_meta/ 目录存放 .md 格式元技能",
             "元技能通过 frontmatter triggers 字段匹配用户输入",
             "meta-index 扫描元技能并注入 system prompt 技能目录",
             "第一个元技能 experiment-report.md 已创建"
