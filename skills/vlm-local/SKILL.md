@@ -2,11 +2,15 @@
 name: vlm-local
 description: 本地图片/PDF 视觉分析 — 通过 vision LLM 分析本地文件中的图表、文档、截图
 version: 1.0.0
+status: passive
 requires:
   polarprivate-llm-proxy: "http://127.0.0.1:12790"
 ---
 
 # VLM Local Analysis
+
+> **使用限制**：本 Skill 不建议主动调用。仅在用户**显式**要求使用本地 VLM 分析图片时才启用。
+> 依赖 PolarPrivate 或 Ollama，若不可用则如实告知用户。
 
 ## 能力
 
