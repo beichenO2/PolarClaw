@@ -20,8 +20,10 @@
  *   const result = await llm.chat(messages, { capability: '0001' });
  */
 
-const LLM_PROXY_BASE = 'http://127.0.0.1:12790';
-const LLM_PROXY_V1 = `${LLM_PROXY_BASE}/v1`;
+function getLLMProxyBase(): string {
+  return process.env.POLARPRIVATE_URL?.trim() || 'http://127.0.0.1:12790';
+}
+const LLM_PROXY_V1_SUFFIX = '/v1';
 
 export type CapabilityCode = string; // 4-char binary like '0000', '0001', '1000'
 
@@ -125,7 +127,7 @@ export function createLLMClient(): LLMProxyClient {
       }
 
       try {
-        const res = await fetch(`${LLM_PROXY_V1}/chat/completions`, {
+        const res = await fetch(`${getLLMProxyBase()}${LLM_PROXY_V1_SUFFIX}/chat/completions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
@@ -161,7 +163,7 @@ export function createLLMClient(): LLMProxyClient {
     },
 
     async healthCheck() {
-      const res = await fetch(`${LLM_PROXY_BASE}/health`, { method: 'GET' });
+      const res = await fetch(`${getLLMProxyBase()}/health`, { method: 'GET' });
       return res.json() as Promise<{ status: string; vault_unlocked: boolean }>;
     },
   };
