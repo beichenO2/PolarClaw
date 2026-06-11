@@ -96,7 +96,15 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
 
         const formattedMessages = messages.map(m => {
           const msg: Record<string, unknown> = { role: m.role, content: m.content };
-          if (m.toolCalls?.length) msg.tool_calls = m.toolCalls;
+          if (m.toolCalls?.length) {
+            msg.tool_calls = m.toolCalls.map(tc => {
+              const sanitized = { ...tc, function: { ...tc.function } };
+              try { JSON.parse(sanitized.function.arguments); } catch {
+                sanitized.function.arguments = '{}';
+              }
+              return sanitized;
+            });
+          }
           if (m.toolCallId) msg.tool_call_id = m.toolCallId;
           return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string };
         });

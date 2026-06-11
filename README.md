@@ -75,6 +75,21 @@ Agent 需频繁替换飞书 SDK / LLM 供应商 / 记忆后端。MVC 会把 Cont
 5. Project Lock（`.lobster-lock` 防多 Agent 同项目写冲突）
 6. 工具层隔离（30s 超时 / 50k 输出 cap / 错误不抛栈给 LLM）
 
+### Tool Call 容错（Malformed Arguments Auto-Sanitize）
+
+LLM 偶尔返回不合法 JSON 的 tool_call arguments（如 `{}""`、trailing comma）。
+若将损坏的 arguments 原样转发到下一轮对话，上游 LLM（尤其讯飞 MaaS）会返回 500。
+
+**两层防御：**
+
+| 层 | 位置 | 策略 |
+|----|------|------|
+| L1 | `core/agent.ts` tool 执行前 | 检测不合法 JSON → sanitize 为 `{}` + warn 日志，避免带损坏数据入历史 |
+| L2 | `adapters/llm/llm-router.ts` 消息序列化 | 发往 LLM 前再次校验所有 `tool_calls[].arguments`，损坏的 sanitize 为 `{}` |
+
+设计选择：sanitize + 继续执行，而非 discard + retry，因为 retry 可能重复触发相同 LLM 缺陷。
+空 `{}` 参数让工具执行失败后返回明确错误给 LLM，LLM 可自行修正。
+
 ### 自学习闭环
 - 60s 滑动窗口检测 2–5 步工具序列；≥3 次命中自动晋升候选技能
 - 12 个 Tool-Skill + 2 个 Meta-Skill 三层架构（SOUL → Meta → Tool）

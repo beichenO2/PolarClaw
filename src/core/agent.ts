@@ -446,14 +446,21 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         return { text, usage: totalUsage, model: lastModel };
       }
 
-      // 并发执行所有工具调用（Promise.allSettled 保证全部完成，不因单个失败终止）
-      const toolTasks = response.toolCalls.map(async (tc) => {
-        let args: Record<string, unknown> = {};
+      // ── Malformed tool_call arguments: sanitize before forwarding ──
+      // LLMs occasionally emit invalid JSON in tool_call arguments (e.g. `{}""`,
+      // trailing commas). Sanitize them to `{}` so downstream roundtrips don't
+      // trigger upstream 500s. Log for diagnostics.
+      for (const tc of response.toolCalls) {
         try {
-          args = JSON.parse(tc.function.arguments);
-        } catch (parseErr) {
-          console.error(`[Agent] Failed to parse tool args for ${tc.function.name}: ${tc.function.arguments?.slice(0, 300)}`);
+          JSON.parse(tc.function.arguments);
+        } catch {
+          console.warn(`[Agent] Sanitizing malformed tool_call args for ${tc.function.name}: ${tc.function.arguments?.slice(0, 200)}`);
+          tc.function.arguments = '{}';
         }
+      }
+
+      const toolTasks = response.toolCalls.map(async (tc) => {
+        const args: Record<string, unknown> = JSON.parse(tc.function.arguments);
 
         const callTimestamp = new Date().toISOString();
         onProgress?.({ type: 'tool_call', tool: tc.function.name, args, call_id: tc.id, timestamp: callTimestamp });
