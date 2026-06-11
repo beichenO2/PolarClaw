@@ -82,15 +82,16 @@ Agent 需频繁替换飞书 SDK / LLM 供应商 / 记忆后端。MVC 会把 Cont
 
 ## 页面预览
 
-### Web UI（独立 Agent 界面）
-
-![Dashboard — 对话 + 工具调用实时流](screenshots/claw-01-dashboard.png)
-![YOLO 自主执行 — 三维预算可视化](screenshots/claw-02-yolo.png)
-![Review — 文件审阅与批注](screenshots/claw-03-review.png)
-
 ### Hub Web（多 Agent 调度中心）
 
 ![Hub Web — Agent 注册、Prompt 下发、状态监控](screenshots/claw-04-hub-web.png)
+
+### Web UI（独立 Agent 界面）
+
+![Chat — 类 ChatGPT 对话界面，支持 Agent/Workflow 切换](screenshots/claw-05-chat.png)
+![Dashboard — Agent 状态总览（通道/技能/记忆/YOLO）](screenshots/claw-01-dashboard.png)
+![YOLO 自主执行 — 目标输入 + 对齐验证 + 预算控制](screenshots/claw-02-yolo.png)
+![Review — PDF/PPT 文件审阅与批注](screenshots/claw-03-review.png)
 
 ## 架构
 
