@@ -154,12 +154,12 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           }
         }
 
-        // Tier 3: Local via PolarPrivate L-codes (Ollama behind proxy; L0000 = embedding only)
-        console.warn(`[LLMRouter] Tier 1 exhausted: ${lastError?.message}. Trying local L-tier (L0000)...`);
+        // Tier 3: Local via PolarPrivate L-codes (Ollama behind proxy; L0001 = chat)
+        console.warn(`[LLMRouter] Tier 1 exhausted: ${lastError?.message}. Trying local L-tier (L0001)...`);
         try {
           const fallbackResult = await client.chat(formattedMessages, {
             ...chatOptions,
-            capability: '0000',
+            capability: '0001',
             tier: 'local',
             tools: undefined,
             toolChoice: undefined,

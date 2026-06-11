@@ -12,7 +12,7 @@
  *   - A (Agent): 0 = 对话, 1 = Agent/tool-use
  *
  * Vision: V + 4-bit QCSA (e.g. V0000, V1000)
- * Local: L0000 (唯一本地码，embedding only)
+ * Local: L0000 = embedding, L0001 = chat (qwen3:8b)
  *
  * 调用方式:
  *   import { createLLMClient } from './llm-proxy.js';
@@ -42,9 +42,9 @@ export function cloudCapabilityToModelId(code: CapabilityCode): string {
   return normalizeCode(code);
 }
 
-/** Local: only L0000 (embedding). Legacy L000/L100/L101 are deprecated. */
-export function localCapabilityToModelId(_code: CapabilityCode): string {
-  return 'L0000';
+/** Local: L0000 = embedding, L0001 = chat. Prefix L + 4-bit code. */
+export function localCapabilityToModelId(code: CapabilityCode): string {
+  return `L${normalizeCode(code)}`;
 }
 
 function resolveModelInternal(code: CapabilityCode, tier: 'cloud' | 'local'): string {
@@ -54,7 +54,7 @@ function resolveModelInternal(code: CapabilityCode, tier: 'cloud' | 'local'): st
   return cloudCapabilityToModelId(code);
 }
 
-/** Map intent → 4-bit QCSA cloud code. Local tier always uses L0000. */
+/** Map intent → 4-bit QCSA cloud code. */
 export function intentToCode(intent: string, _tier: 'cloud' | 'local' = 'cloud'): CapabilityCode {
   switch (intent) {
     case 'coding': return '0001';   // Agent/tool-use (DS V4 Flash)
