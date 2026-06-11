@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import type { ChatDeployment } from '../../lib/chat-api'
+import { POLARCLAW_DIRECT_ID } from '../../lib/chat-api'
 
 interface WorkflowPickerProps {
   deployments: ChatDeployment[]
   value: string
   onChange: (workflowId: string) => void
   className?: string
+}
+
+const BUILTIN_POLARCLAW: ChatDeployment = {
+  id: POLARCLAW_DIRECT_ID,
+  workflow_id: POLARCLAW_DIRECT_ID,
+  library: 'WF',
+  display_name: 'PolarClaw Agent',
+  deployed_at: '',
 }
 
 function matchDeployment(d: ChatDeployment, q: string): boolean {
@@ -26,11 +35,12 @@ export function WorkflowPicker({ deployments, value, onChange, className }: Work
   const [highlight, setHighlight] = useState(0)
   const rootRef = useRef<HTMLDivElement>(null)
 
-  const selected = deployments.find(d => d.id === value)
+  const allItems = useMemo(() => [BUILTIN_POLARCLAW, ...deployments], [deployments])
+  const selected = allItems.find(d => d.id === value)
 
   const filtered = useMemo(
-    () => deployments.filter(d => matchDeployment(d, query)),
-    [deployments, query],
+    () => allItems.filter(d => matchDeployment(d, query)),
+    [allItems, query],
   )
 
   useEffect(() => {
@@ -78,10 +88,10 @@ export function WorkflowPicker({ deployments, value, onChange, className }: Work
   }
 
   const label = selected
-    ? `${selected.display_name} (${selected.library})`
-    : deployments.length === 0
-      ? '暂无部署 — 去 PolarUI 🚀 部署'
-      : '搜索 workflow / LangGraph…'
+    ? selected.id === POLARCLAW_DIRECT_ID
+      ? selected.display_name
+      : `${selected.display_name} (${selected.library})`
+    : '选择对话模式…'
 
   return (
     <div ref={rootRef} className={clsx('relative min-w-[12rem] max-w-md flex-1', className)}>
@@ -95,10 +105,12 @@ export function WorkflowPicker({ deployments, value, onChange, className }: Work
         {selected && (
           <span className={clsx(
             'shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded',
-            selected.library === 'LG' ? 'bg-[#4a3a7a] text-[#d4c4ff]' : 'bg-[#1f4a7a] text-[#9ecbff]',
+            selected.id === POLARCLAW_DIRECT_ID
+              ? 'bg-[#2a5a3a] text-[#7aefaa]'
+              : selected.library === 'LG' ? 'bg-[#4a3a7a] text-[#d4c4ff]' : 'bg-[#1f4a7a] text-[#9ecbff]',
           )}
           >
-            {selected.library}
+            {selected.id === POLARCLAW_DIRECT_ID ? 'PC' : selected.library}
           </span>
         )}
         <span className="truncate flex-1">{label}</span>
@@ -138,10 +150,12 @@ export function WorkflowPicker({ deployments, value, onChange, className }: Work
                 >
                   <span className={clsx(
                     'shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded',
-                    d.library === 'LG' ? 'bg-[#4a3a7a] text-[#d4c4ff]' : 'bg-[#1f4a7a] text-[#9ecbff]',
+                    d.id === POLARCLAW_DIRECT_ID
+                      ? 'bg-[#2a5a3a] text-[#7aefaa]'
+                      : d.library === 'LG' ? 'bg-[#4a3a7a] text-[#d4c4ff]' : 'bg-[#1f4a7a] text-[#9ecbff]',
                   )}
                   >
-                    {d.library}
+                    {d.id === POLARCLAW_DIRECT_ID ? 'PC' : d.library}
                   </span>
                   <span className="flex-1 min-w-0">
                     <span className="block truncate text-[#ececec]">{d.display_name}</span>

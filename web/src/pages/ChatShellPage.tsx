@@ -10,11 +10,14 @@ import {
   type ChatMessage,
   type ConversationMeta,
   fetchDeployments,
+  isDirectAgent,
   loadConversations,
   loadMessages,
   newConversationId,
+  POLARCLAW_DIRECT_ID,
   saveConversations,
   saveMessages,
+  sendAgentChat,
   sendWorkflowChat,
 } from '../lib/chat-api'
 
@@ -44,7 +47,7 @@ export function ChatShellPage() {
   useEffect(() => {
     fetchDeployments().then(list => {
       setDeployments(list)
-      if (!workflowId && list[0]) setWorkflowId(list[0].id)
+      if (!workflowId) setWorkflowId(POLARCLAW_DIRECT_ID)
     })
   }, [])
 
@@ -106,18 +109,43 @@ export function ChatShellPage() {
     persistConversationMeta(text)
     setSending(true)
 
-    const { content, error } = await sendWorkflowChat({
-      workflow_id: workflowId,
-      conversation_id: conversationId,
-      message: userMsg.content,
-    })
+    let content: string | null = null
+    let error: string | undefined
 
-    const assistantMsg: ChatMessage = {
-      id: `m_${Date.now()}_a`,
-      role: 'assistant',
-      content: error ? `错误：${error}` : (content ?? '（无回复）'),
+    if (isDirectAgent(workflowId)) {
+      const result = await sendAgentChat({
+        conversation_id: conversationId,
+        message: userMsg.content,
+        onProgress: (text) => {
+          setMessages(prev => {
+            const last = prev[prev.length - 1]
+            if (last?.id === '__streaming__') {
+              return [...prev.slice(0, -1), { ...last, content: text }]
+            }
+            return [...prev, { id: '__streaming__', role: 'assistant', content: text }]
+          })
+        },
+      })
+      content = result.content
+      error = result.error
+    } else {
+      const result = await sendWorkflowChat({
+        workflow_id: workflowId,
+        conversation_id: conversationId,
+        message: userMsg.content,
+      })
+      content = result.content
+      error = result.error
     }
-    setMessages(prev => [...prev, assistantMsg])
+
+    setMessages(prev => {
+      const filtered = prev.filter(m => m.id !== '__streaming__')
+      return [...filtered, {
+        id: `m_${Date.now()}_a`,
+        role: 'assistant' as const,
+        content: error ? `错误：${error}` : (content ?? '（无回复）'),
+      }]
+    })
     setSending(false)
   }
 
@@ -181,7 +209,9 @@ export function ChatShellPage() {
           />
           {selectedDeployment && (
             <span className="text-xs text-[#8e8ea0] hidden sm:inline">
-              {selectedDeployment.library} · 模型在工作流内配置
+              {selectedDeployment.id === POLARCLAW_DIRECT_ID
+                ? 'Agent 直连 · ReAct 多轮 + 工具调用'
+                : `${selectedDeployment.library} · 模型在工作流内配置`}
             </span>
           )}
         </header>
