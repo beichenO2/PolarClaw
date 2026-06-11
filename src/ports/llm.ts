@@ -28,7 +28,7 @@ export interface ILLMResponse {
 /** 模型调用选项 */
 export interface ILLMOptions {
   model?: string;
-  /** 3-bit capability code (QCS): overrides model if set. E.g. '100' = quality, '001' = fast */
+  /** 4-bit QCSA capability code: overrides model if set. E.g. '0001' = agent, '0000' = balanced */
   capability?: string;
   temperature?: number;
   maxTokens?: number;
