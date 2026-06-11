@@ -4,9 +4,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 PID_FILE="$PROJECT_DIR/.polarclaw.pid"
-PORT=3910
+SERVICE_NAME="polarclaw-web"
+PROJECT="PolarClaw"
+PREFERRED_PORT=3910
 
 cd "$PROJECT_DIR"
+
+# ── Dynamic port allocation via PolarPort ────────────
+source "$PROJECT_DIR/../Agent_core/scripts/port-claim.sh"
+PORT=$(claim_port "$SERVICE_NAME" "$PROJECT" "$PREFERRED_PORT")
 
 # Load nvm to match the Node version used by `npm start`
 if [ -s "$HOME/.nvm/nvm.sh" ]; then
@@ -46,7 +52,7 @@ fi
 
 LOG_FILE="$PROJECT_DIR/.data/polarclaw.log"
 mkdir -p "$(dirname "$LOG_FILE")"
-nohup node dist/main.js > "$LOG_FILE" 2>&1 &
+PORT="$PORT" nohup node dist/main.js > "$LOG_FILE" 2>&1 &
 DAEMON_PID=$!
 echo "$DAEMON_PID" > "$PID_FILE"
 
