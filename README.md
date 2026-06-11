@@ -26,6 +26,20 @@ Agent 需频繁替换飞书 SDK / LLM 供应商 / 记忆后端。MVC 会把 Cont
 ### YOLO 自主执行为什么三维预算？
 仅限制步数：单步 token 爆炸仍可烧穿 API 账单。仅限制 token：工具 hang 住会无限挂钟。仅限制时间：高频小步可能未完成实质工作就超时。三维正交（token/step/time）覆盖成本、循环、挂钟三类失败模式。
 
+## 多入口统一架构
+
+同一个 `agent.ts` 核心循环，通过 Channel Adapter 模式接入 **5 种入口**，零代码重复：
+
+| 入口 | 适配器 | 场景 |
+|------|--------|------|
+| **CLI** | `adapters/channel/cli.ts` | 终端交互、脚本调用、CI/CD 集成 |
+| **Web UI** | `adapters/web/server.ts` + React SPA | 浏览器内对话、Review、YOLO 监控 |
+| **飞书** | `adapters/channel/feishu.ts` | 群聊 @bot、私聊指令、卡片交互 |
+| **Hub Web** | `adapters/web/hub-client.ts` | 多 Agent 调度中心，SSE 长连接注册 |
+| **IDE (MCP)** | Cursor/VSCode MCP 通道 | 编程辅助、代码审查、文件操作 |
+
+设计关键：入口层**只负责消息收发**，不含业务逻辑。ReAct 循环、工具调用、记忆管理、安全校验全部在 `core/agent.ts` 完成——换入口 = 换 Adapter，不动核心代码。
+
 ## 核心亮点
 
 ### Agent 编排器
@@ -68,9 +82,15 @@ Agent 需频繁替换飞书 SDK / LLM 供应商 / 记忆后端。MVC 会把 Cont
 
 ## 页面预览
 
-![Dashboard](screenshots/claw-01-dashboard.png)
-![YOLO 自主执行](screenshots/claw-02-yolo.png)
-![Review](screenshots/claw-03-review.png)
+### Web UI（独立 Agent 界面）
+
+![Dashboard — 对话 + 工具调用实时流](screenshots/claw-01-dashboard.png)
+![YOLO 自主执行 — 三维预算可视化](screenshots/claw-02-yolo.png)
+![Review — 文件审阅与批注](screenshots/claw-03-review.png)
+
+### Hub Web（多 Agent 调度中心）
+
+![Hub Web — Agent 注册、Prompt 下发、状态监控](screenshots/claw-04-hub-web.png)
 
 ## 架构
 
