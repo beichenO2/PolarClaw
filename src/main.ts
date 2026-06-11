@@ -45,17 +45,19 @@ async function main() {
   // 先加载 .env（确保 POLARPRIVATE_URL 等基础配置可用）
   loadEnvFileEarly();
 
-  // 动态发现 PolarPrivate 端口
+  // 动态发现 PolarPrivate 端口（via PolarPort SDK）
   if (!process.env.POLARPRIVATE_URL) {
     try {
       const { createRequire } = await import('node:module');
       const { resolve, dirname } = await import('node:path');
       const _req = createRequire(import.meta.url);
-      const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
-      const { getPort } = _req(sdkPath);
-      const ppPort = await getPort('polarprivate');
-      if (ppPort) process.env.POLARPRIVATE_URL = `http://127.0.0.1:${ppPort}`;
-    } catch { /* port-sdk not available, use env fallback */ }
+      const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'PolarPort', 'dist', 'sdk', 'index.js');
+      const { listPorts } = _req(sdkPath);
+      const ports = await listPorts();
+      const ppEntry = ports.find((p: { service_name: string; status: string }) =>
+        p.service_name === 'polarprivate' && p.status === 'active');
+      if (ppEntry?.port) process.env.POLARPRIVATE_URL = `http://127.0.0.1:${ppEntry.port}`;
+    } catch { /* PolarPort SDK not available, use env fallback */ }
   }
 
   // 从 PolarPrivate Vault 补充 .env 中缺失的 secrets
@@ -810,17 +812,17 @@ async function main() {
   // 以下代码只在非 hub-web 模式下执行
   let hubClient: HubClient | null = null;
 
-  // Web 服务器（Review API + SPA + YOLO API）— 端口通过 port-sdk 申请，fallback 到环境变量或 3910
+  // Web 服务器（Review API + SPA + YOLO API）— 端口通过 PolarPort SDK 申请
   let webPort = parseInt(process.env.PORT || '3910', 10);
   try {
     const { createRequire } = await import('node:module');
     const { resolve, dirname } = await import('node:path');
     const _req = createRequire(import.meta.url);
-    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'SOTAgent', 'sdk-port', 'index.js');
+    const sdkPath = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', 'PolarPort', 'dist', 'sdk', 'index.js');
     const { claimPort } = _req(sdkPath);
     webPort = await claimPort({ service: 'polarclaw-web', project: 'PolarClaw', preferred: webPort });
   } catch {
-    console.warn(`[PolarClaw] port-sdk 不可用，使用 fallback 端口 ${webPort}`);
+    console.warn(`[PolarClaw] PolarPort SDK 不可用，使用 fallback 端口 ${webPort}`);
   }
   // PolarClaw SDK — thin adapters calling PolarPilot contract endpoints
   const polarClawSDK = createPolarClawSDK({
