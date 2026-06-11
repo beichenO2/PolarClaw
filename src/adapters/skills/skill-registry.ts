@@ -37,6 +37,7 @@ export function createSkillRegistry(
   const eventHandlers = new Set<SkillEventHandler>();
   const watchers: FSWatcher[] = [];
   let watchDirs: string[] = [];
+  let eagerMode = true;
 
   function emit(event: SkillEvent): void {
     for (const handler of eventHandlers) {
@@ -102,6 +103,10 @@ export function createSkillRegistry(
             return;
           }
 
+          if (!eagerMode && !loadedSkills.has(name)) {
+            return;
+          }
+
           const meta = await loadSingleSkill(skillDir);
           if (meta) {
             emit({ type: 'reloaded', skill: meta });
@@ -140,6 +145,7 @@ export function createSkillRegistry(
     async init(scanDirs, options?: { loadTools?: boolean }) {
       watchDirs = scanDirs;
       const shouldLoad = options?.loadTools ?? true;
+      eagerMode = shouldLoad;
 
       if (!shouldLoad) {
         console.error(`[SkillRegistry] 初始化完成 (仅扫描模式): 工具按需通过 skill_activate 加载`);

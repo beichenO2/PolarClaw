@@ -409,7 +409,7 @@ async function main() {
 
         // 模板变量替换
         if (raw.includes('{{llm_model}}')) {
-          raw = raw.replace(/\{\{llm_model\}\}/g, 'capability-based (QCS)');
+          raw = raw.replace(/\{\{llm_model\}\}/g, 'capability-based (QCSA)');
         }
         if (raw.includes('{{capabilities}}')) {
           const caps = [
