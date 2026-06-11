@@ -72,12 +72,13 @@ class Semaphore {
 const RESILIENCE_RETRY_DELAYS = [1000, 3000]; // per-tier exponential backoff ms
 
 const CLOUD_CASCADE: Record<string, string[]> = {
-  '0000': ['0000', '0100', '0110', '0010'],    // GLM→DS Pro→M3→DS Flash
-  '0001': ['0001', '0011', '1001', '0010'],    // Agent Flash→Agent Flash alt→Agent Pro→Flash
-  '0010': ['0010', '0110', '0000'],             // DS Flash→M3→GLM
-  '0100': ['0100', '0110', '0000'],             // DS Pro→M3→GLM
-  '0110': ['0110', '0100', '0010', '0000'],    // M3→DS Pro→DS Flash→GLM
-  '1000': ['1000', '0100', '0110', '0010'],    // GLM旗舰→DS Pro→M3→DS Flash
+  '0000': ['0000', '0100', '0110', '0010', '1100'],    // GLM→DS Pro→M3→DS Flash→Qwen
+  '0001': ['0001', '0011', '1001', '0010', '1100'],    // Agent Flash→alt→Agent Pro→Flash→Qwen
+  '0010': ['0010', '0110', '0000', '1100'],             // DS Flash→M3→GLM→Qwen
+  '0100': ['0100', '0110', '0000', '1100'],             // DS Pro→M3→GLM→Qwen
+  '0110': ['0110', '0100', '0010', '0000', '1100'],    // M3→DS Pro→DS Flash→GLM→Qwen
+  '1000': ['1000', '0100', '0110', '0010', '1100'],    // GLM旗舰→DS Pro→M3→DS Flash→Qwen
+  '1100': ['1100', '0000', '0100', '0110', '0010'],    // Qwen→GLM→DS Pro→M3→DS Flash
 };
 
 export function createLLMRouter(config: ILLMConfig): ILLMRouter {
