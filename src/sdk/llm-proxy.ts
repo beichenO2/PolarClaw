@@ -5,62 +5,61 @@
  * 模型选择权完全归 LLM Proxy（PolarPrivate），调用方无权也无需知道
  * 背后使用的具体模型名、供应商或 Base URL。
  *
- * 3-bit capability code: QCS (Quality, Context, Speed)
- *   - Q (质量): 0 = 普通, 1 = 高质量
+ * 4-bit capability code: QCSA (Quality, Context, Speed, Agentic)
+ *   - Q (质量): 0 = 普通, 1 = 旗舰
  *   - C (上下文): 0 = 标准 (~200K), 1 = 长上下文 (~1M)
  *   - S (速度): 0 = 普通, 1 = 高速
+ *   - A (Agent): 0 = 对话, 1 = Agent/tool-use
+ *
+ * Vision: V + 4-bit QCSA (e.g. V0000, V1000)
+ * Local: L0000 (唯一本地码，embedding only)
  *
  * 调用方式:
  *   import { createLLMClient } from './llm-proxy.js';
  *   const llm = createLLMClient();
- *   const result = await llm.chat(messages, { capability: '100' });
+ *   const result = await llm.chat(messages, { capability: '0001' });
  */
 
 const LLM_PROXY_BASE = 'http://127.0.0.1:12790';
 const LLM_PROXY_V1 = `${LLM_PROXY_BASE}/v1`;
 
-export type CapabilityCode = string; // 3-char binary like '000', '101', '111'
+export type CapabilityCode = string; // 4-char binary like '0000', '0001', '1000'
 
 /**
- * Normalize a capability code to 3-char 0/1 string.
+ * Normalize a capability code to 4-char 0/1 string (QCSA).
+ * Accepts legacy 3-char codes by appending '0' (backward compat).
  */
 export function normalizeCode(code?: string): CapabilityCode {
-  return (code ?? '000').padEnd(3, '0').slice(0, 3).replace(/[^01]/g, '0');
+  const raw = (code ?? '0000').replace(/[^01]/g, '0');
+  if (raw.length === 3) return raw + '0';
+  return raw.padEnd(4, '0').slice(0, 4);
 }
 
-/** Cloud: send 3-bit QCS only. PolarPrivate maps to upstream — never vendor names here. */
+/** Cloud: send 4-bit QCSA. PolarPrivate maps to upstream — never vendor names here. */
 export function cloudCapabilityToModelId(code: CapabilityCode): string {
   return normalizeCode(code);
 }
 
-/** Local: only L000 (8B), L100 (32B), L101 (VLM). Maps QCS → allowed L-code. */
-export function localCapabilityToModelId(code: CapabilityCode): string {
-  const qcs = normalizeCode(code);
-  if (qcs === '101') return 'L101';
-  if (qcs === '100') return 'L100';
-  return 'L000';
+/** Local: only L0000 (embedding). Legacy L000/L100/L101 are deprecated. */
+export function localCapabilityToModelId(_code: CapabilityCode): string {
+  return 'L0000';
 }
 
 function resolveModelInternal(code: CapabilityCode, tier: 'cloud' | 'local'): string {
-  return tier === 'local' ? localCapabilityToModelId(code) : cloudCapabilityToModelId(code);
+  if (tier === 'local') return localCapabilityToModelId(code);
+  const upper = code.toUpperCase();
+  if (upper.startsWith('V')) return upper;
+  return cloudCapabilityToModelId(code);
 }
 
-/** Map intent → QCS (cloud) or direct local L-code via {@link localCapabilityToModelId}. */
-export function intentToCode(intent: string, tier: 'cloud' | 'local' = 'cloud'): CapabilityCode {
-  if (tier === 'local') {
-    switch (intent) {
-      case 'vision': return '101';
-      case 'coding':
-      case 'research': return '100';
-      default: return '000';
-    }
-  }
+/** Map intent → 4-bit QCSA cloud code. Local tier always uses L0000. */
+export function intentToCode(intent: string, _tier: 'cloud' | 'local' = 'cloud'): CapabilityCode {
   switch (intent) {
-    case 'coding': return '100';
-    case 'research': return '010';
-    case 'vision': return '101';
+    case 'coding': return '0001';   // Agent/tool-use (DS V4 Flash)
+    case 'research': return '0100'; // 长上下文 (DS V4 Pro 1M)
+    case 'vision': return 'V0000';  // 默认视觉 (qwen3.7-plus)
     case 'general':
-    default: return '001';
+    default: return '0000';         // 均衡对话 (GLM-5.1)
   }
 }
 
