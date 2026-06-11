@@ -101,8 +101,15 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string };
         });
 
+        let finalCapability = normalizeCode(capability);
+        if (options.tools?.length && !finalCapability.startsWith('V')) {
+          const bits = finalCapability.split('');
+          bits[3] = '1';
+          finalCapability = bits.join('');
+        }
+
         const chatOptions = {
-          capability: normalizeCode(capability),
+          capability: finalCapability,
           temperature: options.temperature ?? defaultTemp,
           maxTokens: options.maxTokens ?? defaultMaxTokens,
           tools: options.tools,
