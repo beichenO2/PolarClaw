@@ -69,7 +69,16 @@ class Semaphore {
   }
 }
 
-const RESILIENCE_RETRY_DELAYS = [1000, 3000, 8000]; // exponential backoff ms
+const RESILIENCE_RETRY_DELAYS = [1000, 3000]; // per-tier exponential backoff ms
+
+const CLOUD_CASCADE: Record<string, string[]> = {
+  '0000': ['0000', '0100', '0110', '0010'],    // GLM→DS Pro→M3→DS Flash
+  '0001': ['0001', '0011', '1001', '0010'],    // Agent Flash→Agent Flash alt→Agent Pro→Flash
+  '0010': ['0010', '0110', '0000'],             // DS Flash→M3→GLM
+  '0100': ['0100', '0110', '0000'],             // DS Pro→M3→GLM
+  '0110': ['0110', '0100', '0010', '0000'],    // M3→DS Pro→DS Flash→GLM
+  '1000': ['1000', '0100', '0110', '0010'],    // GLM旗舰→DS Pro→M3→DS Flash
+};
 
 export function createLLMRouter(config: ILLMConfig): ILLMRouter {
   const defaultTemp = config.defaultTemperature ?? 0.7;
@@ -126,59 +135,47 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
           timeoutMs: requestTimeoutMs,
         };
 
-        // === ResilienceChain: Tier 1 → retry → Tier 3 (Ollama) ===
+        // === Cloud Cascade: try multiple QCSA codes, each with retries ===
         let lastError: Error | null = null;
+        const cascade = CLOUD_CASCADE[finalCapability] ?? [finalCapability];
+        const triedCodes: string[] = [];
 
-        // Tier 1: PolarPrivate LLM Proxy (with exponential backoff retries)
-        for (let attempt = 0; attempt <= RESILIENCE_RETRY_DELAYS.length; attempt++) {
-          try {
-            const result = await client.chat(formattedMessages, chatOptions);
-            const toolCalls: IToolCall[] = result.toolCalls.map(tc => ({
-              id: tc.id,
-              function: { name: tc.function.name, arguments: tc.function.arguments },
-            }));
-            return {
-              content: result.content,
-              toolCalls,
-              usage: result.usage,
-              model: result.model,
-              latencyMs: result.latencyMs,
-            };
-          } catch (err) {
-            lastError = err instanceof Error ? err : new Error(String(err));
-            const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|50[03]|429|reset/i.test(lastError.message);
-            if (!isRetriable || attempt >= RESILIENCE_RETRY_DELAYS.length) break;
-            const delay = RESILIENCE_RETRY_DELAYS[attempt]!;
-            console.warn(`[LLMRouter] Tier 1 attempt ${attempt + 1} failed (${lastError.message}), retrying in ${delay}ms...`);
-            await new Promise(r => setTimeout(r, delay));
+        for (const code of cascade) {
+          triedCodes.push(code);
+          const tierOptions = { ...chatOptions, capability: code };
+
+          for (let attempt = 0; attempt <= RESILIENCE_RETRY_DELAYS.length; attempt++) {
+            try {
+              const result = await client.chat(formattedMessages, tierOptions);
+              const toolCalls: IToolCall[] = result.toolCalls.map(tc => ({
+                id: tc.id,
+                function: { name: tc.function.name, arguments: tc.function.arguments },
+              }));
+              if (code !== finalCapability) {
+                console.info(`[LLMRouter] Cascade fallback ${code} (${result.model}) succeeded after ${finalCapability} failed`);
+              }
+              return {
+                content: result.content,
+                toolCalls,
+                usage: result.usage,
+                model: result.model,
+                latencyMs: result.latencyMs,
+              };
+            } catch (err) {
+              lastError = err instanceof Error ? err : new Error(String(err));
+              const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|50[03]|429|reset/i.test(lastError.message);
+              if (!isRetriable || attempt >= RESILIENCE_RETRY_DELAYS.length) break;
+              const delay = RESILIENCE_RETRY_DELAYS[attempt]!;
+              console.warn(`[LLMRouter] Code ${code} attempt ${attempt + 1} failed, retrying in ${delay}ms...`);
+              await new Promise(r => setTimeout(r, delay));
+            }
           }
-        }
-
-        // Tier 3: Local via PolarPrivate L-codes (Ollama behind proxy; L0001 = chat)
-        console.warn(`[LLMRouter] Tier 1 exhausted: ${lastError?.message}. Trying local L-tier (L0001)...`);
-        try {
-          const fallbackResult = await client.chat(formattedMessages, {
-            ...chatOptions,
-            capability: '0001',
-            tier: 'local',
-            tools: undefined,
-            toolChoice: undefined,
-            timeoutMs: 120_000,
-          });
-          console.info(`[LLMRouter] Tier 3 local (${fallbackResult.model}) succeeded (${fallbackResult.latencyMs}ms)`);
-          return {
-            content: fallbackResult.content,
-            toolCalls: [],
-            model: fallbackResult.model,
-            latencyMs: fallbackResult.latencyMs,
-          };
-        } catch (localErr) {
-          console.error(`[LLMRouter] Tier 3 local failed:`, localErr);
+          console.warn(`[LLMRouter] Code ${code} exhausted: ${lastError?.message}. Trying next...`);
         }
 
         throw new Error(
-          `[LLMRouter] All tiers exhausted. Last error: ${lastError?.message ?? 'unknown'}. ` +
-          `Tried: cloud capability → local L-tier via PolarPrivate.`,
+          `[LLMRouter] All cloud tiers exhausted. Last error: ${lastError?.message ?? 'unknown'}. ` +
+          `Tried codes: ${triedCodes.join(' → ')}`,
         );
       } finally {
         semaphore.release();
