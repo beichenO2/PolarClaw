@@ -5,6 +5,7 @@ import { MessageList } from '../components/chat/MessageList'
 import { ChatComposer } from '../components/chat/ChatComposer'
 import { WorkflowPicker } from '../components/chat/WorkflowPicker'
 import {
+  type AgentStreamEvent,
   type ChatAnnotation,
   type ChatDeployment,
   type ChatMessage,
@@ -113,16 +114,28 @@ export function ChatShellPage() {
     let error: string | undefined
 
     if (isDirectAgent(workflowId)) {
+      const steps: string[] = []
       const result = await sendAgentChat({
         conversation_id: conversationId,
         message: userMsg.content,
-        onProgress: (text) => {
+        onEvent: (evt: AgentStreamEvent) => {
+          if (evt.type === 'thinking') {
+            steps.push(`⏳ 思考中… (round ${(evt.round ?? 0) + 1}${evt.model ? `, ${evt.model}` : ''})`)
+          } else if (evt.type === 'tool_call') {
+            const argStr = evt.args ? Object.entries(evt.args).map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 40) : JSON.stringify(v).slice(0, 40)}`).join(', ') : ''
+            steps.push(`🔧 \`${evt.tool}\`(${argStr})`)
+          } else if (evt.type === 'tool_result') {
+            const icon = evt.success !== false ? '✅' : '❌'
+            const dur = evt.duration_ms ? ` ${evt.duration_ms}ms` : ''
+            steps.push(`${icon} → ${(evt.result ?? '').slice(0, 120)}${dur}`)
+          }
           setMessages(prev => {
+            const streamContent = steps.join('\n')
             const last = prev[prev.length - 1]
             if (last?.id === '__streaming__') {
-              return [...prev.slice(0, -1), { ...last, content: text }]
+              return [...prev.slice(0, -1), { ...last, content: streamContent }]
             }
-            return [...prev, { id: '__streaming__', role: 'assistant', content: text }]
+            return [...prev, { id: '__streaming__', role: 'assistant', content: streamContent }]
           })
         },
       })

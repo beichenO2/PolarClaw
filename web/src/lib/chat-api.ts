@@ -84,10 +84,23 @@ export function isDirectAgent(workflowId: string): boolean {
   return workflowId === POLARCLAW_DIRECT_ID
 }
 
+export interface AgentStreamEvent {
+  type: 'thinking' | 'tool_call' | 'tool_result' | 'done' | 'error'
+  round?: number
+  model?: string
+  tool?: string
+  args?: Record<string, unknown>
+  result?: string
+  success?: boolean
+  duration_ms?: number
+  content?: string
+  message?: string
+}
+
 export async function sendAgentChat(opts: {
   conversation_id: string
   message: string
-  onProgress?: (text: string) => void
+  onEvent?: (event: AgentStreamEvent) => void
 }): Promise<{ content: string | null; error?: string }> {
   try {
     const res = await fetch('/api/agent/chat/stream', {
@@ -119,29 +132,14 @@ export async function sendAgentChat(opts: {
       buffer = lines.pop() ?? ''
 
       for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          const eventType = line.slice(7).trim()
-          if (eventType === 'done' || eventType === 'error') {
-            // next data line has the payload
-          }
-        }
         if (line.startsWith('data: ')) {
           try {
-            const payload = JSON.parse(line.slice(6)) as {
-              type: string
-              content?: string
-              message?: string
-              text?: string
-              round?: number
-            }
+            const payload = JSON.parse(line.slice(6)) as AgentStreamEvent
+            opts.onEvent?.(payload)
             if (payload.type === 'done') {
               finalContent = payload.content ?? null
             } else if (payload.type === 'error') {
               return { content: null, error: payload.message ?? 'Agent error' }
-            } else if (payload.type === 'thinking') {
-              opts.onProgress?.(`思考中 (round ${(payload.round ?? 0) + 1})…`)
-            } else if (payload.type === 'tool_start' || payload.type === 'tool_result') {
-              opts.onProgress?.(payload.text ?? `${payload.type}…`)
             }
           } catch { /* skip malformed SSE */ }
         }
