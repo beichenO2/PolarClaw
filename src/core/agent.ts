@@ -305,6 +305,10 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     let lastModel = '';
     const accumulatedTexts: string[] = [];
 
+    // Track repeated futile tool calls to prevent search loops
+    const futileCallCounts = new Map<string, number>();
+    const FUTILE_CALL_LIMIT = 2;
+
     // 上下文压缩的 token 预算（留 20% 余量给 system prompt + 输出）
     const compressionBudget = (config.maxTokens ?? 4096) * 12;
 
@@ -506,6 +510,26 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
           content: payload,
           toolCallId,
         });
+
+        // Track futile tool calls: empty results or errors
+        const toolName = response.toolCalls[i]!.function.name;
+        const isEmpty = payload === '{"results":[],"total":0}'
+          || payload === '{"skills":[],"total":0,"draft":0,"verified":0}'
+          || payload.startsWith('{"ok":false,"error":');
+        if (isEmpty) {
+          futileCallCounts.set(toolName, (futileCallCounts.get(toolName) ?? 0) + 1);
+        }
+      }
+
+      // Inject a guard when repeated futile calls detected
+      const overLimitTools = [...futileCallCounts.entries()]
+        .filter(([, count]) => count >= FUTILE_CALL_LIMIT)
+        .map(([name]) => name);
+      if (overLimitTools.length > 0) {
+        const guard = `[SYSTEM] The following tools returned empty/error results ${FUTILE_CALL_LIMIT}+ times: ${overLimitTools.join(', ')}. ` +
+          `Stop calling them with similar queries. Instead, answer based on your existing knowledge or tell the user what tools are actually available.`;
+        conversations.append(convId, { role: 'system', content: guard });
+        console.warn(`[Agent] Futile call guard triggered for: ${overLimitTools.join(', ')}`);
       }
     }
 

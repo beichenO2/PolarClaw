@@ -82,7 +82,7 @@ export function loadConfig(): IPolarClawConfig {
     llm: {
       temperature: Number(pcEnv('TEMPERATURE', '0.7')),
       maxTokens: Number(pcEnv('MAX_TOKENS', '4096')),
-      maxToolRounds: Number(pcEnv('MAX_TOOL_ROUNDS', '0')),
+      maxToolRounds: Number(pcEnv('MAX_TOOL_ROUNDS', '15')),
       requestTimeoutMs: Number(pcEnv('LLM_TIMEOUT_MS', '300000')),
       concurrencyLimit: Number(pcEnv('LLM_CONCURRENCY', '5')),
     },
