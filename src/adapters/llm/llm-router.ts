@@ -146,7 +146,7 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
             };
           } catch (err) {
             lastError = err instanceof Error ? err : new Error(String(err));
-            const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|503|429|reset/i.test(lastError.message);
+            const isRetriable = /timeout|ECONNREFUSED|ENOTFOUND|50[03]|429|reset/i.test(lastError.message);
             if (!isRetriable || attempt >= RESILIENCE_RETRY_DELAYS.length) break;
             const delay = RESILIENCE_RETRY_DELAYS[attempt]!;
             console.warn(`[LLMRouter] Tier 1 attempt ${attempt + 1} failed (${lastError.message}), retrying in ${delay}ms...`);

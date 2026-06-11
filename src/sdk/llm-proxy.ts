@@ -136,6 +136,10 @@ export function createLLMClient(): LLMProxyClient {
 
         if (!res.ok) {
           const errText = await res.text().catch(() => '');
+          const msgSummary = (messages as Array<{role: string; content?: string; tool_calls?: unknown[]}>)
+            .map((m, i) => `  [${i}] role=${m.role} content=${(m.content ?? '').slice(0, 60)} tool_calls=${m.tool_calls ? JSON.stringify(m.tool_calls).slice(0, 120) : 'none'}`)
+            .join('\n');
+          console.error(`[LLMProxy] ${res.status} error. model=${model} tier=${tier} msgCount=${(messages as unknown[]).length}\n${msgSummary}`);
           throw new Error(`LLM Proxy error ${res.status}: ${errText.slice(0, 500)}`);
         }
 
