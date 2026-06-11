@@ -58,12 +58,16 @@ export function MessageList({ messages, pending, onAnnotate }: Props) {
             onMouseUp={m.role === 'assistant' ? () => handleMouseUp(m.id) : undefined}
           >
             {m.role === 'assistant' ? (
-              <div
-                className="markdown-body prose-invert"
-                dangerouslySetInnerHTML={{
-                  __html: DOMPurify.sanitize(marked.parse(m.content, { async: false }) as string),
-                }}
-              />
+              m.id === '__streaming__' ? (
+                <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-[#8e8ea0] m-0 bg-transparent border-none p-0">{m.content}</pre>
+              ) : (
+                <div
+                  className="markdown-body prose-invert"
+                  dangerouslySetInnerHTML={{
+                    __html: DOMPurify.sanitize(marked.parse(m.content, { async: false }) as string),
+                  }}
+                />
+              )
             ) : (
               <p className="whitespace-pre-wrap">{m.content}</p>
             )}
@@ -83,7 +87,7 @@ export function MessageList({ messages, pending, onAnnotate }: Props) {
           </div>
         </div>
       ))}
-      {pending && (
+      {pending && !messages.some(m => m.id === '__streaming__') && (
         <div className="max-w-3xl mx-auto text-[#8e8ea0] text-sm animate-pulse">思考中…</div>
       )}
       <div ref={bottomRef} />
