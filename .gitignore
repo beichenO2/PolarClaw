@@ -20,6 +20,7 @@ tokens*
 config.local.*
 
 # Databases & Data
+.data/
 *.sqlite
 *.db
 data/
