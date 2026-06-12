@@ -193,14 +193,15 @@ export function buildContractInjection(contract: TaskContract): string {
     }
   }
 
-  // 步骤进度
-  parts.push('## 步骤进度');
-  for (const step of contract.steps) {
-    const marker = step.status === 'done' ? 'DONE'
-      : step.status === 'in_progress' ? 'CURRENT'
-      : step.status === 'failed' ? 'FAILED'
-      : 'TODO';
-    parts.push(`- [${marker}] ${step.index + 1}. ${step.description}${step.output ? ` → ${step.output}` : ''}`);
+  // 执行计划（参考清单，非状态机）。
+  // 注意：这里刻意不标 DONE/CURRENT —— 早期版本用文本启发式逐步标"已完成"，
+  // 会误导模型以为任务做完而提前空转。现由 ReAct 循环自行推进，计划仅作参考。
+  if (contract.steps.length > 0) {
+    parts.push('## 执行计划（参考，按需推进）');
+    for (const step of contract.steps) {
+      parts.push(`- ${step.index + 1}. ${step.description}`);
+    }
+    parts.push('要求：需要数据/检索/外部能力时，**实际调用相应工具**完成，不要假装已完成或跳过；所有步骤真正做完后，再输出最终的完整结果（不要只输出空话或计划）。');
   }
 
   // 预期产出
