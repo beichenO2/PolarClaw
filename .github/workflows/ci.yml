@@ -23,5 +23,8 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Unit tests (incl. conv isolation mock)
-        run: npm test
+      - name: Multi-conversation isolation tests
+        run: npx vitest run src/__tests__/conv-isolation.test.ts
+
+      - name: Typecheck
+        run: npm run typecheck
