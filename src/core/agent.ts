@@ -15,7 +15,7 @@ import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import type { IPrivacyGateway } from '../ports/privacy.js';
 import type { IMemoryStore, IConversationHistory, IChatMessage } from '../ports/memory.js';
-import type { ILLMRouter, ILLMResponse } from '../ports/llm.js';
+import type { ILLMRouter, ILLMResponse, ILLMStreamDelta } from '../ports/llm.js';
 import type { IToolExecutor } from '../ports/tools.js';
 import type { IContextCompressor } from '../ports/compression.js';
 import type { SessionMemoryManager } from '../memory/SessionMemory.js';
@@ -25,8 +25,6 @@ import {
   extractContractFromMessage,
   createContract,
   buildContractInjection,
-  buildCheckpointMessage,
-  advanceStep,
   isSimpleContract,
   serializeContract,
   deserializeContract,
@@ -35,11 +33,28 @@ import { loadEcoConstraints } from './eco-constraints.js';
 
 export type AgentProgressEvent =
   | { type: 'thinking'; round: number; model?: string; message_count?: number }
+  | { type: 'reasoning'; round: number; delta: string }
+  | { type: 'content'; round: number; delta: string }
   | { type: 'tool_call'; tool: string; args: Record<string, unknown>; call_id?: string; timestamp?: string }
   | { type: 'tool_result'; tool: string; result: string; call_id?: string; success?: boolean; duration_ms?: number }
   | { type: 'chunk'; content: string }
   | { type: 'contract'; contract: TaskContract }
   | { type: 'done'; content: string; model?: string };
+
+/**
+ * 单轮对话级运行时选项（来自 Chat 面板，覆盖默认配置）。
+ * 全部可选，未提供时回落到 IAgentConfig / 路由器自动选型，保持向后兼容。
+ */
+export interface IAgentRuntimeOptions {
+  /** 工具调用轮使用的 QCSA 能力码（工具调用模型） */
+  toolCapability?: string;
+  /** 首轮思考使用的 QCSA 能力码（思考模型）；未设置则与工具模型一致 */
+  thinkingCapability?: string;
+  /** 本轮覆盖的最大工具调用轮数（最大循环次数）；<=0 视为无限 */
+  maxRounds?: number;
+  /** RetryLoop 模式：开启后对限流/瞬时错误做有界退避重试 */
+  retryLoop?: boolean;
+}
 
 export interface IPersonaResult {
   content: string;
@@ -128,6 +143,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     conversationId?: string,
     projectId?: string,
     onProgress?: (event: AgentProgressEvent) => void,
+    runtime?: IAgentRuntimeOptions,
   ): Promise<IAgentResponse> {
     const convId = conversationId ?? `${channel}:${userId}`;
     const holder = projectId ? `agent/solo-${userId}` : '';
@@ -218,7 +234,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         }
       }
 
-      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, contract, onProgress);
+      const result = await runLoop(convId, userId, isOngoing, sessionMemoryPrefix, contract, onProgress, runtime);
 
       const rawText = result.text.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
       const responseText = privacy.desanitize(userId, rawText || result.text);
@@ -228,7 +244,7 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
         if (sessionMemory) {
           const currentHistory = conversations.getHistory(convId);
           sessionMemory.updateWorkingMemory(convId, currentHistory);
-          sessionMemory.compressForNextTurn(convId).catch((err) => {
+          sessionMemory.compressForNextTurn(convId, userId).catch((err) => {
             console.error(`[Agent] session memory compression failed:`, err);
           });
         }
@@ -300,10 +316,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     sessionMemoryPrefix = '',
     contract?: TaskContract,
     onProgress?: (event: AgentProgressEvent) => void,
+    runtime?: IAgentRuntimeOptions,
   ): Promise<{ text: string; usage?: ILLMResponse['usage']; model?: string }> {
     let totalUsage: NonNullable<ILLMResponse['usage']> | undefined;
     let lastModel = '';
-    const accumulatedTexts: string[] = [];
+    let emptyNudges = 0;
 
     // Track repeated futile tool calls to prevent search loops
     const futileCallCounts = new Map<string, number>();
@@ -317,9 +334,11 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
     const catalog = filterSkillCatalog(config.skillCatalog, personaResult?.allowedSkills);
     const basePrompt = [config.systemPrompt, catalog, personaText].filter(Boolean).join('\n\n');
 
-    const maxRounds = config.maxToolRounds > 0
-      ? config.maxToolRounds
-      : config.maxToolRounds === 0 ? Infinity : 10;
+    // 最大循环次数：面板覆盖 > 配置；>0 用其值，==0 视为无限，<0 回落 10。
+    const effectiveMaxRounds = runtime?.maxRounds != null ? runtime.maxRounds : config.maxToolRounds;
+    const maxRounds = effectiveMaxRounds > 0
+      ? effectiveMaxRounds
+      : effectiveMaxRounds === 0 ? Infinity : 10;
     for (let round = 0; round < maxRounds; round++) {
       const history = conversations.getHistory(convId);
       let contextMessages = history;
@@ -376,30 +395,53 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       onProgress?.({ type: 'thinking', round, model: lastModel || undefined, message_count: messages.length });
       console.error(`[Agent] runLoop round ${round}: calling LLM (msgCount=${messages.length})`);
       const llmStartMs = Date.now();
-      let response: Awaited<ReturnType<typeof llm.chat>>;
-      try {
-        response = await llm.chat(messages, {
-          tools: tools.list(),
-          toolChoice: 'auto',
-          temperature: config.temperature,
-          maxTokens: config.maxTokens,
-          append_system_prompt: toolCallReminder,
-        });
-      } catch (llmErr) {
-        const errMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
-        if (errMsg.includes('fetch failed') || errMsg.includes('ECONNREFUSED') || errMsg.includes('ECONNRESET')) {
-          console.error(`[Agent] runLoop round ${round}: LLM transient error, retrying in 5s: ${errMsg}`);
-          await new Promise(r => setTimeout(r, 5000));
-          response = await llm.chat(messages, {
-            tools: tools.list(),
-            toolChoice: 'auto',
-            temperature: config.temperature,
-            maxTokens: config.maxTokens,
-            append_system_prompt: toolCallReminder,
-          });
-        } else {
-          throw llmErr;
+
+      // 模型选择（面板）：首轮用思考模型，工具执行轮用工具模型；未设置则交给路由器自动选型。
+      const roundCapability = (round === 0 && runtime?.thinkingCapability)
+        ? runtime.thinkingCapability
+        : runtime?.toolCapability;
+      const chatOpts = {
+        tools: tools.list(),
+        toolChoice: 'auto' as const,
+        temperature: config.temperature,
+        maxTokens: config.maxTokens,
+        append_system_prompt: toolCallReminder,
+        capability: roundCapability,
+      };
+
+      const canStream = !!onProgress && typeof llm.chatStream === 'function';
+      const onDelta = (delta: ILLMStreamDelta) => {
+        if (delta.reasoning) onProgress!({ type: 'reasoning', round, delta: delta.reasoning });
+        if (delta.content) onProgress!({ type: 'content', round, delta: delta.content });
+      };
+
+      // RetryLoop 模式：开启后对限流/瞬时错误做更宽的有界退避重试；
+      // 关闭时保持旧行为（仅连接类错误重试一次）。
+      const backoffs = runtime?.retryLoop ? [2000, 5000, 10000] : [5000];
+      const retriableRe = runtime?.retryLoop
+        ? /fetch failed|ECONNREFUSED|ECONNRESET|timeout|429|50[023]|exhausted|reset/i
+        : /fetch failed|ECONNREFUSED|ECONNRESET/;
+
+      let response!: Awaited<ReturnType<typeof llm.chat>>;
+      {
+        let lastErr: unknown;
+        let ok = false;
+        for (let attempt = 0; attempt <= backoffs.length; attempt++) {
+          try {
+            response = canStream
+              ? await llm.chatStream!(messages, chatOpts, onDelta)
+              : await llm.chat(messages, chatOpts);
+            ok = true;
+            break;
+          } catch (llmErr) {
+            lastErr = llmErr;
+            const errMsg = llmErr instanceof Error ? llmErr.message : String(llmErr);
+            if (attempt >= backoffs.length || !retriableRe.test(errMsg)) throw llmErr;
+            console.error(`[Agent] runLoop round ${round}: LLM error, retry ${attempt + 1}/${backoffs.length} in ${backoffs[attempt]}ms: ${errMsg}`);
+            await new Promise(r => setTimeout(r, backoffs[attempt]!));
+          }
         }
+        if (!ok) throw lastErr ?? new Error('LLM call failed');
       }
       console.error(`[Agent] runLoop round ${round}: LLM responded in ${Date.now()-llmStartMs}ms, toolCalls=${response.toolCalls.length}, contentLen=${response.content?.length ?? 0}, model=${response.model}`);
 
@@ -422,28 +464,36 @@ export function createAgent(config: IAgentConfig, deps: IAgentDeps) {
       });
 
       if (response.toolCalls.length === 0) {
-        const rawContent = response.content?.trim() || '（暂无文本回复）';
-        const text = rawContent.replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim() || rawContent;
+        const cleaned = (response.content ?? '').replace(/<think>[\s\S]*?<\/think>\s*/g, '').trim();
 
-        // TaskContract: advance step and inject checkpoint if more steps remain
-        if (contract && !isSimpleContract(contract) && !contract.completed) {
-          accumulatedTexts.push(text);
-          const hasMore = advanceStep(contract, text.slice(0, 200));
+        // 空收尾守卫：模型既没调用工具、又没产出内容（常见于某次工具调用失败后
+        // 直接放弃）。不要把"（暂无文本回复）"当最终结果——注入一次恢复提示，
+        // 逼它用已有信息把活干完，再继续一轮。最多兜底一次，避免死循环。
+        if (!cleaned && emptyNudges < 1) {
+          emptyNudges++;
+          conversations.append(convId, {
+            role: 'system',
+            content: '[SYSTEM] 你上一轮没有产出任何内容。请立刻基于已获取的信息直接给出最终结果/报告；'
+              + '若某个工具不可用或调用失败，就改用其它可用工具或你已掌握的信息尽力完成，'
+              + '不要返回空白，也不要只复述计划。',
+          });
+          console.error('[Agent] empty final response — injected recovery nudge, retrying');
+          continue;
+        }
+
+        const text = cleaned || '（暂无文本回复）';
+
+        // 模型不再调用工具并给出文本答复 → 视为最终结果。
+        // 不再基于"本轮无工具调用"这一文本启发式去逐步推进 contract、注入
+        // "[DONE] 某步骤" 检查点——那会误导模型以为任务已完成而提前空转
+        // （实测：激活 digist/ecosystem 技能后没真正调用其工具、最终空回复）。
+        // ReAct 循环让模型自行决定何时调用工具、何时收尾；contract 只保留
+        // 约束 + 计划注入做持续引导（见 buildContractInjection）。
+        if (contract && !contract.completed) {
+          contract.completed = true;
           if (sessionMemory) {
             sessionMemory.saveContract(convId, serializeContract(contract));
           }
-          if (hasMore) {
-            const checkpoint = buildCheckpointMessage(contract);
-            if (checkpoint) {
-              conversations.append(convId, { role: 'system', content: checkpoint });
-              console.error(`[Agent] TaskContract: step ${contract.currentStepIndex} started, checkpoint injected`);
-              continue;
-            }
-          }
-          // All steps done — return accumulated content (last step output is primary)
-          const finalText = accumulatedTexts[accumulatedTexts.length - 1]!;
-          onProgress?.({ type: 'done', content: finalText, model: lastModel });
-          return { text: finalText, usage: totalUsage, model: lastModel };
         }
 
         onProgress?.({ type: 'done', content: text, model: lastModel });

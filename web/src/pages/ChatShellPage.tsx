@@ -4,8 +4,10 @@ import clsx from 'clsx'
 import { MessageList } from '../components/chat/MessageList'
 import { ChatComposer } from '../components/chat/ChatComposer'
 import { WorkflowPicker } from '../components/chat/WorkflowPicker'
+import { ChatSettingsPanel } from '../components/chat/ChatSettingsPanel'
 import {
   type AgentStreamEvent,
+  type ChatAgentSettings,
   type ChatAnnotation,
   type ChatDeployment,
   type ChatMessage,
@@ -21,6 +23,22 @@ import {
   sendAgentChat,
   sendWorkflowChat,
 } from '../lib/chat-api'
+
+const SETTINGS_STORAGE_KEY = 'polarui_chat_agent_settings'
+const DEFAULT_SETTINGS: ChatAgentSettings = {
+  thinkingCapability: '',
+  toolCapability: '',
+  retryLoop: true,
+  maxRounds: 15,
+}
+
+function loadSettings(): ChatAgentSettings {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? '{}') }
+  } catch {
+    return { ...DEFAULT_SETTINGS }
+  }
+}
 
 function buildUserPayload(text: string, annotations: ChatAnnotation[]): string {
   if (annotations.length === 0) return text
@@ -44,6 +62,11 @@ export function ChatShellPage() {
   const [pendingAnnotations, setPendingAnnotations] = useState<ChatAnnotation[]>([])
   const [sending, setSending] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [settings, setSettings] = useState<ChatAgentSettings>(() => loadSettings())
+
+  useEffect(() => {
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings))
+  }, [settings])
 
   useEffect(() => {
     fetchDeployments().then(list => {
@@ -112,15 +135,29 @@ export function ChatShellPage() {
 
     let content: string | null = null
     let error: string | undefined
+    let reasoning = ''
 
     if (isDirectAgent(workflowId)) {
       const steps: string[] = []
+      let answer = ''
+      const renderStreaming = () => {
+        const body = [steps.join('\n'), answer].filter(Boolean).join(steps.length && answer ? '\n\n' : '')
+        setMessages(prev => {
+          const streamMsg: ChatMessage = { id: '__streaming__', role: 'assistant', content: body, reasoning }
+          const last = prev[prev.length - 1]
+          if (last?.id === '__streaming__') return [...prev.slice(0, -1), streamMsg]
+          return [...prev, streamMsg]
+        })
+      }
       const result = await sendAgentChat({
         conversation_id: conversationId,
         message: userMsg.content,
+        settings,
         onEvent: (evt: AgentStreamEvent) => {
-          if (evt.type === 'thinking') {
-            steps.push(`⏳ 思考中… (round ${(evt.round ?? 0) + 1}${evt.model ? `, ${evt.model}` : ''})`)
+          if (evt.type === 'reasoning') {
+            if (evt.delta) reasoning += evt.delta
+          } else if (evt.type === 'content') {
+            if (evt.delta) answer += evt.delta
           } else if (evt.type === 'tool_call') {
             const argStr = evt.args ? Object.entries(evt.args).map(([k, v]) => `${k}=${typeof v === 'string' ? v.slice(0, 40) : JSON.stringify(v).slice(0, 40)}`).join(', ') : ''
             steps.push(`🔧 \`${evt.tool}\`(${argStr})`)
@@ -128,15 +165,11 @@ export function ChatShellPage() {
             const icon = evt.success !== false ? '✅' : '❌'
             const dur = evt.duration_ms ? ` ${evt.duration_ms}ms` : ''
             steps.push(`${icon} → ${(evt.result ?? '').slice(0, 120)}${dur}`)
+          } else {
+            // 'thinking'/'done' etc：保持 pending 指示，不创建空气泡
+            return
           }
-          setMessages(prev => {
-            const streamContent = steps.join('\n')
-            const last = prev[prev.length - 1]
-            if (last?.id === '__streaming__') {
-              return [...prev.slice(0, -1), { ...last, content: streamContent }]
-            }
-            return [...prev, { id: '__streaming__', role: 'assistant', content: streamContent }]
-          })
+          renderStreaming()
         },
       })
       content = result.content
@@ -157,6 +190,7 @@ export function ChatShellPage() {
         id: `m_${Date.now()}_a`,
         role: 'assistant' as const,
         content: error ? `错误：${error}` : (content ?? '（无回复）'),
+        reasoning: reasoning.trim() ? reasoning : undefined,
       }]
     })
     setSending(false)
@@ -227,6 +261,11 @@ export function ChatShellPage() {
                 : `${selectedDeployment.library} · 模型在工作流内配置`}
             </span>
           )}
+          <div className="ml-auto">
+            {isDirectAgent(workflowId) && (
+              <ChatSettingsPanel value={settings} onChange={setSettings} />
+            )}
+          </div>
         </header>
 
         <MessageList

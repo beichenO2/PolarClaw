@@ -546,6 +546,7 @@ async function main() {
   async function handleChannelMessageStream(
     msg: { channel: string; userId: string; text: string },
     onProgress: (event: AgentProgressEvent) => void,
+    runtime?: import('./core/agent.js').IAgentRuntimeOptions,
   ) {
     const convId = `${msg.channel}:${msg.userId}`;
     console.error(`[handleChannelMessageStream] start convId=${convId}`);
@@ -553,7 +554,7 @@ async function main() {
       tools.setContext(msg.userId, convId);
       console.error(`[handleChannelMessageStream] calling agent.handleMessage`);
       const result = await agent.handleMessage(
-        msg.channel, msg.userId, msg.text, convId, undefined, onProgress,
+        msg.channel, msg.userId, msg.text, convId, undefined, onProgress, runtime,
       );
       console.error(`[handleChannelMessageStream] agent returned, textLen=${result.text.length}`);
       lastAssistantReply.set(convId, result.text);

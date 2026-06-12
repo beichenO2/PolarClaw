@@ -20,7 +20,7 @@ import {
   type LockInfo,
 } from '../../sdk/project-lock.js';
 
-import type { AgentProgressEvent } from '../../core/agent.js';
+import type { AgentProgressEvent, IAgentRuntimeOptions } from '../../core/agent.js';
 
 export interface WebServerConfig {
   port: number;
@@ -38,6 +38,7 @@ export interface WebServerConfig {
   agentHandlerStream?: (
     msg: { channel: string; userId: string; text: string },
     onProgress: (event: AgentProgressEvent) => void,
+    runtime?: IAgentRuntimeOptions,
   ) => Promise<string>;
   yoloEngine?: {
     run(config: { projectId: string; sessionId?: string; goal: string; maxSteps: number; maxTotalTokens: number; maxWallTimeMs: number; maxRetries: number },
@@ -388,12 +389,36 @@ document.getElementById('send').onclick=async()=>{
     const handler = config.agentHandlerStream ?? config.agentHandler;
     if (!handler) return res.status(503).json({ error: 'agent not available' });
 
-    const { message, conversation_id } = req.body as {
+    const { message, conversation_id, settings } = req.body as {
       message?: string;
       conversation_id?: string;
+      settings?: {
+        thinkingCapability?: string;
+        toolCapability?: string;
+        maxRounds?: number;
+        retryLoop?: boolean;
+      };
     };
     if (!message || typeof message !== 'string') {
       return res.status(400).json({ error: 'message (string) required' });
+    }
+
+    // Sanitize panel settings → runtime options (only forward well-formed values).
+    const capRe = /^V?[01]{4}$|^L[01]{4}$/i;
+    const runtime: IAgentRuntimeOptions = {};
+    if (settings?.thinkingCapability && capRe.test(settings.thinkingCapability)) {
+      runtime.thinkingCapability = settings.thinkingCapability.toUpperCase().startsWith('V')
+        ? settings.thinkingCapability.toUpperCase() : settings.thinkingCapability;
+    }
+    if (settings?.toolCapability && capRe.test(settings.toolCapability)) {
+      runtime.toolCapability = settings.toolCapability.toUpperCase().startsWith('V')
+        ? settings.toolCapability.toUpperCase() : settings.toolCapability;
+    }
+    if (typeof settings?.maxRounds === 'number' && Number.isFinite(settings.maxRounds)) {
+      runtime.maxRounds = Math.max(0, Math.min(50, Math.floor(settings.maxRounds)));
+    }
+    if (typeof settings?.retryLoop === 'boolean') {
+      runtime.retryLoop = settings.retryLoop;
     }
 
     req.socket?.setNoDelay(true);
@@ -428,6 +453,7 @@ document.getElementById('send').onclick=async()=>{
               sendEvent(evt.type, evt);
             }
           },
+          runtime,
         );
         sendEvent('done', lastDoneEvt ?? { type: 'done', content: reply });
       } else {
