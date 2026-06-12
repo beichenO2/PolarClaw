@@ -9,6 +9,35 @@ interface Props {
   onAnnotate?: (messageId: string, annotation: ChatAnnotation) => void
 }
 
+/** deepseek 风格的可折叠「思考过程」块：流式时默认展开，完成后默认折叠。 */
+function ReasoningBlock({ text, streaming }: { text: string; streaming: boolean }) {
+  const [open, setOpen] = useState(streaming)
+  const endRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (streaming && open) endRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [text, streaming, open])
+
+  return (
+    <div className="mb-2 border-l-2 border-[#565869] pl-3">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="flex items-center gap-1.5 text-xs text-[#8e8ea0] hover:text-[#c9d1d9]"
+      >
+        <span>{streaming ? '💭 思考中…' : '💭 已深度思考'}</span>
+        <span>{open ? '收起' : '展开'}</span>
+      </button>
+      {open && (
+        <pre className="whitespace-pre-wrap font-sans text-[13px] leading-relaxed text-[#8e8ea0] mt-1 mb-0 bg-transparent border-none p-0">
+          {text}
+          <div ref={endRef} />
+        </pre>
+      )}
+    </div>
+  )
+}
+
 export function MessageList({ messages, pending, onAnnotate }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const [popover, setPopover] = useState<{ messageId: string; text: string; x: number; y: number } | null>(null)
@@ -58,16 +87,23 @@ export function MessageList({ messages, pending, onAnnotate }: Props) {
             onMouseUp={m.role === 'assistant' ? () => handleMouseUp(m.id) : undefined}
           >
             {m.role === 'assistant' ? (
-              m.id === '__streaming__' ? (
-                <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-[#8e8ea0] m-0 bg-transparent border-none p-0">{m.content}</pre>
-              ) : (
-                <div
-                  className="markdown-body prose-invert"
-                  dangerouslySetInnerHTML={{
-                    __html: DOMPurify.sanitize(marked.parse(m.content, { async: false }) as string),
-                  }}
-                />
-              )
+              <>
+                {m.reasoning && m.reasoning.trim() && (
+                  <ReasoningBlock text={m.reasoning} streaming={m.id === '__streaming__'} />
+                )}
+                {m.id === '__streaming__' ? (
+                  m.content ? (
+                    <pre className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-[#8e8ea0] m-0 bg-transparent border-none p-0">{m.content}</pre>
+                  ) : null
+                ) : (
+                  <div
+                    className="markdown-body prose-invert"
+                    dangerouslySetInnerHTML={{
+                      __html: DOMPurify.sanitize(marked.parse(m.content, { async: false }) as string),
+                    }}
+                  />
+                )}
+              </>
             ) : (
               <p className="whitespace-pre-wrap">{m.content}</p>
             )}

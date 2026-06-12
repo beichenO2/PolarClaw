@@ -50,12 +50,15 @@ export function ChatComposer({
             ref={ref}
             value={value}
             onChange={e => onChange(e.target.value)}
-            placeholder="发送消息…"
+            placeholder="发送消息…（Enter 换行 · Ctrl/⌘+Enter 发送）"
             rows={1}
             disabled={disabled}
             className="flex-1 bg-transparent text-[#ececec] text-[15px] resize-none outline-none max-h-[200px] placeholder:text-[#8e8ea0]"
             onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // 仅 Ctrl/⌘+Enter 发送；裸 Enter 用于换行。
+              // 屏蔽输入法组字阶段（中文输入法打英文按 Enter 上屏时不应误发）。
+              const composing = e.nativeEvent.isComposing || e.keyCode === 229
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !composing) {
                 e.preventDefault()
                 if (!disabled && value.trim()) onSend()
               }
@@ -71,7 +74,7 @@ export function ChatComposer({
             ↑
           </button>
         </div>
-        <p className="text-center text-[11px] text-[#8e8ea0] mt-2">Enter 发送 · Shift+Enter 换行 · 选中助手回复可批注</p>
+        <p className="text-center text-[11px] text-[#8e8ea0] mt-2">Ctrl/⌘+Enter 发送 · Enter 换行 · 选中助手回复可批注</p>
       </div>
     </div>
   )

@@ -51,6 +51,12 @@ export interface IToolDefinition {
 /** 意图类型 */
 export type IntentType = 'coding' | 'research' | 'vision' | 'general';
 
+/** 流式增量片段：reasoning = 思维链（reasoning_content），content = 正式回答 */
+export interface ILLMStreamDelta {
+  reasoning?: string;
+  content?: string;
+}
+
 /** LLM 路由器接口 */
 export interface ILLMRouter {
   /** 根据消息内容推断意图并选择模型 */
@@ -58,4 +64,14 @@ export interface ILLMRouter {
 
   /** 直接调用 LLM */
   chat(messages: IChatMessage[], options?: ILLMOptions): Promise<ILLMResponse>;
+
+  /**
+   * 流式调用 LLM。逐块回调 reasoning / content 增量，返回聚合后的完整响应
+   * （含 toolCalls / usage / model），供 ReAct 循环继续。可选实现。
+   */
+  chatStream?(
+    messages: IChatMessage[],
+    options: ILLMOptions | undefined,
+    onDelta: (delta: ILLMStreamDelta) => void,
+  ): Promise<ILLMResponse>;
 }

@@ -90,11 +90,76 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
 
   const client: LLMProxyClient = createLLMClient();
 
-  return {
+  /**
+   * Compute the final QCSA capability code.
+   * Force the Agent bit (A=1) only when the code is *auto-selected* from intent;
+   * an explicit user-chosen capability (from the Chat panel) is respected as-is
+   * so reasoning codes like 1110 don't become the unmapped 1111.
+   */
+  function resolveCapability(messages: IChatMessage[], options: ILLMOptions): string {
+    const explicit = !!options.capability;
+    const capability = options.capability ?? intentToCode(detectIntent(messages));
+    let finalCapability = normalizeCode(capability);
+    if (!explicit && options.tools?.length && !finalCapability.startsWith('V')) {
+      const bits = finalCapability.split('');
+      bits[3] = '1';
+      finalCapability = bits.join('');
+    }
+    return finalCapability;
+  }
+
+  const router: ILLMRouter = {
     resolveModel(messages) {
       const intent = detectIntent(messages);
       const code = intentToCode(intent);
       return { model: `capability:${code}`, intent };
+    },
+
+    async chatStream(messages, options = {}, onDelta) {
+      const finalCapability = resolveCapability(messages, options);
+      const formattedMessages = messages.map(m => {
+        const msg: Record<string, unknown> = { role: m.role, content: m.content };
+        if (m.toolCalls?.length) {
+          msg.tool_calls = m.toolCalls.map(tc => {
+            const sanitized = { ...tc, function: { ...tc.function } };
+            try { JSON.parse(sanitized.function.arguments); } catch {
+              sanitized.function.arguments = '{}';
+            }
+            return sanitized;
+          });
+        }
+        if (m.toolCallId) msg.tool_call_id = m.toolCallId;
+        return msg as { role: string; content: string; tool_calls?: unknown[]; tool_call_id?: string };
+      });
+
+      try {
+        const result = await client.chatStream(formattedMessages, {
+          capability: finalCapability,
+          temperature: options.temperature ?? defaultTemp,
+          maxTokens: options.maxTokens ?? defaultMaxTokens,
+          tools: options.tools,
+          toolChoice: options.toolChoice,
+          append_system_prompt: options.append_system_prompt,
+          timeoutMs: requestTimeoutMs,
+        }, onDelta);
+        return {
+          content: result.content,
+          toolCalls: result.toolCalls.map(tc => ({
+            id: tc.id,
+            function: { name: tc.function.name, arguments: tc.function.arguments },
+          })),
+          usage: result.usage,
+          model: result.model,
+          latencyMs: result.latencyMs,
+        };
+      } catch (err) {
+        // Streaming failed — fall back to the resilient non-streaming path
+        // (full cloud cascade), surfacing the final answer as a single delta.
+        console.warn(`[LLMRouter] chatStream failed, falling back to non-stream chat: ${err instanceof Error ? err.message : String(err)}`);
+        const r = await router.chat(messages, options);
+        if (r.content) onDelta({ content: r.content });
+        return r;
+      }
     },
 
     async chat(messages, options = {}) {
@@ -120,7 +185,8 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
         });
 
         let finalCapability = normalizeCode(capability);
-        if (options.tools?.length && !finalCapability.startsWith('V')) {
+        // Force A=1 only on auto-selected codes; respect explicit user capability as-is.
+        if (!options.capability && options.tools?.length && !finalCapability.startsWith('V')) {
           const bits = finalCapability.split('');
           bits[3] = '1';
           finalCapability = bits.join('');
@@ -183,4 +249,6 @@ export function createLLMRouter(config: ILLMConfig): ILLMRouter {
       }
     },
   };
+
+  return router;
 }
