@@ -233,6 +233,27 @@ export function createWebServer(config: WebServerConfig) {
     if (!body.workflow_id || !body.display_name) {
       return res.status(400).json({ error: 'workflow_id and display_name required' });
     }
+
+    const polarUiRoot = join(config.dataDir, '..', '..', 'PolarUI');
+    const preflightCli = join(polarUiRoot, 'lib', 'deploy-preflight-cli.mjs');
+    if (existsSync(preflightCli)) {
+      const pf = spawnSync('node', [preflightCli, '--workflow', body.workflow_id], {
+        cwd: polarUiRoot,
+        encoding: 'utf8',
+        timeout: 30_000,
+      });
+      try {
+        const parsed = JSON.parse(pf.stdout || '{}') as { ok?: boolean; errors?: string[] };
+        if (!parsed.ok) {
+          const msg = (parsed.errors ?? []).join('\n') || '部署 preflight 未通过';
+          return res.status(412).json({ error: msg, preflight: parsed });
+        }
+      } catch {
+        const errText = (pf.stderr || pf.stdout || 'preflight parse error').trim();
+        return res.status(412).json({ error: `部署 preflight 失败: ${errText.slice(0, 500)}` });
+      }
+    }
+
     const list = loadDeployments();
     const id = body.id ?? body.workflow_id;
     const entry: ChatDeployment = {
@@ -1056,7 +1077,7 @@ document.getElementById('send').onclick=async()=>{
 
     // ── ComputerUse (sandbox-external browser automation) ──
     // Other Polarisor projects route their browser automation here so
-    // Chromium only ever runs inside PolarClaw's sandbox. The X-PolarClaw-Project
+    // Safari-backed ComputerUse — no Chromium. PolarClaw SDK exposes /api/sdk/computer-use/*.
     // header (set by polarclaw-project-sdk) is the calling project ID.
 
     app.post('/api/sdk/computer-use/browse', async (req, res) => {
