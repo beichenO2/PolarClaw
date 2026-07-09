@@ -3,7 +3,7 @@
 #
 # 前提：
 #   1. PolarPrivate 后端已运行（端口 12790）
-#   2. Vault 已解锁（在浏览器 http://localhost:5170 输入 Master Password）
+#   2. Vault 已解锁（在浏览器 http://localhost:12795 输入 Master Password）
 #
 # 用法：
 #   bash scripts/setup-polarprivate.sh
@@ -30,7 +30,7 @@ health=$(curl -sf "$PP/health" 2>/dev/null) || {
 vault_unlocked=$(echo "$health" | python3 -c "import sys,json; print(json.load(sys.stdin).get('vault_unlocked', False))" 2>/dev/null)
 if [ "$vault_unlocked" != "True" ]; then
   err "Vault 未解锁。请在浏览器打开 PolarPrivate UI 并输入 Master Password"
-  err "  → http://localhost:5170"
+  err "  → http://localhost:12795"
   exit 1
 fi
 
@@ -130,13 +130,13 @@ create_secret "feishu.admin.app_secret"           "feishu"
 create_secret "feishu.admin.verification_token"   "feishu"
 create_secret "feishu.admin.encrypt_key"          "feishu"
 
-# ── 飞书女友 Bot（girlfriend）──────────────────────
+# ── 飞书 PolarClaw_Rr Bot（feishu.rr / @套辞）──────────────────
 log ""
-log "━━━ 飞书女友 Bot ━━━"
-create_secret "feishu.girlfriend.app_id"              "feishu"
-create_secret "feishu.girlfriend.app_secret"           "feishu"
-create_secret "feishu.girlfriend.verification_token"   "feishu"
-create_secret "feishu.girlfriend.encrypt_key"          "feishu"
+log "━━━ 飞书 PolarClaw_Rr Bot（feishu.rr）━━━"
+create_secret "feishu.rr.app_id"              "feishu"
+create_secret "feishu.rr.app_secret"           "feishu"
+create_secret "feishu.rr.verification_token"   "feishu"
+create_secret "feishu.rr.encrypt_key"          "feishu"
 
 # ── LLM API ────────────────────────────────────────
 log ""
@@ -148,8 +148,8 @@ log ""
 log "━━━ 飞书应用信息（Identity）━━━"
 create_identity "feishu.admin.app_name"       "PolarClaw 管理员 Bot"   "feishu"
 create_identity "feishu.admin.webhook_path"   "/webhook/feishu/admin"  "feishu"
-create_identity "feishu.girlfriend.app_name"  "PolarClaw 女友 Bot"    "feishu"
-create_identity "feishu.girlfriend.webhook_path" "/webhook/feishu/girlfriend" "feishu"
+create_identity "feishu.rr.app_name"        "PolarClaw_Rr"           "feishu"
+create_identity "feishu.rr.webhook_path"      "/webhook/feishu/rr"     "feishu"
 
 # ── 完成 ────────────────────────────────────────────
 log ""
@@ -158,7 +158,7 @@ log "✅ PolarPrivate 飞书凭证初始化完成！"
 log ""
 log "⚠️  所有 Secret 当前值为 PLACEHOLDER"
 log "   请在 PolarPrivate UI 中替换为真实值："
-log "   → http://localhost:5170"
+log "   → http://localhost:12795"
 log ""
 log "   需要填写的凭证："
 log "   1. 飞书开放平台 → 管理员 Bot 的 App ID / Secret / Token / Encrypt Key"
