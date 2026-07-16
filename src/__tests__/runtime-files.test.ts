@@ -33,4 +33,23 @@ describe('runtime governance files', () => {
     expect(source).toContain('/api/services/polarclaw/start');
     expect(source).not.toMatch(/dist\/main\.js|npm.*build|launchctl|nohup|PID_FILE/);
   });
+
+  it('declares canonical service management and R9 SSoT', () => {
+    const polaris = JSON.parse(fs.readFileSync(path.join(ROOT, 'polaris.json'), 'utf8'));
+    const runtime = polaris.requirements.find((item: { id: string }) => item.id === 'R9');
+    expect(runtime).toMatchObject({ feature: 'runtime_governance' });
+    expect(['in-progress', 'tested', 'done']).toContain(runtime.status);
+    expect(polaris.service_management).toMatchObject({
+      service_id: 'polarclaw',
+      start_command: 'bash Start/start.sh',
+      health_endpoint: 'http://127.0.0.1:3910/api/status',
+      preferred_port: 3910,
+      auto_start: true,
+      process_mode: 'foreground_command',
+    });
+
+    const soul = fs.readFileSync(path.join(ROOT, 'PolarSoul.md'), 'utf8');
+    expect(soul).toContain('PolarProcess');
+    expect(soul).not.toContain('launchd: `com.polarclaw.web`');
+  });
 });
