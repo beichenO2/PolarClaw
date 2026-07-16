@@ -2,7 +2,7 @@
   "name": "PolarClaw",
   "_meta": {
     "schema_version": "1.0",
-    "last_synced_at": "2026-06-12T12:00:00+08:00"
+    "last_synced_at": "2026-07-16T23:38:00+08:00"
   },
   "description": "PolarClaw — 个人 AI Agent 融合平台（端口-适配器架构）：多通道交互、LLM 工具调用、隐私网关、YOLO 自主模式。",
   "tier": "app",
@@ -803,7 +803,7 @@
       "id": "R9",
       "need": "运行时统一由 PolarProcess 与 PolarPort 治理",
       "feature": "runtime_governance",
-      "status": "in-progress",
+      "status": "tested",
       "approach": "PolarProcess 是 polarclaw 唯一进程生命周期权威；PolarPort 是 3910 的唯一端口权威；Start/start.sh 仅作为 PolarProcess 执行的前台命令。",
       "baseline": {
         "captured_at": "2026-07-16T23:30:00+08:00",
@@ -825,9 +825,13 @@
       ],
       "evidence": [
         "2026-07-16: runtime governance design and implementation plan added",
-        "2026-07-16: runtime guard and static launcher/registration tests passed"
+        "2026-07-16: runtime guard and static launcher/registration tests passed",
+        "2026-07-16: 37 test files / 320 tests, typecheck, root build and Web build passed",
+        "2026-07-16: migrated preferred reservation PolarClaw/polarclaw-web:3910 to PolarClaw/polarclaw:3910",
+        "2026-07-16: retired only launchd com.polarclaw.web and removed its unloaded plist",
+        "2026-07-16: PolarProcess PID 47140 and PolarPort active owner polarclaw verified on 3910; /api/status healthy"
       ],
-      "test_status": "in-progress",
+      "test_status": "passed",
       "blockers": []
     }
   ],
